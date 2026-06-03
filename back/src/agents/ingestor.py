@@ -186,6 +186,9 @@ def _ocr_noop(image_path: str) -> tuple[list[dict], float]:  # noqa: ARG001
 def run_ocr_if_needed(state: IngestorState) -> dict:
     """Run OCR math extraction if document contains images with formulas."""
     try:
+        if state.get("status") in {"error", "rejected", "rejected_non_academic", "ocr_failed"}:
+            return {}
+
         if state.get("file_type") != "image":
             return {
                 "ocr_confidence": 1.0,
