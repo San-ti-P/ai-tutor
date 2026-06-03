@@ -236,12 +236,14 @@ def chunk_and_embed(state: IngestorState) -> dict:
     try:
         document_id = state.get("document_id") or str(uuid.uuid4())
 
+        from pathlib import Path
+
         # Build metadata for each chunk
         base_metadata: dict[str, object] = {
             "document_id": document_id,
             "session_id": state["session_id"],
             "classification": state.get("classification", "unknown"),
-            "source_file": state["file_path"],
+            "source_file": Path(state["file_path"]).name,
         }
 
         # Chunk the raw text
