@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 import tempfile
@@ -24,6 +25,7 @@ from src.api.schemas import (
     OcrExpression,
     StudentProfile,
 )
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +64,7 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
         # Save uploaded file to temp location
         suffix = Path(file.filename).suffix if file.filename else ""
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            shutil.copyfileobj(file.file, tmp)
+            await asyncio.to_thread(shutil.copyfileobj, file.file, tmp)
             tmp_path = tmp.name
 
         try:
@@ -101,7 +103,7 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
                     )
                     for e in ocr_exprs
                     if isinstance(e, dict)
-                    and float(e.get("confidence", 1.0)) < 0.85
+                    and float(e.get("confidence", 1.0)) < settings.ocr_confidence_threshold
                 ]
                 if not low_ocr:
                     low_ocr = None
