@@ -52,8 +52,8 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
     )
 
 
-@router.post("/ingest", response_model=ApiResponse[IngestResult])
-async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[IngestResult]:
+@router.post("/ingest", response_model=ApiResponse[list[IngestResult]])
+async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[IngestResult]]:
     logger.info("Ingest request received with %d file(s)", len(files))
     results: list[IngestResult] = []
 
@@ -130,7 +130,7 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[IngestResul
             Path(tmp_path).unlink(missing_ok=True)
 
     return ApiResponse(
-        data=results[0] if len(results) == 1 else None,
+        data=results,
         error=None,
     )
 

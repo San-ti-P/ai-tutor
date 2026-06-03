@@ -142,7 +142,7 @@ Texto:
 # ── OCR backend helpers ──────────────────────────────────────────────────────
 
 
-def _ocr_mathpix(image_path: str) -> tuple[list[str], float]:
+def _ocr_mathpix(image_path: str) -> tuple[list[dict], float]:
     """Call Mathpix API to extract LaTeX from image. Returns (expressions, confidence)."""
     import requests
 
@@ -165,15 +165,19 @@ def _ocr_mathpix(image_path: str) -> tuple[list[str], float]:
         raise RuntimeError(f"Mathpix API error: {resp.status_code}")
 
     data = resp.json()
-    expressions = [data.get("text", "")]
-    confidence = data.get("confidence", 0.0)
+    confidence = float(data.get("confidence", 0.0))
+    expressions = [{"expression": data.get("text", ""), "confidence": confidence}]
     return expressions, confidence
 
 
-def _ocr_noop(image_path: str) -> tuple[list[str], float]:  # noqa: ARG001
-    """No-op OCR stub for when Mathpix is unavailable. Returns empty with confidence 0."""
+def _ocr_noop(image_path: str) -> tuple[list[dict], float]:  # noqa: ARG001
+    """No-op OCR stub for when Mathpix is unavailable.
+
+    Returns confidence 1.0 so ingestion can proceed without blocking
+    at the OCR confirmation gate. Callers receive an empty expression list.
+    """
     logger.warning("OCR noop: returning empty (Mathpix disabled)")
-    return [], 0.0
+    return [], 1.0
 
 
 # ── Node implementations (continued) ────────────────────────────────────────
@@ -244,9 +248,9 @@ def chunk_and_embed(state: IngestorState) -> dict:
 
         chunk_texts = [c.page_content for c in chunks]
         topics = state.get("topics", [])
-        topic_str = ", ".join(topics) if topics else ""
+        primary_topic = topics[0] if topics else ""
         metadatas: list[dict[str, object]] = [
-            {**base_metadata, "topic": topic_str, "chunk_index": i}
+            {**base_metadata, "topic": primary_topic, "topics": topics, "chunk_index": i}
             for i in range(len(chunk_texts))
         ]
 

@@ -41,7 +41,6 @@ def retrieve_chunks(
 def ingest_document(
     file_path: str,
     session_id: str,
-    collection_name: str = "default",
 ) -> dict:
     """Ingest a document: parse, classify, OCR, chunk, and embed into ChromaDB.
 
@@ -49,10 +48,12 @@ def ingest_document(
     agent graph. It returns a summary dict with file_path, classification,
     topics, chunks_created, status, and errors.
 
+    The ChromaDB collection name is derived internally from the session ID
+    (``session_{session_id}``) by the chunk_and_embed node.
+
     Args:
         file_path: Path to the uploaded file on disk.
         session_id: Current session ID for tracking.
-        collection_name: ChromaDB collection name (default "default").
 
     Returns:
         A dict with keys: file_path, classification, topics, chunks_created,
