@@ -212,7 +212,12 @@ def run_ocr_if_needed(state: IngestorState) -> dict:
         }
     except Exception as e:
         logger.exception("run_ocr_if_needed failed")
-        return {"errors": [f"OCR error: {e}"], "status": "ocr_failed"}
+        return {
+            "errors": [f"OCR error: {e}"],
+            "ocr_confidence": 0.0,
+            "needs_ocr_confirmation": True,
+            "status": "ocr_failed",
+        }
 
 
 def check_ocr_confidence(
