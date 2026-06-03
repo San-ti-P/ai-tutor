@@ -120,7 +120,7 @@ Texto:
                 "status": "rejected_non_academic",
             }
 
-        if result.confidence < 0.60:
+        if result.confidence < settings.classification_confidence_threshold:
             return {
                 "classification": result.classification,
                 "classification_confidence": result.confidence,
@@ -239,7 +239,7 @@ def chunk_and_embed(state: IngestorState) -> dict:
                 "document_id": document_id,
                 "chunk_ids": [],
                 "chunks_created": 0,
-                "status": "indexed",
+                "status": "completed",
             }
 
         chunk_texts = [c.page_content for c in chunks]
@@ -258,7 +258,7 @@ def chunk_and_embed(state: IngestorState) -> dict:
             "document_id": document_id,
             "chunk_ids": chunk_ids,
             "chunks_created": len(chunk_ids),
-            "status": "indexed",
+            "status": "completed",
         }
     except Exception as e:
         logger.exception("chunk_and_embed failed")

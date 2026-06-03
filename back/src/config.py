@@ -23,6 +23,7 @@ class Settings(BaseSettings):
 
     max_iterations_per_task: int = 15
     ocr_confidence_threshold: float = 0.85
+    classification_confidence_threshold: float = 0.60
 
     # RAG / Embedding
     embedding_model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
