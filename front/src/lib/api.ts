@@ -51,8 +51,7 @@ export const api = {
     apiPost<ApiResponse<ChatResponse>>("/chat", req),
 
   uploadDocuments: (files: File[]) =>
-    apiUpload<ApiResponse<IngestResult>>("/ingest", files),
-
+    apiUpload<ApiResponse<IngestResult[]>>("/ingest", files),
   generateExam: (req: ExamRequest) =>
     apiPost<ApiResponse<Exam>>("/exam/generate", req),
 
