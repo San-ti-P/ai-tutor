@@ -127,8 +127,8 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
                 )
             )
         finally:
+            await file.close()
             Path(tmp_path).unlink(missing_ok=True)
-
     return ApiResponse(
         data=results,
         error=None,
