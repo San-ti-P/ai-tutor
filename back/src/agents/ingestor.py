@@ -6,12 +6,16 @@ Error handling is per-node try/except; errors accumulate in state["errors"].
 
 from __future__ import annotations
 
+import base64
 import logging
 import operator
+import uuid
 from typing import Annotated, Literal
 
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
+
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -135,33 +139,130 @@ Texto:
         return {"errors": [f"Classification error: {e}"], "status": "error"}
 
 
+# ── OCR backend helpers ──────────────────────────────────────────────────────
+
+
+def _ocr_mathpix(image_path: str) -> tuple[list[str], float]:
+    """Call Mathpix API to extract LaTeX from image. Returns (expressions, confidence)."""
+    import requests
+
+    with open(image_path, "rb") as f:
+        image_data = base64.b64encode(f.read()).decode()
+
+    resp = requests.post(
+        "https://api.mathpix.com/v3/text",
+        json={
+            "src": f"data:image/png;base64,{image_data}",
+            "formats": ["latex_styled"],
+        },
+        headers={
+            "app_id": settings.mathpix_app_id,
+            "app_key": settings.mathpix_app_key,
+        },
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"Mathpix API error: {resp.status_code}")
+
+    data = resp.json()
+    expressions = [data.get("text", "")]
+    confidence = data.get("confidence", 0.0)
+    return expressions, confidence
+
+
+def _ocr_noop(image_path: str) -> tuple[list[str], float]:  # noqa: ARG001
+    """No-op OCR stub for when Mathpix is unavailable. Returns empty with confidence 0."""
+    logger.warning("OCR noop: returning empty (Mathpix disabled)")
+    return [], 0.0
+
+
+# ── Node implementations (continued) ────────────────────────────────────────
+
+
 def run_ocr_if_needed(state: IngestorState) -> dict:
     """Run OCR math extraction if document contains images with formulas."""
     try:
-        raise NotImplementedError
-    except NotImplementedError:
-        return {"status": "ocr_pending"}
+        if state.get("file_type") != "image":
+            return {
+                "ocr_confidence": 1.0,
+                "ocr_expressions": [],
+                "needs_ocr_confirmation": False,
+                "status": "ocr_skipped",
+            }
+
+        # Choose backend: Mathpix if keys present, else noop
+        if settings.mathpix_app_id and settings.mathpix_app_key:
+            expressions, confidence = _ocr_mathpix(state["file_path"])
+        else:
+            expressions, confidence = _ocr_noop(state["file_path"])
+
+        needs_confirmation = confidence < settings.ocr_confidence_threshold
+        return {
+            "ocr_expressions": expressions,
+            "ocr_confidence": confidence,
+            "needs_ocr_confirmation": needs_confirmation,
+            "status": "awaiting_ocr_confirmation" if needs_confirmation else "ocr_done",
+        }
     except Exception as e:
         logger.exception("run_ocr_if_needed failed")
-        return {"errors": [f"OCR error: {e}"], "status": "error"}
+        return {"errors": [f"OCR error: {e}"], "status": "ocr_failed"}
 
 
 def check_ocr_confidence(
     state: IngestorState,
 ) -> Literal["proceed", "request_confirmation"]:
     """Check if OCR confidence meets threshold; request user confirmation if not."""
-    raise NotImplementedError
+    if state.get("ocr_confidence", 1.0) >= settings.ocr_confidence_threshold:
+        return "proceed"
+    return "request_confirmation"
 
 
 def chunk_and_embed(state: IngestorState) -> dict:
     """Split text into semantic chunks and store in ChromaDB with embeddings."""
+    from src.rag import chunk_text, embed_and_store
+
     try:
-        raise NotImplementedError
-    except NotImplementedError:
-        return {"status": "chunking_pending"}
+        document_id = state.get("document_id") or str(uuid.uuid4())
+
+        # Build metadata for each chunk
+        base_metadata: dict[str, object] = {
+            "document_id": document_id,
+            "session_id": state["session_id"],
+            "classification": state.get("classification", "unknown"),
+            "source_file": state["file_path"],
+        }
+
+        # Chunk the raw text
+        chunks = chunk_text(state["raw_text"])
+        if not chunks:
+            return {
+                "document_id": document_id,
+                "chunk_ids": [],
+                "chunks_created": 0,
+                "status": "indexed",
+            }
+
+        chunk_texts = [c.page_content for c in chunks]
+        topics = state.get("topics", [])
+        topic_str = ", ".join(topics) if topics else ""
+        metadatas: list[dict[str, object]] = [
+            {**base_metadata, "topic": topic_str, "chunk_index": i}
+            for i in range(len(chunk_texts))
+        ]
+
+        # Embed and store
+        collection_name = f"session_{state['session_id']}"
+        chunk_ids = embed_and_store(chunk_texts, metadatas, collection_name)
+
+        return {
+            "document_id": document_id,
+            "chunk_ids": chunk_ids,
+            "chunks_created": len(chunk_ids),
+            "status": "indexed",
+        }
     except Exception as e:
         logger.exception("chunk_and_embed failed")
-        return {"errors": [f"Chunk & embed error: {e}"], "status": "error"}
+        return {"errors": [f"Chunk/embed error: {e}"], "status": "error"}
 
 
 # ── Graph builder ───────────────────────────────────────────────────────────

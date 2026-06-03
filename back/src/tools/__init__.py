@@ -45,17 +45,46 @@ def ingest_document(
 ) -> dict:
     """Ingest a document: parse, classify, OCR, chunk, and embed into ChromaDB.
 
-    This tool is intended to be called by the Ingestor agent graph, not directly.
-    It returns a summary dict with file_path, classification, topics, and
-    chunks_created.
+    This tool orchestrates the full ingestion pipeline. Called by the Ingestor
+    agent graph. It returns a summary dict with file_path, classification,
+    topics, chunks_created, status, and errors.
 
     Args:
-        file_path: Path to the uploaded file (PDF, PNG, TXT).
+        file_path: Path to the uploaded file on disk.
         session_id: Current session ID for tracking.
         collection_name: ChromaDB collection name (default "default").
 
     Returns:
-        A dict with keys: file_path, classification, topics, chunks_created.
+        A dict with keys: file_path, classification, topics, chunks_created,
+        status, errors.
     """
-    # Wired in Phase 3 when the full graph invoke is in place.
-    raise NotImplementedError
+    from src.agents.ingestor import IngestorState, build_ingestor
+
+    graph = build_ingestor().compile()
+    initial_state: IngestorState = {
+        "session_id": session_id,
+        "file_path": file_path,
+        "file_type": "",
+        "raw_text": "",
+        "classification": "",
+        "topics": [],
+        "chunks_created": 0,
+        "ocr_confidence": 0.0,
+        "needs_ocr_confirmation": False,
+        "errors": [],
+        "status": "pending",
+        "classification_confidence": 0.0,
+        "ocr_expressions": [],
+        "document_id": "",
+        "chunk_ids": [],
+    }
+
+    result = graph.invoke(initial_state)
+    return {
+        "file_path": file_path,
+        "classification": result.get("classification", ""),
+        "topics": result.get("topics", []),
+        "chunks_created": result.get("chunks_created", 0),
+        "status": result.get("status", ""),
+        "errors": result.get("errors", []),
+    }

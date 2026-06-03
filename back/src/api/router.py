@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+import shutil
+import tempfile
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, File, UploadFile
 
+from src.agents.ingestor import IngestorState, build_ingestor
 from src.api.schemas import (
     ApiResponse,
     ChatRequest,
@@ -17,6 +21,7 @@ from src.api.schemas import (
     ExamRequest,
     HealthResponse,
     IngestResult,
+    OcrExpression,
     StudentProfile,
 )
 
@@ -49,14 +54,83 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
 
 @router.post("/ingest", response_model=ApiResponse[IngestResult])
 async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[IngestResult]:
-    logger.info("Ingest request received with %d files", len(files))
+    logger.info("Ingest request received with %d file(s)", len(files))
+    results: list[IngestResult] = []
+
+    for file in files:
+        # Save uploaded file to temp location
+        suffix = Path(file.filename).suffix if file.filename else ""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            shutil.copyfileobj(file.file, tmp)
+            tmp_path = tmp.name
+
+        try:
+            # Build and invoke the Ingestor graph
+            graph = build_ingestor().compile()
+            session_id = str(uuid.uuid4())
+
+            initial_state: IngestorState = {
+                "session_id": session_id,
+                "file_path": tmp_path,
+                "file_type": "",
+                "raw_text": "",
+                "classification": "",
+                "topics": [],
+                "chunks_created": 0,
+                "ocr_confidence": 0.0,
+                "needs_ocr_confirmation": False,
+                "errors": [],
+                "status": "pending",
+                "classification_confidence": 0.0,
+                "ocr_expressions": [],
+                "document_id": "",
+                "chunk_ids": [],
+            }
+
+            result = await graph.ainvoke(initial_state)
+
+            # Build low-confidence OCR expressions list if present
+            low_ocr: list[OcrExpression] | None = None
+            ocr_exprs: list[dict] = result.get("ocr_expressions", [])
+            if ocr_exprs and result.get("needs_ocr_confirmation", False):
+                low_ocr = [
+                    OcrExpression(
+                        expression=e.get("expression", ""),
+                        confidence=float(e.get("confidence", 0.0)),
+                    )
+                    for e in ocr_exprs
+                    if isinstance(e, dict)
+                    and float(e.get("confidence", 1.0)) < 0.85
+                ]
+                if not low_ocr:
+                    low_ocr = None
+
+            results.append(
+                IngestResult(
+                    status=result.get("status", "unknown"),
+                    classification=result.get("classification", ""),
+                    topicsDetected=result.get("topics", []),
+                    chunksCreated=result.get("chunks_created", 0),
+                    classificationConfidence=result.get("classification_confidence"),
+                    lowConfidenceOcr=low_ocr,
+                    documentId=result.get("document_id"),
+                )
+            )
+        except Exception:
+            logger.exception("Ingest failed for %s", file.filename)
+            results.append(
+                IngestResult(
+                    status="error",
+                    classification="",
+                    topicsDetected=[],
+                    chunksCreated=0,
+                )
+            )
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
     return ApiResponse(
-        data=IngestResult(
-            status="placeholder",
-            classification="unknown",
-            topics_detected=[],
-            chunks_created=0,
-        ),
+        data=results[0] if len(results) == 1 else None,
         error=None,
     )
 
