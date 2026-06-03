@@ -2,7 +2,7 @@
 
 Multi-agent LLM system for adaptive university exam preparation. 6 specialized agents coordinate via LangGraph to ingest academic material, generate personalized exams/exercises, evaluate answers, and track student progress across sessions.
 
-**Stack**: Python 3.10+ · LangGraph · LangChain · FastAPI · ChromaDB · SQLite · Langfuse · Next.js · React · Tailwind
+**Stack**: Python 3.12+ · LangGraph · LangChain · FastAPI · ChromaDB · SQLite · Langfuse · Next.js 15 · React 19 · Tailwind 4
 **Course**: IA 2026 — UTN Santa Fe (CIDISI)
 **Deliveries**: 08/06 (concept) → 22/06 (MVP) → 29/06 (complete + defense)
 
@@ -11,14 +11,13 @@ Multi-agent LLM system for adaptive university exam preparation. 6 specialized a
 ## Quick Start
 
 ```bash
-# Backend
-cd backend
-python -m venv .venv && source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -r requirements.txt
-uvicorn main:app --reload
+# Backend (uses uv for package management)
+cd back
+uv sync
+uv run uvicorn src.main:app --reload
 
 # Frontend
-cd frontend
+cd front
 npm install
 npm run dev
 ```
@@ -29,15 +28,20 @@ npm run dev
 
 ```
 ai-tutor/
-├── backend/               # FastAPI + LangGraph + ChromaDB
-│   ├── agents/            # One file per agent (orchestrator, ingestor, exam_generator, ...)
-│   ├── tools/             # Tool definitions (ingest_document, retrieve_chunks, evaluate_answer, ...)
-│   ├── rag/               # ChromaDB setup, chunking, embedding, retrieval
-│   ├── memory/            # SQLite schema, student profile CRUD
-│   └── main.py            # FastAPI app entry point
-├── frontend/              # Next.js app
+├── back/                  # FastAPI + LangGraph + ChromaDB
+│   ├── src/
+│   │   ├── agents/        # One file per agent (orchestrator, ingestor, exam_generator, ...)
+│   │   ├── tools/         # Tool definitions (ingest_document, retrieve_chunks, evaluate_answer, ...)
+│   │   ├── rag/           # ChromaDB setup, chunking, embedding, retrieval
+│   │   ├── memory/        # SQLite schema, student profile CRUD
+│   │   ├── api/           # FastAPI routes + Pydantic schemas
+│   │   ├── observability/ # Langfuse setup + span helpers
+│   │   ├── config.py      # Settings from .env (pydantic-settings)
+│   │   └── main.py        # FastAPI app entry point
+│   ├── tests/             # pytest suite (12 test cases from PRD section 8)
+│   └── pyproject.toml     # uv project config + dependencies
+├── front/                 # Next.js 15 App Router
 │   └── src/               # Chat UI, exam renderer, file upload, dashboard
-├── tests/                 # pytest suite (12 test cases from PRD section 8)
 ├── epics/                 # 8 epic docs — implementation breakdown per agent
 ├── init_PRD.md            # Product requirements — single source of truth
 └── .agents/skills/        # Project skills (see .atl/skill-registry.md)
@@ -85,7 +89,7 @@ ai-tutor/
 ### General
 
 - Conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `chore:`
-- Backend entities in `backend/agents/` and `backend/tools/` — no cross-agent imports outside defined APIs
+- Backend entities in `back/src/agents/` and `back/src/tools/` — no cross-agent imports outside defined APIs
 - RAG pipeline: Load → Split → Embed → Store → Retrieve → Generate
 - Same embedding model for indexing AND querying; don't mix
 
@@ -94,9 +98,10 @@ ai-tutor/
 ## Testing
 
 ```bash
-pytest tests/ -v                    # Full suite
-pytest tests/ -v -k "test_ingest"   # Per module
-pytest tests/ -v --cov=backend      # With coverage
+cd back
+uv run pytest tests/ -v                    # Full suite
+uv run pytest tests/ -v -k "test_ingest"   # Per module
+uv run pytest tests/ -v --cov=src          # With coverage
 ```
 
 12 test cases required (PRD section 8): 5 happy path, 4 edge cases, 3 adversarial. Tests use in-memory SQLite and ChromaDB where possible — no external services needed.

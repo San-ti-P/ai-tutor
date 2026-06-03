@@ -217,6 +217,19 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Next.js
+front/.next/
+front/out/
+front/node_modules/
+
+# Data directories
+back/data/
+*.db
+*.db-journal
+
+# uv
+back/.venv/
+
 # Agents
 graphify-out/
 codegraph/
