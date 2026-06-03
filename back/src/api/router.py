@@ -56,6 +56,7 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
 async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[IngestResult]]:
     logger.info("Ingest request received with %d file(s)", len(files))
     results: list[IngestResult] = []
+    request_session_id = str(uuid.uuid4())
 
     for file in files:
         # Save uploaded file to temp location
@@ -67,7 +68,7 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
         try:
             # Build and invoke the Ingestor graph
             graph = build_ingestor().compile()
-            session_id = str(uuid.uuid4())
+            session_id = request_session_id
 
             initial_state: IngestorState = {
                 "session_id": session_id,
