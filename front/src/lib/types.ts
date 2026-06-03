@@ -85,6 +85,9 @@ interface IngestResult {
   classification: string;
   topicsDetected: string[];
   chunksCreated: number;
+  classificationConfidence?: number;
+  lowConfidenceOcr?: { expression: string; confidence: number }[];
+  documentId?: string;
 }
 
 interface ApiResponse<T> {
