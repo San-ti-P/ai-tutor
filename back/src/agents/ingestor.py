@@ -146,13 +146,18 @@ def _ocr_mathpix(image_path: str) -> tuple[list[dict], float]:
     """Call Mathpix API to extract LaTeX from image. Returns (expressions, confidence)."""
     import requests
 
+    from pathlib import Path
+
     with open(image_path, "rb") as f:
         image_data = base64.b64encode(f.read()).decode()
+
+    suffix = Path(image_path).suffix.lower()
+    mime = "image/jpeg" if suffix in {".jpg", ".jpeg"} else "image/png"
 
     resp = requests.post(
         "https://api.mathpix.com/v3/text",
         json={
-            "src": f"data:image/png;base64,{image_data}",
+            "src": f"data:{mime};base64,{image_data}",
             "formats": ["latex_styled"],
         },
         headers={
