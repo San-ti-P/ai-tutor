@@ -10,6 +10,19 @@ from langchain_core.tools import tool
 
 from src.rag import retrieve as _rag_retrieve
 
+# Cached compiled ingestor graph — safe to reuse across invocations
+_ingestor_graph = None
+
+
+def _get_ingestor_graph():
+    """Return the compiled Ingestor StateGraph, compiling on first call only."""
+    global _ingestor_graph
+    if _ingestor_graph is None:
+        from src.agents.ingestor import build_ingestor
+
+        _ingestor_graph = build_ingestor().compile()
+    return _ingestor_graph
+
 
 @tool
 def retrieve_chunks(
@@ -59,9 +72,9 @@ def ingest_document(
         A dict with keys: file_path, classification, topics, chunks_created,
         status, errors.
     """
-    from src.agents.ingestor import IngestorState, build_ingestor
+    from src.agents.ingestor import IngestorState
 
-    graph = build_ingestor().compile()
+    graph = _get_ingestor_graph()
     initial_state: IngestorState = {
         "session_id": session_id,
         "file_path": file_path,

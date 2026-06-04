@@ -60,6 +60,9 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
     results: list[IngestResult] = []
     request_session_id = str(uuid.uuid4())
 
+    # Compile once — the compiled graph is stateless and safe to reuse
+    graph = build_ingestor().compile()
+
     for file in files:
         # Save uploaded file to temp location
         suffix = Path(file.filename).suffix if file.filename else ""
@@ -68,8 +71,6 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
             tmp_path = tmp.name
 
         try:
-            # Build and invoke the Ingestor graph
-            graph = build_ingestor().compile()
             session_id = request_session_id
 
             initial_state: IngestorState = {
