@@ -6,10 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.agents.ingestor import (
-    check_ocr_confidence,
     classify_document,
     parse_document,
-    run_ocr_if_needed,
 )
 
 
@@ -115,45 +113,6 @@ class TestIncrementalIngestion:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# PRD Case #6 — Math PDF OCR skipped for text files
-# ──────────────────────────────────────────────────────────────────────────────
-
-class TestOcrHandling:
-    def test_ocr_skipped_for_text_files(self, sample_txt, ingestor_state):
-        """PRD Case #6: OCR is skipped for non-image files."""
-        state = dict(ingestor_state)
-        state["file_path"] = str(sample_txt)
-        state["file_type"] = "text"
-
-        result = run_ocr_if_needed(state)
-        assert result["status"] == "ocr_skipped"
-        assert result["ocr_confidence"] == 1.0
-        assert result["needs_ocr_confirmation"] is False
-        assert result["ocr_expressions"] == []
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# PRD Case #9 — Low OCR confidence triggers confirmation
-# ──────────────────────────────────────────────────────────────────────────────
-
-class TestOcrConfidenceGating:
-    def test_low_ocr_confidence_triggers_confirmation(self):
-        """PRD Case #9: Confidence < 0.85 triggers confirmation."""
-        result = check_ocr_confidence({"ocr_confidence": 0.4})
-        assert result == "request_confirmation"
-
-    def test_high_ocr_confidence_proceeds(self):
-        """Confidence >= 0.85 proceeds to chunking."""
-        result = check_ocr_confidence({"ocr_confidence": 0.9})
-        assert result == "proceed"
-
-    def test_exact_threshold_boundary(self):
-        """Confidence exactly at threshold proceeds."""
-        result = check_ocr_confidence({"ocr_confidence": 0.85})
-        assert result == "proceed"
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 # PRD Case #10 — Non-academic rejection
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -202,6 +161,98 @@ class TestNonAcademicRejection:
         result = classify_document(state)
         assert result["status"] == "rejected"
         assert len(result["errors"]) > 0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Image rejection (scope restriction: OCR deferred)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestImageRejection:
+    def test_image_file_rejected(self, temp_dir, ingestor_state):
+        """Image files are rejected with a descriptive message (OCR deferred)."""
+        img_file = temp_dir / "notes.png"
+        img_file.write_text("fake image content")
+
+        state = dict(ingestor_state)
+        state["file_path"] = str(img_file)
+
+        result = parse_document(state)
+        assert result["status"] == "rejected"
+        assert len(result["errors"]) > 0
+        assert "not yet supported" in result["errors"][0].lower()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# extract_topics tool
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestExtractTopics:
+    def test_extract_topics_from_text(self):
+        """extract_topics returns structured topics from text input."""
+        from src.tools import extract_topics
+
+        with patch("langchain_groq.ChatGroq") as mock_llm:
+            mock_result = MagicMock()
+            mock_result.summary = "Resumen sobre álgebra lineal."
+            mock_result.topics = ["álgebra", "vectores", "matrices"]
+            mock_result.topic_tree = {
+                "álgebra": {"vectores": {}, "matrices": {}}
+            }
+
+            mock_structured = MagicMock()
+            mock_structured.invoke.return_value = mock_result
+
+            mock_instance = MagicMock()
+            mock_instance.with_structured_output.return_value = mock_structured
+            mock_llm.return_value = mock_instance
+
+            result = extract_topics.invoke(
+                {"text": "Álgebra lineal: vectores y matrices."}
+            )
+            assert result["summary"] == "Resumen sobre álgebra lineal."
+            assert len(result["topics"]) == 3
+            assert "topic_tree" in result
+
+    def test_extract_topics_from_file(self, sample_txt):
+        """extract_topics parses a TXT file and extracts topics."""
+        from src.tools import extract_topics
+
+        with patch("langchain_groq.ChatGroq") as mock_llm:
+            mock_result = MagicMock()
+            mock_result.summary = "Material sobre álgebra lineal."
+            mock_result.topics = ["álgebra", "vectores"]
+            mock_result.topic_tree = {"álgebra": {"vectores": {}}}
+
+            mock_structured = MagicMock()
+            mock_structured.invoke.return_value = mock_result
+
+            mock_instance = MagicMock()
+            mock_instance.with_structured_output.return_value = mock_structured
+            mock_llm.return_value = mock_instance
+
+            result = extract_topics.invoke(
+                {"file_path": str(sample_txt)}
+            )
+            assert "summary" in result
+            assert len(result["topics"]) > 0
+
+    def test_extract_topics_no_input(self):
+        """extract_topics errors when neither text nor file_path given."""
+        from src.tools import extract_topics
+
+        result = extract_topics.invoke({})
+        assert "error" in result
+        assert "either" in result["error"].lower()
+
+    def test_extract_topics_nonexistent_file(self):
+        """extract_topics errors gracefully on missing file."""
+        from src.tools import extract_topics
+
+        result = extract_topics.invoke(
+            {"file_path": "/nonexistent/file.pdf"}
+        )
+        assert "error" in result
+        assert "not found" in result["error"].lower()
 
 
 # ──────────────────────────────────────────────────────────────────────────────

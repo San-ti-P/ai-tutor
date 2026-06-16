@@ -16,7 +16,7 @@ The UI is the student's surface. It hosts the chat, the file upload, the exam re
 - Interactive exam renderer
 - Evaluation feedback view
 - Progress dashboard
-- OCR confirmation prompts
+- OCR confirmation prompts *(deferred — see US-7.6)*
 - LaTeX rendering
 - Configuration panel for preferences
 - FastAPI endpoints the UI calls (server side; co-located with the backend repo structure)
@@ -33,7 +33,7 @@ The UI is the student's surface. It hosts the chat, the file upload, the exam re
 - **UI-03** Render an exam interactively (MCQ + open-answer) and submit answers.
 - **UI-04** Display the evaluation result with per-question breakdown, score, and feedback.
 - **UI-05** Display a progress dashboard: per-topic scores, history chart, weak topics.
-- **UI-06** Show OCR low-confidence confirmation prompts with the extracted LaTeX.
+- **UI-06** *(Deferred)* Show OCR low-confidence confirmation prompts with the extracted LaTeX.
 - **UI-07** Render LaTeX and math expressions correctly.
 - **UI-08** Provide a configuration panel for user preferences.
 - **UI-09** Expose FastAPI endpoints for all of the above.
@@ -113,7 +113,7 @@ The UI is the student's surface. It hosts the chat, the file upload, the exam re
 - **Dependencies:** Epic 6 US-6.8
 - **Maps to:** RF-13
 
-### US-7.6: OCR confirmation prompts
+### US-7.6: OCR confirmation prompts *(DEFERRED)*
 - **As a** student
 - **I want** to be asked to confirm OCR output when confidence is low
 - **So that** bad OCR does not pollute my knowledge base
@@ -121,7 +121,7 @@ The UI is the student's surface. It hosts the chat, the file upload, the exam re
   - The extracted LaTeX is shown in an editable field
   - The user can confirm, edit, or reject
   - Only confirmed content is added to the index
-- **Dependencies:** Epic 2 US-2.4
+- **Dependencies:** Epic 2 US-2.4, deferred to post-MVP
 - **Maps to:** §5.1 step 5, §8 case 9
 
 ### US-7.7: LaTeX rendering

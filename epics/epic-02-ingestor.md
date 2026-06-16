@@ -6,22 +6,27 @@
 
 ## Context
 
-The Ingestor is the gateway for all study material. It receives uploaded files (PDFs, images, plain text), converts them to structured Markdown, classifies them, extracts mathematical content via OCR when needed, builds the RAG index, and exposes the read-side tool (`retrieve_chunks`) to all other agents. It also enforces the guardrail that rejects non-academic content.
+The Ingestor is the gateway for all study material. It receives uploaded files (PDFs, plain text), converts them to structured Markdown, classifies them, extracts hierarchical topics, builds the RAG index, and exposes the read-side tool (`retrieve_chunks`) to all other agents. It also enforces the guardrail that rejects non-academic content.
 
 This epic owns the RAG module (ChromaDB collection, chunking strategy, embeddings, thematic index) because the Ingestor is the only writer; all other agents are consumers.
 
 ## Scope
 
 **In scope**
-- File parsing (PDF, PNG/JPG, TXT) into Markdown
+- File parsing (PDF, TXT) into Markdown
 - Document classification (apunte teórico / examen previo / ejercicio resuelto)
-- OCR of mathematical expressions to LaTeX
-- User confirmation prompt on low OCR confidence (< 0.85)
 - Thematic index extraction (tree of topics) per document
+- Standalone `extract_topics` tool — any agent can analyze a file's content
 - Semantic chunking + embedding + insertion into ChromaDB
 - Incremental ingestion (new files added, existing chunks untouched)
 - Rejection of non-academic content
 - The `retrieve_chunks` tool (read-side; used by all agents)
+
+**Deferred (scope-restricted — see US-2.3, US-2.4)**
+- OCR of mathematical expressions to LaTeX (US-2.3)
+- User confirmation prompt on low OCR confidence (US-2.4)
+- Image file support (PNG/JPG) — depends on OCR pipeline
+- `extract_answer_from_image` in the Evaluator (Epic 5)
 
 **Out of scope**
 - Generating study material (Epics 3, 4)
@@ -31,14 +36,15 @@ This epic owns the RAG module (ChromaDB collection, chunking strategy, embedding
 
 ## Functional Requirements
 
-- **ING-01** Accept files in PDF, PNG/JPG, and TXT formats.
+- **ING-01** Accept files in PDF and TXT formats. Images (PNG/JPG) are rejected with a clear "deferred" message.
 - **ING-02** Classify each document into one of: apunte teórico, examen previo, ejercicio resuelto.
 - **ING-03** Ingest incrementally: add new chunks without reprocessing existing material; merge thematic indices.
-- **ING-04** Extract mathematical expressions from images and represent them in LaTeX.
-- **ING-05** If OCR confidence is below the configured threshold (default 0.85), display the extracted LaTeX to the user and require explicit confirmation before proceeding.
+- **ING-04** *(Deferred)* Extract mathematical expressions from images and represent them in LaTeX.
+- **ING-05** *(Deferred)* If OCR confidence is below the configured threshold, display the extracted LaTeX to the user and require explicit confirmation before proceeding.
 - **ING-06** Build a hierarchical thematic index of the document and merge it into the global session index.
 - **ING-07** Reject files that do not look like academic material; surface a clear error to the user.
 - **ING-08** Expose a `retrieve_chunks` tool that takes a topic or query and returns the top-K relevant chunks with metadata.
+- **ING-09** Expose an `extract_topics` tool that any agent can call to analyze text or a file and return its hierarchical topic structure.
 
 ## Non-Functional Requirements
 
@@ -51,24 +57,36 @@ This epic owns the RAG module (ChromaDB collection, chunking strategy, embedding
 
 - File-to-Markdown: markitdown (source PRD §4.5).
 - Vector store: ChromaDB + LangChain.
-- OCR math: Mathpix API as primary, pix2tex (local) as fallback.
+- Topic extraction: LLM via ChatGroq with structured output (Pydantic schema).
 - RAG infrastructure: per §4.3.
 - Episodic memory: ChromaDB vector store is the source of truth for ingested material (source PRD §4.4).
+- OCR math *(deferred)*: Mathpix API as primary, pix2tex (local) as fallback.
+- Image support *(deferred)*: blocked on OCR pipeline.
+
+## Ingestor Graph (simplified, OCR deferred)
+
+```
+START → parse_document → classify_document → chunk_and_embed → END
+```
+
+The OCR nodes (`run_ocr_if_needed`, `check_ocr_confidence`) are removed from the active graph. Image files are rejected at `parse_document` with a descriptive error.
 
 ## Test Coverage
 
 - Source PRD §8 cases 1, 5, 6, 9, 10 cover this epic directly.
+- Case 6 (Math PDF OCR) and case 9 (Low OCR confidence) are deferred alongside the OCR scope.
+- New tests required for `extract_topics` tool.
 
 ## User Stories
 
 ### US-2.1: File-to-Markdown conversion
 - **As a** student uploading study material
-- **I want** PDFs, images, and TXT to be converted to structured Markdown
+- **I want** PDFs and TXT files to be converted to structured Markdown
 - **So that** the rest of the pipeline can process them uniformly
 - **Acceptance criteria:**
   - PDF input produces Markdown preserving headings, tables, and lists
   - TXT input is read as-is
-  - Image input is fed to the OCR math pipeline (US-2.3)
+  - Image input is rejected with a "not yet supported" message (OCR deferred)
 - **Dependencies:** —
 - **Maps to:** RF-01, §4.5 markitdown, §5.1 step 2
 
@@ -83,7 +101,7 @@ This epic owns the RAG module (ChromaDB collection, chunking strategy, embedding
 - **Dependencies:** US-2.1
 - **Maps to:** RF-02, §5.1 step 3
 
-### US-2.3: OCR math extract
+### US-2.3: OCR math extract *(DEFERRED)*
 - **As a** student uploading photos of notes
 - **I want** the math expressions to be extracted as LaTeX
 - **So that** they can be indexed and later used to generate questions
@@ -91,10 +109,10 @@ This epic owns the RAG module (ChromaDB collection, chunking strategy, embedding
   - Image input produces LaTeX for each detected expression
   - The OCR engine is configurable (cloud or local)
   - Each extracted expression has an associated confidence score
-- **Dependencies:** US-2.1
+- **Dependencies:** US-2.1, deferred to post-MVP
 - **Maps to:** RF-04, §3.2 `ocr_math_extract`, §4.5 OCR stack
 
-### US-2.4: OCR low-confidence confirmation
+### US-2.4: OCR low-confidence confirmation *(DEFERRED)*
 - **As a** student
 - **I want** to be asked to confirm when OCR confidence is low
 - **So that** bad OCR does not pollute the knowledge base
@@ -102,7 +120,7 @@ This epic owns the RAG module (ChromaDB collection, chunking strategy, embedding
   - Threshold is configurable (default 0.85)
   - On low confidence, the UI shows the extracted LaTeX and asks for confirmation
   - Only confirmed extractions are added to the index
-- **Dependencies:** US-2.3, Epic 7 US-7.6 (UI confirmation)
+- **Dependencies:** US-2.3, Epic 7 US-7.6 (UI confirmation), deferred to post-MVP
 - **Maps to:** RF-05, §7 OCR guardrail, §8 case 9
 
 ### US-2.5: Thematic index extraction
@@ -114,7 +132,7 @@ This epic owns the RAG module (ChromaDB collection, chunking strategy, embedding
   - The tree is merged into the global session index
   - Retrievals can request chunks from a specific topic
 - **Dependencies:** US-2.1
-- **Maps to:** RF-06, §4.3 thematic index, §5.1 step 6
+- **Maps to:** RF-06, §4.3 thematic index, §5.1 step 5
 
 ### US-2.6: Semantic chunking and embedding
 - **As a** system
@@ -125,7 +143,7 @@ This epic owns the RAG module (ChromaDB collection, chunking strategy, embedding
   - Fallback chunk size: 512 tokens with 64-token overlap
   - Embeddings are computed and stored in ChromaDB
 - **Dependencies:** US-2.5
-- **Maps to:** RF-06, §4.3 chunking and embeddings, §5.1 step 7
+- **Maps to:** RF-06, §4.3 chunking and embeddings, §5.1 step 6
 
 ### US-2.7: Incremental ingestion
 - **As a** student
@@ -160,12 +178,25 @@ This epic owns the RAG module (ChromaDB collection, chunking strategy, embedding
 - **Dependencies:** US-2.6
 - **Maps to:** RF-06, §3.2 `retrieve_chunks (Todos)`, §4.3 Retriever
 
-### US-2.10: End-to-end ingest flow
+### US-2.10: extract_topics tool
+- **As a** any agent (Orchestrator, ExamGenerator, ExerciseGenerator)
+- **I want** to call an `extract_topics` tool with text or a file path
+- **So that** I can understand what topics a document covers without running the full ingestion pipeline
+- **Acceptance criteria:**
+  - Tool accepts `text` or `file_path` (at least one required)
+  - Returns a one-sentence summary of the content
+  - Returns a flat list of topics (3-15)
+  - Returns a hierarchical topic tree for drill-down
+- **Dependencies:** US-2.1
+- **Maps to:** §3.2 new tool, ING-09
+
+### US-2.11: End-to-end ingest flow
 - **As a** student
 - **I want** to upload a PDF and see the system confirm what it ingested
 - **So that** I know the material is ready for generating exams
 - **Acceptance criteria:**
   - A well-formatted PDF ingest yields: classification, topic list, chunk count, status
   - The UI shows a confirmation screen with the detected topics and chunk count
-- **Dependencies:** US-2.1 through US-2.7, Epic 7 US-7.2
+  - Image uploads are rejected with a clear "not yet supported" message
+- **Dependencies:** US-2.1 through US-2.7, US-2.9, Epic 7 US-7.2
 - **Maps to:** §5.1 full flow, §8 case 1
