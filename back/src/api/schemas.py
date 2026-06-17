@@ -94,23 +94,12 @@ class IngestResult(BaseModel):
     classification: str
     topics_detected: list[str] = Field(alias="topicsDetected")
     chunks_created: int = Field(alias="chunksCreated")
-    # New optional fields from spec
     classification_confidence: float | None = Field(
         default=None, alias="classificationConfidence"
-    )
-    low_confidence_ocr: list[OcrExpression] | None = Field(
-        default=None, alias="lowConfidenceOcr"
     )
     document_id: str | None = Field(default=None, alias="documentId")
 
     model_config = {"populate_by_name": True}
-
-
-class OcrExpression(BaseModel):
-    """A single OCR-extracted LaTeX expression with its confidence score."""
-
-    expression: str
-    confidence: float
 
 
 class HealthResponse(BaseModel):

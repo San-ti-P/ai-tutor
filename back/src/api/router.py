@@ -22,10 +22,8 @@ from src.api.schemas import (
     ExamRequest,
     HealthResponse,
     IngestResult,
-    OcrExpression,
     StudentProfile,
 )
-from src.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -79,35 +77,16 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
                 "file_type": "",
                 "raw_text": "",
                 "classification": "",
+                "classification_confidence": 0.0,
                 "topics": [],
                 "chunks_created": 0,
-                "ocr_confidence": 0.0,
-                "needs_ocr_confirmation": False,
                 "errors": [],
                 "status": "pending",
-                "classification_confidence": 0.0,
-                "ocr_expressions": [],
                 "document_id": "",
                 "chunk_ids": [],
             }
 
             result = await graph.ainvoke(initial_state)
-
-            # Build low-confidence OCR expressions list if present
-            low_ocr: list[OcrExpression] | None = None
-            ocr_exprs: list[dict] = result.get("ocr_expressions", [])
-            if ocr_exprs and result.get("needs_ocr_confirmation", False):
-                low_ocr = [
-                    OcrExpression(
-                        expression=e.get("expression", ""),
-                        confidence=float(e.get("confidence", 0.0)),
-                    )
-                    for e in ocr_exprs
-                    if isinstance(e, dict)
-                    and float(e.get("confidence", 1.0)) < settings.ocr_confidence_threshold
-                ]
-                if not low_ocr:
-                    low_ocr = None
 
             results.append(
                 IngestResult(
@@ -116,7 +95,6 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
                     topicsDetected=result.get("topics", []),
                     chunksCreated=result.get("chunks_created", 0),
                     classificationConfidence=result.get("classification_confidence"),
-                    lowConfidenceOcr=low_ocr,
                     documentId=result.get("document_id"),
                 )
             )

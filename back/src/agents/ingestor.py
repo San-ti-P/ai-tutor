@@ -1,12 +1,16 @@
 """Ingestor Agent — linear StateGraph for document ingestion and processing.
 
-Pipeline: parse → classify → OCR → [confidence gate] → chunk/embed → END.
+Pipeline (OCR deferred): parse → classify → chunk/embed → END.
 Error handling is per-node try/except; errors accumulate in state["errors"].
+
+Scope restriction (June 2026):
+- Image files are rejected — OCR math pipeline deferred to post-MVP.
+- Only PDF and TXT are accepted.
+- OCR helper functions kept below for reference; not wired into the graph.
 """
 
 from __future__ import annotations
 
-import base64
 import logging
 import operator
 import uuid
@@ -29,11 +33,8 @@ class IngestorState(TypedDict):
     classification_confidence: float
     topics: list[str]
     chunks_created: int
-    ocr_confidence: float
-    needs_ocr_confirmation: bool
     errors: Annotated[list[str], operator.add]
     status: str
-    ocr_expressions: list[dict]
     document_id: str
     chunk_ids: list[str]
 
@@ -42,7 +43,11 @@ class IngestorState(TypedDict):
 
 
 def parse_document(state: IngestorState) -> dict:
-    """Parse uploaded file using markitdown and extract raw text."""
+    """Parse uploaded file using markitdown and extract raw text.
+
+    Accepted: PDF, TXT.
+    Rejected: images (PNG/JPG — OCR deferred), unsupported formats.
+    """
     try:
         from pathlib import Path
 
@@ -55,10 +60,16 @@ def parse_document(state: IngestorState) -> dict:
         suffix = file_path.suffix.lower()
         if suffix == ".pdf":
             file_type = "pdf"
-        elif suffix in (".png", ".jpg", ".jpeg"):
-            file_type = "image"
         elif suffix == ".txt":
             file_type = "text"
+        elif suffix in (".png", ".jpg", ".jpeg"):
+            return {
+                "errors": [
+                    "Image files (PNG/JPG) are not yet supported. "
+                    "OCR math extraction is deferred. Please upload PDF or TXT."
+                ],
+                "status": "rejected",
+            }
         else:
             return {
                 "errors": [f"Unsupported file type: {suffix}"],
@@ -139,11 +150,19 @@ Texto:
         return {"errors": [f"Classification error: {e}"], "status": "error"}
 
 
-# ── OCR backend helpers ──────────────────────────────────────────────────────
+# ── OCR helpers (DEFERRED — post-MVP) ──────────────────────────────────────
+# These functions are kept for reference. They are NOT wired into the graph.
+# When image + math support is re-enabled:
+#   1. Re-add image types to parse_document
+#   2. Add a run_ocr_if_needed node between classify_document and chunk_and_embed
+#   3. Add a check_ocr_confidence conditional edge
+#   4. Re-add ocr_confidence, ocr_expressions, needs_ocr_confirmation to state
 
 
-def _ocr_mathpix(image_path: str) -> tuple[list[dict], float]:
+def _ocr_mathpix(image_path: str) -> tuple[list[dict], float]:  # nocover
     """Call Mathpix API to extract LaTeX from image. Returns (expressions, confidence)."""
+    import base64
+
     import requests
 
     from pathlib import Path
@@ -175,7 +194,7 @@ def _ocr_mathpix(image_path: str) -> tuple[list[dict], float]:
     return expressions, confidence
 
 
-def _ocr_noop(image_path: str) -> tuple[list[dict], float]:  # noqa: ARG001
+def _ocr_noop(image_path: str) -> tuple[list[dict], float]:  # nocover  # noqa: ARG001
     """No-op OCR stub for when Mathpix is unavailable.
 
     Returns confidence 1.0 so ingestion can proceed without blocking
@@ -185,53 +204,7 @@ def _ocr_noop(image_path: str) -> tuple[list[dict], float]:  # noqa: ARG001
     return [], 1.0
 
 
-# ── Node implementations (continued) ────────────────────────────────────────
-
-
-def run_ocr_if_needed(state: IngestorState) -> dict:
-    """Run OCR math extraction if document contains images with formulas."""
-    try:
-        if state.get("status") in {"error", "rejected", "rejected_non_academic", "ocr_failed"}:
-            return {}
-
-        if state.get("file_type") != "image":
-            return {
-                "ocr_confidence": 1.0,
-                "ocr_expressions": [],
-                "needs_ocr_confirmation": False,
-                "status": "ocr_skipped",
-            }
-
-        # Choose backend: Mathpix if keys present, else noop
-        if settings.mathpix_app_id and settings.mathpix_app_key:
-            expressions, confidence = _ocr_mathpix(state["file_path"])
-        else:
-            expressions, confidence = _ocr_noop(state["file_path"])
-
-        needs_confirmation = confidence < settings.ocr_confidence_threshold
-        return {
-            "ocr_expressions": expressions,
-            "ocr_confidence": confidence,
-            "needs_ocr_confirmation": needs_confirmation,
-            "status": "awaiting_ocr_confirmation" if needs_confirmation else "ocr_done",
-        }
-    except Exception as e:
-        logger.exception("run_ocr_if_needed failed")
-        return {
-            "errors": [f"OCR error: {e}"],
-            "ocr_confidence": 0.0,
-            "needs_ocr_confirmation": True,
-            "status": "ocr_failed",
-        }
-
-
-def check_ocr_confidence(
-    state: IngestorState,
-) -> Literal["proceed", "request_confirmation"]:
-    """Check if OCR confidence meets threshold; request user confirmation if not."""
-    if state.get("ocr_confidence", 1.0) >= settings.ocr_confidence_threshold:
-        return "proceed"
-    return "request_confirmation"
+# ── Node implementation: chunk_and_embed ────────────────────────────────────
 
 
 def chunk_and_embed(state: IngestorState) -> dict:
@@ -288,22 +261,20 @@ def chunk_and_embed(state: IngestorState) -> dict:
 
 
 def build_ingestor() -> StateGraph:
-    """Build and return the Ingestor LangGraph."""
+    """Build and return the Ingestor LangGraph.
+
+    Simplified graph (OCR deferred):
+        START → parse_document → classify_document → chunk_and_embed → END
+    """
     builder = StateGraph(IngestorState)
 
     builder.add_node("parse_document", parse_document)
     builder.add_node("classify_document", classify_document)
-    builder.add_node("run_ocr_if_needed", run_ocr_if_needed)
     builder.add_node("chunk_and_embed", chunk_and_embed)
 
     builder.add_edge(START, "parse_document")
     builder.add_edge("parse_document", "classify_document")
-    builder.add_edge("classify_document", "run_ocr_if_needed")
-    builder.add_conditional_edges(
-        "run_ocr_if_needed",
-        check_ocr_confidence,
-        {"proceed": "chunk_and_embed", "request_confirmation": END},
-    )
+    builder.add_edge("classify_document", "chunk_and_embed")
     builder.add_edge("chunk_and_embed", END)
 
     return builder

@@ -111,12 +111,9 @@ def ingestor_state(sample_txt):
         classification="",
         topics=[],
         chunks_created=0,
-        ocr_confidence=0.0,
-        needs_ocr_confirmation=False,
         errors=[],
         status="pending",
         classification_confidence=0.0,
-        ocr_expressions=[],
         document_id="",
         chunk_ids=[],
     )
