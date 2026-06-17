@@ -336,8 +336,8 @@ REQUISITOS:
         else:
             final_questions = new_questions
 
-        # Increment retry_count on retry path (conditional edge cannot mutate state)
-        next_retry = retry_count + 1 if retry_count > 0 else retry_count
+        # Increment retry_count on every call (starts at 0, increments per retry)
+        next_retry = retry_count + 1 if retry_count > 0 else 1
 
         return {
             "generated_questions": final_questions,
@@ -521,10 +521,18 @@ def format_exam(state: ExamGeneratorState) -> dict:
 
     try:
         questions: list[dict] = state.get("generated_questions", [])
-        omitted_indices: list[int] = state.get("omitted_questions", [])
+        invalid_indices: list[int] = state.get("invalid_question_indices", [])
+        omitted_indices: list[int] = list(state.get("omitted_questions", []))
         validation_errors: list[str] = state.get("validation_errors", [])
         topic_not_found: list[str] = state.get("topic_not_found", [])
         topic_suggestions: list[str] = state.get("topic_suggestions", [])
+        retry_count: int = state.get("retry_count", 0)
+
+        # If retries exhausted and questions still fail, mark for omission
+        if retry_count >= 3 and invalid_indices:
+            for idx in invalid_indices:
+                if idx not in omitted_indices:
+                    omitted_indices.append(idx)
 
         # Filter out omitted questions
         omitted_set = set(omitted_indices)
