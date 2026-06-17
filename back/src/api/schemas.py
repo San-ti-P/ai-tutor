@@ -7,8 +7,13 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 IntentEnum = Literal[
-    "ingest", "generate_exam", "generate_exercise", "evaluate", "query_profile",
-    "general_chat", "composite",
+    "ingest",
+    "generate_exam",
+    "generate_exercise",
+    "evaluate",
+    "query_profile",
+    "general_chat",
+    "composite",
 ]
 
 DifficultyEnum = Literal["easy", "medium", "hard"]
@@ -94,9 +99,7 @@ class IngestResult(BaseModel):
     classification: str
     topics_detected: list[str] = Field(alias="topicsDetected")
     chunks_created: int = Field(alias="chunksCreated")
-    classification_confidence: float | None = Field(
-        default=None, alias="classificationConfidence"
-    )
+    classification_confidence: float | None = Field(default=None, alias="classificationConfidence")
     document_id: str | None = Field(default=None, alias="documentId")
 
     model_config = {"populate_by_name": True}

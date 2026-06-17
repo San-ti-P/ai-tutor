@@ -1,4 +1,5 @@
-"""Shared test fixtures for the Ingestor + RAG test suite."""
+"""Shared test fixtures for the Ingestor + RAG + ExamGenerator test suite."""
+
 from __future__ import annotations
 
 import uuid
@@ -6,6 +7,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# Load .env before any test runs — ChatGroq reads GROQ_API_KEY from os.environ
+from dotenv import load_dotenv as _load_dotenv
+
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    _load_dotenv(_env_path)
 
 
 @pytest.fixture
@@ -126,20 +134,302 @@ def mock_embedding_model():
         mock_model = MagicMock()
         # Return deterministic 384-dim embeddings scaled by hash of input
         mock_model.encode.return_value.tolist.return_value = [
-            [0.1 * (i + 1 + (hash(chunk) % 10) * 0.01) for i in range(384)]
-            for chunk in []
+            [0.1 * (i + 1 + (hash(chunk) % 10) * 0.01) for i in range(384)] for chunk in []
         ]
         mock_model.get_sentence_embedding_dimension.return_value = 384
 
         # Make encode return proper numpy-like list for each call
         def _fake_encode(texts):
-            return [
-                [0.1 * (i + 1 + (hash(t) % 10) * 0.01) for i in range(384)]
-                for t in texts
-            ]
+            return [[0.1 * (i + 1 + (hash(t) % 10) * 0.01) for i in range(384)] for t in texts]
 
         mock_model.encode.side_effect = lambda texts: type(
             "FakeArray", (), {"tolist": lambda self: _fake_encode(texts)}
         )()
         mock_get.return_value = mock_model
         yield mock_get
+
+
+# ── ExamGenerator fixtures ───────────────────────────────────────────────────
+
+
+@pytest.fixture
+def sample_chunks() -> list[dict]:
+    """Return a list of realistic mock chunk dicts for exam generation testing.
+
+    Each chunk has chunk_id, text, metadata, and similarity_score.
+    Content covers álgebra and cálculo topics for validation testing.
+    """
+    return [
+        {
+            "chunk_id": "chunk-math-001",
+            "text": (
+                "La derivada de una función f(x) en un punto a se define como el límite "
+                "del cociente incremental: f'(a) = lim(h→0) [f(a+h) - f(a)] / h. "
+                "Esto representa la pendiente de la recta tangente a la curva en ese punto."
+            ),
+            "metadata": {"topic": "cálculo/derivadas", "source": "apunte_calculo.pdf"},
+            "similarity_score": 0.12,
+        },
+        {
+            "chunk_id": "chunk-math-002",
+            "text": (
+                "Reglas de derivación: derivada de una suma [f+g]' = f' + g', "
+                "derivada de producto [f·g]' = f'·g + f·g', "
+                "derivada de cociente [f/g]' = (f'·g - f·g') / g²."
+            ),
+            "metadata": {"topic": "cálculo/derivadas", "source": "apunte_calculo.pdf"},
+            "similarity_score": 0.08,
+        },
+        {
+            "chunk_id": "chunk-math-003",
+            "text": (
+                "Una matriz es un arreglo rectangular de números dispuestos en filas "
+                "y columnas. La suma de matrices se realiza elemento a elemento y solo "
+                "es posible cuando ambas matrices tienen las mismas dimensiones."
+            ),
+            "metadata": {"topic": "álgebra/matrices", "source": "apunte_algebra.pdf"},
+            "similarity_score": 0.15,
+        },
+        {
+            "chunk_id": "chunk-math-004",
+            "text": (
+                "El rango de una matriz es el número máximo de columnas linealmente "
+                "independientes. Se puede calcular mediante eliminación gaussiana. "
+                "Una matriz cuadrada es invertible si y solo si su rango es máximo."
+            ),
+            "metadata": {"topic": "álgebra/matrices", "source": "apunte_algebra.pdf"},
+            "similarity_score": 0.10,
+        },
+        {
+            "chunk_id": "chunk-math-005",
+            "text": (
+                "La integral definida de una función entre a y b representa el área "
+                "bajo la curva. El Teorema Fundamental del Cálculo establece que la "
+                "integración y la derivación son operaciones inversas."
+            ),
+            "metadata": {"topic": "cálculo/integrales", "source": "apunte_calculo.pdf"},
+            "similarity_score": 0.14,
+        },
+    ]
+
+
+@pytest.fixture
+def sample_student_profile() -> dict:
+    """Return a sample student profile with weak topics and preferences."""
+    return {
+        "weak_topics": ["cálculo/derivadas", "álgebra/matrices"],
+        "preferences": {"difficulty": "medium", "mcq_ratio": 0.6},
+    }
+
+
+@pytest.fixture
+def exam_generator_state(sample_chunks) -> dict:
+    """Return the base state dict for ExamGenerator graph invocation."""
+    return {
+        "session_id": str(uuid.uuid4()),
+        "student_id": "student-001",
+        "topics": ["cálculo/derivadas", "álgebra/matrices"],
+        "difficulty": "medium",
+        "question_count": 5,
+        "mcq_ratio": 0.6,
+        "student_profile": None,
+        "collection_name": "",
+        "retrieved_chunks": [],
+        "generated_questions": [],
+        "validation_results": [],
+        "validation_errors": [],
+        "invalid_question_indices": [],
+        "omitted_questions": [],
+        "retry_count": 0,
+        "topic_not_found": [],
+        "topic_suggestions": [],
+        "exam": {},
+        "status": "pending",
+    }
+
+
+@pytest.fixture
+def mock_exam_llm():
+    """Patch ChatGroq to return a valid ExamGeneration structured output.
+
+    Mocks the entire ChatGroq with_structured_output → invoke chain so
+    generate_questions can run without a real LLM. The mock returns
+    3 MCQs + 2 open-answer questions with source_chunk_ids.
+    """
+    from src.agents.exam_generator import (
+        ExamGeneration,
+        MCQQuestion,
+        OpenAnswerQuestion,
+    )
+
+    fake_exam = ExamGeneration(
+        mcq_questions=[
+            MCQQuestion(
+                stem="¿Cuál es la definición de derivada?",
+                options=[
+                    "El límite del cociente incremental",
+                    "La pendiente de una recta cualquiera",
+                    "El producto de dos funciones",
+                    "La integral de una función",
+                ],
+                correct_option_index=0,
+                source_chunk_ids=["chunk-math-001"],
+                difficulty="medium",
+                topic="cálculo/derivadas",
+            ),
+            MCQQuestion(
+                stem="¿Cuál es la derivada de una suma de funciones?",
+                options=[
+                    "f' · g'",
+                    "f' + g'",
+                    "f' / g'",
+                    "f' - g'",
+                ],
+                correct_option_index=1,
+                source_chunk_ids=["chunk-math-002"],
+                difficulty="medium",
+                topic="cálculo/derivadas",
+            ),
+            MCQQuestion(
+                stem="¿Qué es una matriz?",
+                options=[
+                    "Un arreglo rectangular de números",
+                    "Una función continua",
+                    "Un vector unitario",
+                    "Una derivada parcial",
+                ],
+                correct_option_index=0,
+                source_chunk_ids=["chunk-math-003"],
+                difficulty="easy",
+                topic="álgebra/matrices",
+            ),
+        ],
+        open_questions=[
+            OpenAnswerQuestion(
+                prompt="Explica el concepto de derivada y su interpretación geométrica.",
+                base_answer=(
+                    "La derivada es el límite del cociente incremental. "
+                    "Geométricamente representa la pendiente de la recta tangente."
+                ),
+                key_points=[
+                    "Límite del cociente incremental",
+                    "Pendiente de la recta tangente",
+                    "Tasa de cambio instantánea",
+                ],
+                source_chunk_ids=["chunk-math-001"],
+                difficulty="medium",
+                topic="cálculo/derivadas",
+            ),
+            OpenAnswerQuestion(
+                prompt="Describe cómo se calcula el rango de una matriz.",
+                base_answer=(
+                    "El rango se calcula mediante eliminación gaussiana. "
+                    "Es el número de columnas linealmente independientes."
+                ),
+                key_points=[
+                    "Columnas linealmente independientes",
+                    "Eliminación gaussiana",
+                    "Matriz invertible si rango máximo",
+                ],
+                source_chunk_ids=["chunk-math-004"],
+                difficulty="hard",
+                topic="álgebra/matrices",
+            ),
+        ],
+        metadata={
+            "topics_covered": ["cálculo/derivadas", "álgebra/matrices"],
+            "total_source_chunks": 4,
+        },
+    )
+
+    with patch("langchain_groq.ChatGroq") as mock_groq:
+        mock_structured = MagicMock()
+        mock_structured.invoke.return_value = fake_exam
+        mock_instance = MagicMock()
+        mock_instance.with_structured_output.return_value = mock_structured
+        mock_groq.return_value = mock_instance
+        yield mock_groq
+
+
+# ── Real-model integration fixtures (opt-in via `-m integration`) ─────────────
+
+
+@pytest.fixture
+def requires_groq():
+    """Skip integration tests when GROQ_API_KEY is not configured."""
+    from src.config import settings
+
+    if not settings.groq_api_key:
+        pytest.skip("GROQ_API_KEY not set — real LLM integration test skipped")
+
+
+@pytest.fixture
+def real_pdf_path() -> Path:
+    """Return path to the real academic PDF for integration tests.
+
+    Looks for apunteAgentes_IA2007.pdf in tests/fixtures/.
+    Skips the test if the file is not found.
+    """
+    pdf = Path(__file__).resolve().parent / "fixtures" / "apunteAgentes_IA2007.pdf"
+    if not pdf.exists():
+        pytest.skip(f"Real PDF not found at {pdf}")
+    return pdf
+
+
+@pytest.fixture
+def real_pdf_text(real_pdf_path: Path) -> str:
+    """Parse the real academic PDF with markitdown and return raw text."""
+    import markitdown
+
+    md = markitdown.MarkItDown()
+    result = md.convert(str(real_pdf_path))
+    text = result.text_content
+    if not text or not text.strip():
+        pytest.skip("Real PDF parsed but produced no extractable text")
+    return text
+
+
+@pytest.fixture
+def ingested_collection_name(real_pdf_path: Path, temp_dir: Path) -> str:
+    """Ingest the real PDF into an ephemeral ChromaDB collection.
+
+    Uses real markitdown parsing, real SentenceTransformer embeddings,
+    and real ChromaDB storage. Yields the collection name for retrieval.
+
+    This is expensive — only use in integration tests.
+    """
+    import uuid
+
+    import markitdown
+
+    from src.rag import chunk_text, embed_and_store
+
+    md = markitdown.MarkItDown()
+    result = md.convert(str(real_pdf_path))
+    text = result.text_content
+    if not text or not text.strip():
+        pytest.skip("Real PDF produced no extractable text for ingestion")
+
+    chunks = chunk_text(text)
+    if not chunks:
+        pytest.skip("Real PDF produced zero chunks after splitting")
+
+    session_id = str(uuid.uuid4())
+    collection_name = f"integration_{session_id}"
+
+    metadatas = [
+        {
+            "source_file": real_pdf_path.name,
+            "chunk_index": i,
+            "classification": "apunte_teorico",
+        }
+        for i in range(len(chunks))
+    ]
+
+    embed_and_store(
+        [c.page_content for c in chunks],
+        metadatas,
+        collection_name,
+    )
+
+    return collection_name

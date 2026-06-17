@@ -10,22 +10,23 @@ import logging
 
 from langchain_core.tools import tool
 
-logger = logging.getLogger(__name__)
-
 from src.rag import retrieve as _rag_retrieve
 
-# Cached compiled ingestor graph — safe to reuse across invocations
-_ingestor_graph = None
+logger = logging.getLogger(__name__)
+
+# Cached compiled graphs — safe to reuse across invocations
+_graph_cache: dict[str, object] = {}
 
 
-def _get_ingestor_graph():
-    """Return the compiled Ingestor StateGraph, compiling on first call only."""
-    global _ingestor_graph
-    if _ingestor_graph is None:
-        from src.agents.ingestor import build_ingestor
+def _get_or_compile(name: str, builder_path: str):
+    """Return a compiled StateGraph, building on first call only."""
+    if name not in _graph_cache:
+        import importlib
 
-        _ingestor_graph = build_ingestor().compile()
-    return _ingestor_graph
+        mod_name, fn_name = builder_path.rsplit(".", 1)
+        builder = getattr(importlib.import_module(mod_name), fn_name)
+        _graph_cache[name] = builder().compile()
+    return _graph_cache[name]
 
 
 @tool
@@ -81,7 +82,7 @@ def ingest_document(
     """
     from src.agents.ingestor import IngestorState
 
-    graph = _get_ingestor_graph()
+    graph = _get_or_compile("ingestor", "src.agents.ingestor.build_ingestor")
     initial_state: IngestorState = {
         "session_id": session_id,
         "file_path": file_path,
@@ -135,20 +136,17 @@ def extract_topics(
     """
     from pathlib import Path
 
-    from langchain_groq import ChatGroq
     from pydantic import BaseModel, Field
 
     class TopicExtraction(BaseModel):
         summary: str = Field(description="One-sentence summary of the content")
-        topics: list[str] = Field(
-            description="Flat list of detected topics (3-15 items)"
-        )
-        topic_tree: dict = Field(
+        topics: list[str] = Field(description="Flat list of detected topics (3-15 items)")
+        topic_tree: str = Field(
+            default="",
             description=(
-                "Hierarchical topic structure as nested dict. "
-                "Keys are topic names; values are sub-topic dicts. "
-                'Example: {"Math": {"Algebra": {"Linear": {}}, "Calculus": {}}}'
-            )
+                "Hierarchical topic structure as JSON string. "
+                'Example: \'{"Math": {"Algebra": {}, "Calculus": {}}}\''
+            ),
         )
 
     # Resolve input text
@@ -182,14 +180,17 @@ def extract_topics(
     content_preview = content[:5000]
 
     try:
-        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.0)
+        from src.config import settings
+
+        llm_cls, llm_kwargs = settings.llm_kwargs
+        llm = llm_cls(**llm_kwargs)
         structured_llm = llm.with_structured_output(TopicExtraction)
 
         prompt = (
             "Analizá el siguiente texto académico y extraé:\n"
             "1. Un resumen de una línea del contenido.\n"
             "2. Una lista plana de temas principales (3-15 temas).\n"
-            "3. Un árbol jerárquico de temas (dict anidado).\n\n"
+            "3. Un árbol de temas como texto, ejemplo: 'Matemáticas > Álgebra > Lineal'\n\n"
             f"Texto:\n{content_preview}"
         )
 
@@ -202,3 +203,62 @@ def extract_topics(
     except Exception as exc:
         logger.exception("extract_topics failed")
         return {"error": f"Topic extraction failed: {exc}"}
+
+
+@tool
+def generate_exam(
+    session_id: str,
+    topics: list[str],
+    difficulty: str = "medium",
+    question_count: int = 5,
+    mcq_ratio: float = 0.5,
+    student_profile: dict | None = None,
+) -> dict:
+    """Generate a personalized exam with MCQs and open-answer questions.
+
+    Invokes the full ExamGenerator StateGraph: retrieves chunks from ChromaDB,
+    generates questions via structured LLM output, validates against source
+    chunks, retries hallucinated questions up to 3 times, and returns the
+    final exam dict.
+
+    Args:
+        session_id: The current session ID (determines ChromaDB collection).
+        topics: List of topic strings to cover (e.g. ['cálculo/derivadas']).
+        difficulty: 'easy', 'medium', or 'hard' (default 'medium').
+        question_count: Total number of questions to generate (default 5).
+        mcq_ratio: Fraction of questions that should be MCQ (default 0.5).
+        student_profile: Optional dict with 'weak_topics' and 'preferences'.
+
+    Returns:
+        An exam dict with keys: exam_id, session_id, student_id,
+        generated_at, total_questions, questions, topics_covered,
+        source_chunks_total, omitted_count, topic_not_found,
+        topic_suggestions, status, warnings.
+    """
+    from src.agents.exam_generator import ExamGeneratorState
+
+    graph = _get_or_compile("exam_generator", "src.agents.exam_generator.build_exam_generator")
+    initial_state: ExamGeneratorState = {
+        "session_id": session_id,
+        "student_id": student_profile.get("student_id", "") if student_profile else "",
+        "topics": topics,
+        "difficulty": difficulty,
+        "question_count": question_count,
+        "mcq_ratio": mcq_ratio,
+        "student_profile": student_profile,
+        "collection_name": f"session_{session_id}",
+        "retrieved_chunks": [],
+        "generated_questions": [],
+        "validation_results": [],
+        "validation_errors": [],
+        "invalid_question_indices": [],
+        "omitted_questions": [],
+        "retry_count": 0,
+        "topic_not_found": [],
+        "topic_suggestions": [],
+        "exam": {},
+        "status": "pending",
+    }
+
+    result = graph.invoke(initial_state)
+    return result.get("exam", {})

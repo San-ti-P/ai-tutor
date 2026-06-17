@@ -1,10 +1,10 @@
 """Orchestrator Agent — Plan-and-Execute with hub-and-spoke routing."""
 
 import operator
-from typing import Literal
+from typing import Annotated, Literal
 
 from langgraph.graph import END, START, StateGraph
-from typing_extensions import Annotated, TypedDict
+from typing_extensions import TypedDict
 
 Intent = Literal[
     "ingest",

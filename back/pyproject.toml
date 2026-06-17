@@ -51,3 +51,7 @@ select = ["E", "F", "I", "N", "W", "UP"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-m 'not integration'"
+markers = [
+    "integration: expensive tests requiring real LLM, embeddings, and/or real PDF files. Run with: pytest -m integration",
+]

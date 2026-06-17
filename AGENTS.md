@@ -99,12 +99,26 @@ ai-tutor/
 
 ```bash
 cd back
-uv run pytest tests/ -v                    # Full suite
+uv run pytest tests/ -v                    # Full suite (unit tests only)
 uv run pytest tests/ -v -k "test_ingest"   # Per module
 uv run pytest tests/ -v --cov=src          # With coverage
+uv run pytest tests/ -v -m integration     # Integration tests (needs LLM)
 ```
 
-12 test cases required (PRD section 8): 5 happy path, 4 edge cases, 3 adversarial. Tests use in-memory SQLite and ChromaDB where possible — no external services needed.
+### Test Tiers
+
+| Tier | Marker | Runs on | Requires |
+|------|--------|---------|----------|
+| Unit | *(default)* | Every commit | Nothing external — LLMs/embeddings mocked |
+| Integration | `@pytest.mark.integration` | Manually or CI with secrets | Real LLM (Ollama/Groq) + real embeddings + real PDF |
+
+**Integration tests** are any test that uses a real external resource: real LLM calls, real SentenceTransformer embeddings, real ChromaDB with pre-ingested data, or real PDF files. They are skipped by default (`addopts = "-m 'not integration'"` in `pyproject.toml`).
+
+### Test Documentation
+
+Full test inventory, PRD case coverage mapping, fixture catalog, and rules for adding tests are documented in [`tests_documentation.md`](../tests_documentation.md). **When adding or modifying an integration test or a PRD-mapped test, update that document.**
+
+12 test cases required (PRD section 8): 5 happy path, 4 edge cases, 3 adversarial. Tests use in-memory SQLite and ChromaDB where possible — no external services needed for unit tests.
 
 ---
 
@@ -152,3 +166,4 @@ Key skills by layer:
 | `epics/epic-07-ui.md` | Frontend architecture |
 | `epics/epic-08-observability.md` | Langfuse integration + test suite |
 | `.atl/skill-registry.md` | Full skill catalog with compact rules |
+| `tests_documentation.md` | Test inventory, PRD coverage map, integration test rules |

@@ -1,9 +1,10 @@
 """ExerciseGenerator Agent — ReAct + Tools for generating practice exercises."""
 
 import operator
+from typing import Annotated
 
 from langgraph.graph import END, START, StateGraph
-from typing_extensions import Annotated, TypedDict
+from typing_extensions import TypedDict
 
 
 class ExerciseGeneratorState(TypedDict):

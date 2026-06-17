@@ -235,3 +235,4 @@ graphify-out/
 codegraph/
 .atl/
 openspec/
+.opencode/
