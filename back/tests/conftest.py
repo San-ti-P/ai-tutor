@@ -1,4 +1,4 @@
-"""Shared test fixtures for the Ingestor + RAG test suite."""
+"""Shared test fixtures for the Ingestor + RAG + ExamGenerator test suite."""
 from __future__ import annotations
 
 import uuid
@@ -143,3 +143,205 @@ def mock_embedding_model():
         )()
         mock_get.return_value = mock_model
         yield mock_get
+
+
+# ── ExamGenerator fixtures ───────────────────────────────────────────────────
+
+
+@pytest.fixture
+def sample_chunks() -> list[dict]:
+    """Return a list of realistic mock chunk dicts for exam generation testing.
+
+    Each chunk has chunk_id, text, metadata, and similarity_score.
+    Content covers álgebra and cálculo topics for validation testing.
+    """
+    return [
+        {
+            "chunk_id": "chunk-math-001",
+            "text": (
+                "La derivada de una función f(x) en un punto a se define como el límite "
+                "del cociente incremental: f'(a) = lim(h→0) [f(a+h) - f(a)] / h. "
+                "Esto representa la pendiente de la recta tangente a la curva en ese punto."
+            ),
+            "metadata": {"topic": "cálculo/derivadas", "source": "apunte_calculo.pdf"},
+            "similarity_score": 0.12,
+        },
+        {
+            "chunk_id": "chunk-math-002",
+            "text": (
+                "Reglas de derivación: derivada de una suma [f+g]' = f' + g', "
+                "derivada de producto [f·g]' = f'·g + f·g', "
+                "derivada de cociente [f/g]' = (f'·g - f·g') / g²."
+            ),
+            "metadata": {"topic": "cálculo/derivadas", "source": "apunte_calculo.pdf"},
+            "similarity_score": 0.08,
+        },
+        {
+            "chunk_id": "chunk-math-003",
+            "text": (
+                "Una matriz es un arreglo rectangular de números dispuestos en filas "
+                "y columnas. La suma de matrices se realiza elemento a elemento y solo "
+                "es posible cuando ambas matrices tienen las mismas dimensiones."
+            ),
+            "metadata": {"topic": "álgebra/matrices", "source": "apunte_algebra.pdf"},
+            "similarity_score": 0.15,
+        },
+        {
+            "chunk_id": "chunk-math-004",
+            "text": (
+                "El rango de una matriz es el número máximo de columnas linealmente "
+                "independientes. Se puede calcular mediante eliminación gaussiana. "
+                "Una matriz cuadrada es invertible si y solo si su rango es máximo."
+            ),
+            "metadata": {"topic": "álgebra/matrices", "source": "apunte_algebra.pdf"},
+            "similarity_score": 0.10,
+        },
+        {
+            "chunk_id": "chunk-math-005",
+            "text": (
+                "La integral definida de una función entre a y b representa el área "
+                "bajo la curva. El Teorema Fundamental del Cálculo establece que la "
+                "integración y la derivación son operaciones inversas."
+            ),
+            "metadata": {"topic": "cálculo/integrales", "source": "apunte_calculo.pdf"},
+            "similarity_score": 0.14,
+        },
+    ]
+
+
+@pytest.fixture
+def sample_student_profile() -> dict:
+    """Return a sample student profile with weak topics and preferences."""
+    return {
+        "weak_topics": ["cálculo/derivadas", "álgebra/matrices"],
+        "preferences": {"difficulty": "medium", "mcq_ratio": 0.6},
+    }
+
+
+@pytest.fixture
+def exam_generator_state(sample_chunks) -> dict:
+    """Return the base state dict for ExamGenerator graph invocation."""
+    return {
+        "session_id": str(uuid.uuid4()),
+        "student_id": "student-001",
+        "topics": ["cálculo/derivadas", "álgebra/matrices"],
+        "difficulty": "medium",
+        "question_count": 5,
+        "mcq_ratio": 0.6,
+        "student_profile": None,
+        "collection_name": "",
+        "retrieved_chunks": [],
+        "generated_questions": [],
+        "validation_results": [],
+        "validation_errors": [],
+        "invalid_question_indices": [],
+        "omitted_questions": [],
+        "retry_count": 0,
+        "topic_not_found": [],
+        "topic_suggestions": [],
+        "exam": {},
+        "status": "pending",
+    }
+
+
+@pytest.fixture
+def mock_exam_llm():
+    """Patch ChatGroq to return a valid ExamGeneration structured output.
+
+    Mocks the entire ChatGroq with_structured_output → invoke chain so
+    generate_questions can run without a real LLM. The mock returns
+    3 MCQs + 2 open-answer questions with source_chunk_ids.
+    """
+    from src.agents.exam_generator import (
+        ExamGeneration,
+        MCQQuestion,
+        OpenAnswerQuestion,
+    )
+
+    fake_exam = ExamGeneration(
+        mcq_questions=[
+            MCQQuestion(
+                stem="¿Cuál es la definición de derivada?",
+                options=[
+                    "El límite del cociente incremental",
+                    "La pendiente de una recta cualquiera",
+                    "El producto de dos funciones",
+                    "La integral de una función",
+                ],
+                correct_option_index=0,
+                source_chunk_ids=["chunk-math-001"],
+                difficulty="medium",
+                topic="cálculo/derivadas",
+            ),
+            MCQQuestion(
+                stem="¿Cuál es la derivada de una suma de funciones?",
+                options=[
+                    "f' · g'",
+                    "f' + g'",
+                    "f' / g'",
+                    "f' - g'",
+                ],
+                correct_option_index=1,
+                source_chunk_ids=["chunk-math-002"],
+                difficulty="medium",
+                topic="cálculo/derivadas",
+            ),
+            MCQQuestion(
+                stem="¿Qué es una matriz?",
+                options=[
+                    "Un arreglo rectangular de números",
+                    "Una función continua",
+                    "Un vector unitario",
+                    "Una derivada parcial",
+                ],
+                correct_option_index=0,
+                source_chunk_ids=["chunk-math-003"],
+                difficulty="easy",
+                topic="álgebra/matrices",
+            ),
+        ],
+        open_questions=[
+            OpenAnswerQuestion(
+                prompt="Explica el concepto de derivada y su interpretación geométrica.",
+                base_answer=(
+                    "La derivada es el límite del cociente incremental. "
+                    "Geométricamente representa la pendiente de la recta tangente."
+                ),
+                key_points=[
+                    "Límite del cociente incremental",
+                    "Pendiente de la recta tangente",
+                    "Tasa de cambio instantánea",
+                ],
+                source_chunk_ids=["chunk-math-001"],
+                difficulty="medium",
+                topic="cálculo/derivadas",
+            ),
+            OpenAnswerQuestion(
+                prompt="Describe cómo se calcula el rango de una matriz.",
+                base_answer=(
+                    "El rango se calcula mediante eliminación gaussiana. "
+                    "Es el número de columnas linealmente independientes."
+                ),
+                key_points=[
+                    "Columnas linealmente independientes",
+                    "Eliminación gaussiana",
+                    "Matriz invertible si rango máximo",
+                ],
+                source_chunk_ids=["chunk-math-004"],
+                difficulty="hard",
+                topic="álgebra/matrices",
+            ),
+        ],
+        metadata={
+            "topics_covered": ["cálculo/derivadas", "álgebra/matrices"],
+            "total_source_chunks": 4,
+        },
+    )
+
+    with patch("langchain_groq.ChatGroq") as mock_groq:
+        mock_structured = MagicMock()
+        mock_structured.invoke.return_value = fake_exam
+        mock_instance = MagicMock()
+        mock_instance.with_structured_output.return_value = mock_structured
+        mock_groq.return_value = mock_instance
+        yield mock_groq

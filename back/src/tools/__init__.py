@@ -16,6 +16,8 @@ from src.rag import retrieve as _rag_retrieve
 
 # Cached compiled ingestor graph — safe to reuse across invocations
 _ingestor_graph = None
+# Cached compiled exam generator graph — same lazy singleton pattern
+_exam_generator_graph = None
 
 
 def _get_ingestor_graph():
@@ -26,6 +28,16 @@ def _get_ingestor_graph():
 
         _ingestor_graph = build_ingestor().compile()
     return _ingestor_graph
+
+
+def _get_exam_generator_graph():
+    """Return the compiled ExamGenerator StateGraph, compiling on first call only."""
+    global _exam_generator_graph
+    if _exam_generator_graph is None:
+        from src.agents.exam_generator import build_exam_generator
+
+        _exam_generator_graph = build_exam_generator().compile()
+    return _exam_generator_graph
 
 
 @tool
@@ -202,3 +214,62 @@ def extract_topics(
     except Exception as exc:
         logger.exception("extract_topics failed")
         return {"error": f"Topic extraction failed: {exc}"}
+
+
+@tool
+def generate_exam(
+    session_id: str,
+    topics: list[str],
+    difficulty: str = "medium",
+    question_count: int = 5,
+    mcq_ratio: float = 0.5,
+    student_profile: dict | None = None,
+) -> dict:
+    """Generate a personalized exam with MCQs and open-answer questions.
+
+    Invokes the full ExamGenerator StateGraph: retrieves chunks from ChromaDB,
+    generates questions via structured LLM output, validates against source
+    chunks, retries hallucinated questions up to 3 times, and returns the
+    final exam dict.
+
+    Args:
+        session_id: The current session ID (determines ChromaDB collection).
+        topics: List of topic strings to cover (e.g. ['cálculo/derivadas']).
+        difficulty: 'easy', 'medium', or 'hard' (default 'medium').
+        question_count: Total number of questions to generate (default 5).
+        mcq_ratio: Fraction of questions that should be MCQ (default 0.5).
+        student_profile: Optional dict with 'weak_topics' and 'preferences'.
+
+    Returns:
+        An exam dict with keys: exam_id, session_id, student_id,
+        generated_at, total_questions, questions, topics_covered,
+        source_chunks_total, omitted_count, topic_not_found,
+        topic_suggestions, status, warnings.
+    """
+    from src.agents.exam_generator import ExamGeneratorState
+
+    graph = _get_exam_generator_graph()
+    initial_state: ExamGeneratorState = {
+        "session_id": session_id,
+        "student_id": student_profile.get("student_id", "") if student_profile else "",
+        "topics": topics,
+        "difficulty": difficulty,
+        "question_count": question_count,
+        "mcq_ratio": mcq_ratio,
+        "student_profile": student_profile,
+        "collection_name": f"session_{session_id}",
+        "retrieved_chunks": [],
+        "generated_questions": [],
+        "validation_results": [],
+        "validation_errors": [],
+        "invalid_question_indices": [],
+        "omitted_questions": [],
+        "retry_count": 0,
+        "topic_not_found": [],
+        "topic_suggestions": [],
+        "exam": {},
+        "status": "pending",
+    }
+
+    result = graph.invoke(initial_state)
+    return result.get("exam", {})
