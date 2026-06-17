@@ -14,30 +14,19 @@ from src.rag import retrieve as _rag_retrieve
 
 logger = logging.getLogger(__name__)
 
-# Cached compiled ingestor graph — safe to reuse across invocations
-_ingestor_graph = None
-# Cached compiled exam generator graph — same lazy singleton pattern
-_exam_generator_graph = None
+# Cached compiled graphs — safe to reuse across invocations
+_graph_cache: dict[str, object] = {}
 
 
-def _get_ingestor_graph():
-    """Return the compiled Ingestor StateGraph, compiling on first call only."""
-    global _ingestor_graph
-    if _ingestor_graph is None:
-        from src.agents.ingestor import build_ingestor
+def _get_or_compile(name: str, builder_path: str):
+    """Return a compiled StateGraph, building on first call only."""
+    if name not in _graph_cache:
+        import importlib
 
-        _ingestor_graph = build_ingestor().compile()
-    return _ingestor_graph
-
-
-def _get_exam_generator_graph():
-    """Return the compiled ExamGenerator StateGraph, compiling on first call only."""
-    global _exam_generator_graph
-    if _exam_generator_graph is None:
-        from src.agents.exam_generator import build_exam_generator
-
-        _exam_generator_graph = build_exam_generator().compile()
-    return _exam_generator_graph
+        mod_name, fn_name = builder_path.rsplit(".", 1)
+        builder = getattr(importlib.import_module(mod_name), fn_name)
+        _graph_cache[name] = builder().compile()
+    return _graph_cache[name]
 
 
 @tool
@@ -93,7 +82,7 @@ def ingest_document(
     """
     from src.agents.ingestor import IngestorState
 
-    graph = _get_ingestor_graph()
+    graph = _get_or_compile("ingestor", "src.agents.ingestor.build_ingestor")
     initial_state: IngestorState = {
         "session_id": session_id,
         "file_path": file_path,
@@ -248,7 +237,7 @@ def generate_exam(
     """
     from src.agents.exam_generator import ExamGeneratorState
 
-    graph = _get_exam_generator_graph()
+    graph = _get_or_compile("exam_generator", "src.agents.exam_generator.build_exam_generator")
     initial_state: ExamGeneratorState = {
         "session_id": session_id,
         "student_id": student_profile.get("student_id", "") if student_profile else "",

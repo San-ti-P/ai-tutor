@@ -7,6 +7,7 @@ LLM call → claim-level embedding validation → 3-retry loop → format.
 
 from __future__ import annotations
 
+import math
 import operator
 from datetime import UTC
 from typing import Annotated
@@ -51,25 +52,14 @@ class ExamGeneration(BaseModel):
     )
 
 
-class ClaimCheck(BaseModel):
-    """Single atomic claim extracted from a question, with its best chunk match."""
-
-    claim_text: str
-    source: str  # "stem", "option", "base_answer", "key_point"
-    question_index: int
-    best_chunk_id: str | None = None
-    similarity_score: float = 0.0
-    matched: bool = False
 
 
-class ValidationResult(BaseModel):
-    """Per-question validation result: all claims, pass/fail, matched chunks."""
-
-    question_index: int
-    valid: bool
-    claims_checked: list[ClaimCheck] = Field(default_factory=list)
-    missing_claims: list[str] = Field(default_factory=list)
-    matched_chunk_ids: list[str] = Field(default_factory=list)
+def _cosine_sim(a: list[float], b: list[float]) -> float:
+    """Cosine similarity between two vectors. Returns 0.0 if either has zero norm."""
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    return dot / (norm_a * norm_b) if norm_a > 0 and norm_b > 0 else 0.0
 
 
 # ── State schema ─────────────────────────────────────────────────────────────
@@ -362,7 +352,6 @@ def validate_questions(state: ExamGeneratorState) -> dict:
     anti_hallucination_threshold are flagged as errors.
     """
     import logging
-    import math
     import re
 
     from src.config import settings
@@ -435,16 +424,8 @@ def validate_questions(state: ExamGeneratorState) -> dict:
 
                 best_score = 0.0
                 best_chunk_id = None
-
                 for ci, chunk_emb in enumerate(chunk_embeddings):
-                    # Cosine similarity: dot product of normalized vectors
-                    dot = sum(a * b for a, b in zip(claim_embedding, chunk_emb))
-                    norm_a = math.sqrt(sum(a * a for a in claim_embedding))
-                    norm_b = math.sqrt(sum(b * b for b in chunk_emb))
-                    if norm_a > 0 and norm_b > 0:
-                        sim = dot / (norm_a * norm_b)
-                    else:
-                        sim = 0.0
+                    sim = _cosine_sim(claim_embedding, chunk_emb)
                     if sim > best_score:
                         best_score = sim
                         best_chunk_id = chunks[ci].get("chunk_id", "")

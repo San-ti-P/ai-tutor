@@ -19,8 +19,6 @@ from typing import Annotated, Literal
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
-from src.config import settings
-
 logger = logging.getLogger(__name__)
 
 
@@ -150,59 +148,6 @@ Texto:
     except Exception as e:
         logger.exception("classify_document failed")
         return {"errors": [f"Classification error: {e}"], "status": "error"}
-
-
-# ── OCR helpers (DEFERRED — post-MVP) ──────────────────────────────────────
-# These functions are kept for reference. They are NOT wired into the graph.
-# When image + math support is re-enabled:
-#   1. Re-add image types to parse_document
-#   2. Add a run_ocr_if_needed node between classify_document and chunk_and_embed
-#   3. Add a check_ocr_confidence conditional edge
-#   4. Re-add ocr_confidence, ocr_expressions, needs_ocr_confirmation to state
-
-
-def _ocr_mathpix(image_path: str) -> tuple[list[dict], float]:  # nocover
-    """Call Mathpix API to extract LaTeX from image. Returns (expressions, confidence)."""
-    import base64
-    from pathlib import Path
-
-    import requests
-
-    with open(image_path, "rb") as f:
-        image_data = base64.b64encode(f.read()).decode()
-
-    suffix = Path(image_path).suffix.lower()
-    mime = "image/jpeg" if suffix in {".jpg", ".jpeg"} else "image/png"
-
-    resp = requests.post(
-        "https://api.mathpix.com/v3/text",
-        json={
-            "src": f"data:{mime};base64,{image_data}",
-            "formats": ["latex_styled"],
-        },
-        headers={
-            "app_id": settings.mathpix_app_id,
-            "app_key": settings.mathpix_app_key,
-        },
-        timeout=30,
-    )
-    if resp.status_code != 200:
-        raise RuntimeError(f"Mathpix API error: {resp.status_code}")
-
-    data = resp.json()
-    confidence = float(data.get("confidence", 0.0))
-    expressions = [{"expression": data.get("text", ""), "confidence": confidence}]
-    return expressions, confidence
-
-
-def _ocr_noop(image_path: str) -> tuple[list[dict], float]:  # nocover  # noqa: ARG001
-    """No-op OCR stub for when Mathpix is unavailable.
-
-    Returns confidence 1.0 so ingestion can proceed without blocking
-    at the OCR confirmation gate. Callers receive an empty expression list.
-    """
-    logger.warning("OCR noop: returning empty (Mathpix disabled)")
-    return [], 1.0
 
 
 # ── Node implementation: chunk_and_embed ────────────────────────────────────
