@@ -92,8 +92,9 @@ def parse_document(state: IngestorState) -> dict:
 
 def classify_document(state: IngestorState) -> dict:
     """Classify document type and detect topics using LLM."""
-    from langchain_groq import ChatGroq
     from pydantic import BaseModel, Field
+
+    from src.config import settings
 
     class Classification(BaseModel):
         classification: Literal[
@@ -110,7 +111,8 @@ def classify_document(state: IngestorState) -> dict:
                 "status": "rejected",
             }
 
-        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.0)
+        llm_cls, llm_kwargs = settings.llm_kwargs
+        llm = llm_cls(**llm_kwargs)
         structured_llm = llm.with_structured_output(Classification)
 
         prompt = f"""Analizá el siguiente texto académico y clasificalo.
@@ -162,10 +164,9 @@ Texto:
 def _ocr_mathpix(image_path: str) -> tuple[list[dict], float]:  # nocover
     """Call Mathpix API to extract LaTeX from image. Returns (expressions, confidence)."""
     import base64
+    from pathlib import Path
 
     import requests
-
-    from pathlib import Path
 
     with open(image_path, "rb") as f:
         image_data = base64.b64encode(f.read()).decode()

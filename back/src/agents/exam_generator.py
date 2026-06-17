@@ -8,11 +8,12 @@ LLM call → claim-level embedding validation → 3-retry loop → format.
 from __future__ import annotations
 
 import operator
+from datetime import UTC
+from typing import Annotated
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
-from typing_extensions import Annotated, TypedDict
-
+from typing_extensions import TypedDict
 
 # ── Pydantic structured-output models ────────────────────────────────────────
 
@@ -23,9 +24,7 @@ class MCQQuestion(BaseModel):
     stem: str = Field(description="Question stem (the question text)")
     options: list[str] = Field(description="3-5 answer options, exactly one correct")
     correct_option_index: int = Field(description="0-based index of the correct option")
-    source_chunk_ids: list[str] = Field(
-        description="ChromaDB chunk IDs supporting this question"
-    )
+    source_chunk_ids: list[str] = Field(description="ChromaDB chunk IDs supporting this question")
     difficulty: str = Field(description="'easy' | 'medium' | 'hard'")
     topic: str = Field(description="Primary topic this question covers")
 
@@ -34,15 +33,9 @@ class OpenAnswerQuestion(BaseModel):
     """Open-ended question with base answer for evaluator grading."""
 
     prompt: str = Field(description="Open-ended question prompt")
-    base_answer: str = Field(
-        description="Expected answer — used by Evaluator (Epic 5) for grading"
-    )
-    key_points: list[str] = Field(
-        description="3-5 key points the answer should include"
-    )
-    source_chunk_ids: list[str] = Field(
-        description="ChromaDB chunk IDs supporting this question"
-    )
+    base_answer: str = Field(description="Expected answer — used by Evaluator (Epic 5) for grading")
+    key_points: list[str] = Field(description="3-5 key points the answer should include")
+    source_chunk_ids: list[str] = Field(description="ChromaDB chunk IDs supporting this question")
     difficulty: str = Field(description="'easy' | 'medium' | 'hard'")
     topic: str = Field(description="Primary topic this question covers")
 
@@ -156,10 +149,12 @@ def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict:
         seen_chunk_ids: set[str] = set()
 
         for topic in unique_topics:
-            chunks = _retrieve_chunks(
-                query=topic,
-                top_k=5,
-                collection_name=collection_name,
+            chunks = _retrieve_chunks.invoke(
+                {
+                    "query": topic,
+                    "top_k": 5,
+                    "collection_name": collection_name,
+                }
             )
             if not chunks:
                 topic_not_found.append(topic)
@@ -230,8 +225,6 @@ def generate_questions(state: ExamGeneratorState) -> dict:
     """
     import logging
 
-    from langchain_groq import ChatGroq
-
     from src.config import settings
 
     logger = logging.getLogger(__name__)
@@ -255,15 +248,16 @@ def generate_questions(state: ExamGeneratorState) -> dict:
         validation_errors: list[str] = state.get("validation_errors", [])
 
         # On retry: only generate replacements for invalid slots
-        target_count = len(invalid_indices) if retry_count > 0 and invalid_indices else question_count
+        target_count = (
+            len(invalid_indices) if retry_count > 0 and invalid_indices else question_count
+        )
 
         if target_count <= 0:
             return {"generated_questions": existing_questions, "status": "generated"}
 
         # Build chunk context
         chunk_context = "\n\n".join(
-            f"[CHUNK:{c.get('chunk_id', '?')}] {c.get('text', '')}"
-            for c in chunks
+            f"[CHUNK:{c.get('chunk_id', '?')}] {c.get('text', '')}" for c in chunks
         )[:8000]  # Truncate to avoid token overflow
 
         # Build preferences section
@@ -291,7 +285,15 @@ def generate_questions(state: ExamGeneratorState) -> dict:
                 f"Errores anteriores: {'; '.join(validation_errors[-5:])}"
             )
 
-        prompt = f"""Generá un examen académico basado EXCLUSIVAMENTE en los siguientes chunks de material de estudio.
+        header = (
+            "Generá un examen académico basado EXCLUSIVAMENTE en "
+            "los siguientes chunks de material de estudio."
+        )
+        req_open = (
+            "- Para open-answer: prompts que requieran explicación "
+            "(no sí/no), incluir base_answer y 3-5 key_points."
+        )
+        prompt = f"""{header}
 
 {chunk_context}
 
@@ -301,12 +303,13 @@ PREFERENCIAS:
 REQUISITOS:
 - Cada pregunta DEBE basarse en hechos textuales de los chunks provistos.
 - Para MCQs: 3-5 opciones, exactamente una correcta, distractores plausibles.
-- Para open-answer: prompts que requieran explicación (no sí/no), incluir base_answer y 3-5 key_points.
+{req_open}
 - Incluí source_chunk_ids (los IDs entre corchetes [CHUNK:xxx]) por cada pregunta.
 - Cada pregunta debe tener los campos: topic y difficulty.
 """
 
-        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.0)
+        llm_cls, llm_kwargs = settings.llm_kwargs
+        llm = llm_cls(**llm_kwargs)
         structured_llm = llm.with_structured_output(ExamGeneration)
         result: ExamGeneration = structured_llm.invoke(prompt)
 
@@ -398,9 +401,7 @@ def validate_questions(state: ExamGeneratorState) -> dict:
             if qtype == "mcq":
                 stem = question.get("stem", "")
                 claims.extend(
-                    c.strip()
-                    for c in sentence_split_re.split(stem)
-                    if len(c.strip()) >= 20
+                    c.strip() for c in sentence_split_re.split(stem) if len(c.strip()) >= 20
                 )
                 for opt in question.get("options", []):
                     opt_clean = opt.strip()
@@ -409,9 +410,7 @@ def validate_questions(state: ExamGeneratorState) -> dict:
             else:  # open_answer
                 base = question.get("base_answer", "")
                 claims.extend(
-                    c.strip()
-                    for c in sentence_split_re.split(base)
-                    if len(c.strip()) >= 20
+                    c.strip() for c in sentence_split_re.split(base) if len(c.strip()) >= 20
                 )
                 for kp in question.get("key_points", []):
                     kp_clean = kp.strip()
@@ -496,9 +495,16 @@ def validate_questions(state: ExamGeneratorState) -> dict:
 
 
 def should_retry(state: ExamGeneratorState) -> str:
-    """Return 'retry' if validation errors exist AND retry_count < 3, else 'done'."""
+    """Return 'retry' if validation errors exist AND retry_count < 3, else 'done'.
+
+    Does NOT retry on retrieval errors (status='error' or 'no_material') —
+    those are terminal for this invocation.
+    """
     errors = state.get("validation_errors", [])
     retry_count = state.get("retry_count", 0)
+    status = state.get("status", "")
+    if status in ("error", "no_material"):
+        return "done"
     if errors and retry_count < 3:
         return "retry"
     return "done"
@@ -511,7 +517,7 @@ def format_exam(state: ExamGeneratorState) -> dict:
     and sets status (complete | partial | no_material).
     """
     import uuid as _uuid
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     try:
         questions: list[dict] = state.get("generated_questions", [])
@@ -522,21 +528,17 @@ def format_exam(state: ExamGeneratorState) -> dict:
 
         # Filter out omitted questions
         omitted_set = set(omitted_indices)
-        final_questions = [
-            q for i, q in enumerate(questions) if i not in omitted_set
-        ]
+        final_questions = [q for i, q in enumerate(questions) if i not in omitted_set]
 
         # Compute topics covered
         topics_covered = list(
-            dict.fromkeys(
-                q.get("topic", "")
-                for q in final_questions
-                if q.get("topic")
-            )
+            dict.fromkeys(q.get("topic", "") for q in final_questions if q.get("topic"))
         )
 
         # Determine status
-        if not topics_covered and topic_not_found:
+        if not final_questions:
+            exam_status = "no_material"
+        elif topic_not_found and not topics_covered:
             exam_status = "no_material"
         elif omitted_indices or validation_errors:
             exam_status = "partial"
@@ -547,7 +549,7 @@ def format_exam(state: ExamGeneratorState) -> dict:
             "exam_id": str(_uuid.uuid4()),
             "session_id": state.get("session_id", ""),
             "student_id": state.get("student_id", ""),
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "total_questions": len(final_questions),
             "questions": final_questions,
             "topics_covered": topics_covered,
@@ -562,6 +564,7 @@ def format_exam(state: ExamGeneratorState) -> dict:
         return {"exam": exam, "status": exam_status}
     except Exception as exc:
         import logging
+
         logger = logging.getLogger(__name__)
         logger.exception("format_exam failed")
         return {

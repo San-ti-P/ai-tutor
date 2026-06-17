@@ -1,9 +1,10 @@
 """Evaluator Agent — Chain-of-Thought for evaluating student answers."""
 
 import operator
+from typing import Annotated
 
 from langgraph.graph import END, START, StateGraph
-from typing_extensions import Annotated, TypedDict
+from typing_extensions import TypedDict
 
 
 class EvaluatorState(TypedDict):

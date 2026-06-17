@@ -32,6 +32,24 @@ class Settings(BaseSettings):
     chunk_overlap: int = 64
     retrieval_top_k: int = 5
 
+    # LLM
+    llm_provider: str = "groq"  # "groq" or "ollama"
+    groq_model_name: str = "llama-3.1-8b-instant"  # cheapest, tool-use capable
+    ollama_model_name: str = "gemma4:e4b-it-q8_0"  # local 4B model, tool-use capable
+    ollama_base_url: str = "http://localhost:11434"
+
+    @property
+    def llm_kwargs(self) -> dict:
+        """Return (model_class, kwargs) for the configured LLM provider."""
+        if self.llm_provider == "ollama":
+            from langchain_ollama import ChatOllama
+
+            return ChatOllama, {"model": self.ollama_model_name, "temperature": 0}
+        # default: groq
+        from langchain_groq import ChatGroq
+
+        return ChatGroq, {"model": self.groq_model_name, "temperature": 0}
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

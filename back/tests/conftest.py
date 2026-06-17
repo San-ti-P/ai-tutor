@@ -1,4 +1,5 @@
 """Shared test fixtures for the Ingestor + RAG + ExamGenerator test suite."""
+
 from __future__ import annotations
 
 import uuid
@@ -6,6 +7,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# Load .env before any test runs — ChatGroq reads GROQ_API_KEY from os.environ
+from dotenv import load_dotenv as _load_dotenv
+
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    _load_dotenv(_env_path)
 
 
 @pytest.fixture
@@ -126,17 +134,13 @@ def mock_embedding_model():
         mock_model = MagicMock()
         # Return deterministic 384-dim embeddings scaled by hash of input
         mock_model.encode.return_value.tolist.return_value = [
-            [0.1 * (i + 1 + (hash(chunk) % 10) * 0.01) for i in range(384)]
-            for chunk in []
+            [0.1 * (i + 1 + (hash(chunk) % 10) * 0.01) for i in range(384)] for chunk in []
         ]
         mock_model.get_sentence_embedding_dimension.return_value = 384
 
         # Make encode return proper numpy-like list for each call
         def _fake_encode(texts):
-            return [
-                [0.1 * (i + 1 + (hash(t) % 10) * 0.01) for i in range(384)]
-                for t in texts
-            ]
+            return [[0.1 * (i + 1 + (hash(t) % 10) * 0.01) for i in range(384)] for t in texts]
 
         mock_model.encode.side_effect = lambda texts: type(
             "FakeArray", (), {"tolist": lambda self: _fake_encode(texts)}
@@ -345,3 +349,87 @@ def mock_exam_llm():
         mock_instance.with_structured_output.return_value = mock_structured
         mock_groq.return_value = mock_instance
         yield mock_groq
+
+
+# ── Real-model integration fixtures (opt-in via `-m integration`) ─────────────
+
+
+@pytest.fixture
+def requires_groq():
+    """Skip integration tests when GROQ_API_KEY is not configured."""
+    from src.config import settings
+
+    if not settings.groq_api_key:
+        pytest.skip("GROQ_API_KEY not set — real LLM integration test skipped")
+
+
+@pytest.fixture
+def real_pdf_path() -> Path:
+    """Return path to the real academic PDF for integration tests.
+
+    Looks for apunteAgentes_IA2007.pdf in tests/fixtures/.
+    Skips the test if the file is not found.
+    """
+    pdf = Path(__file__).resolve().parent / "fixtures" / "apunteAgentes_IA2007.pdf"
+    if not pdf.exists():
+        pytest.skip(f"Real PDF not found at {pdf}")
+    return pdf
+
+
+@pytest.fixture
+def real_pdf_text(real_pdf_path: Path) -> str:
+    """Parse the real academic PDF with markitdown and return raw text."""
+    import markitdown
+
+    md = markitdown.MarkItDown()
+    result = md.convert(str(real_pdf_path))
+    text = result.text_content
+    if not text or not text.strip():
+        pytest.skip("Real PDF parsed but produced no extractable text")
+    return text
+
+
+@pytest.fixture
+def ingested_collection_name(real_pdf_path: Path, temp_dir: Path) -> str:
+    """Ingest the real PDF into an ephemeral ChromaDB collection.
+
+    Uses real markitdown parsing, real SentenceTransformer embeddings,
+    and real ChromaDB storage. Yields the collection name for retrieval.
+
+    This is expensive — only use in integration tests.
+    """
+    import uuid
+
+    import markitdown
+
+    from src.rag import chunk_text, embed_and_store
+
+    md = markitdown.MarkItDown()
+    result = md.convert(str(real_pdf_path))
+    text = result.text_content
+    if not text or not text.strip():
+        pytest.skip("Real PDF produced no extractable text for ingestion")
+
+    chunks = chunk_text(text)
+    if not chunks:
+        pytest.skip("Real PDF produced zero chunks after splitting")
+
+    session_id = str(uuid.uuid4())
+    collection_name = f"integration_{session_id}"
+
+    metadatas = [
+        {
+            "source_file": real_pdf_path.name,
+            "chunk_index": i,
+            "classification": "apunte_teorico",
+        }
+        for i in range(len(chunks))
+    ]
+
+    embed_and_store(
+        [c.page_content for c in chunks],
+        metadatas,
+        collection_name,
+    )
+
+    return collection_name

@@ -10,9 +10,9 @@ import logging
 
 from langchain_core.tools import tool
 
-logger = logging.getLogger(__name__)
-
 from src.rag import retrieve as _rag_retrieve
+
+logger = logging.getLogger(__name__)
 
 # Cached compiled ingestor graph — safe to reuse across invocations
 _ingestor_graph = None
@@ -147,20 +147,17 @@ def extract_topics(
     """
     from pathlib import Path
 
-    from langchain_groq import ChatGroq
     from pydantic import BaseModel, Field
 
     class TopicExtraction(BaseModel):
         summary: str = Field(description="One-sentence summary of the content")
-        topics: list[str] = Field(
-            description="Flat list of detected topics (3-15 items)"
-        )
-        topic_tree: dict = Field(
+        topics: list[str] = Field(description="Flat list of detected topics (3-15 items)")
+        topic_tree: str = Field(
+            default="",
             description=(
-                "Hierarchical topic structure as nested dict. "
-                "Keys are topic names; values are sub-topic dicts. "
-                'Example: {"Math": {"Algebra": {"Linear": {}}, "Calculus": {}}}'
-            )
+                "Hierarchical topic structure as JSON string. "
+                'Example: \'{"Math": {"Algebra": {}, "Calculus": {}}}\''
+            ),
         )
 
     # Resolve input text
@@ -194,14 +191,17 @@ def extract_topics(
     content_preview = content[:5000]
 
     try:
-        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.0)
+        from src.config import settings
+
+        llm_cls, llm_kwargs = settings.llm_kwargs
+        llm = llm_cls(**llm_kwargs)
         structured_llm = llm.with_structured_output(TopicExtraction)
 
         prompt = (
             "Analizá el siguiente texto académico y extraé:\n"
             "1. Un resumen de una línea del contenido.\n"
             "2. Una lista plana de temas principales (3-15 temas).\n"
-            "3. Un árbol jerárquico de temas (dict anidado).\n\n"
+            "3. Un árbol de temas como texto, ejemplo: 'Matemáticas > Álgebra > Lineal'\n\n"
             f"Texto:\n{content_preview}"
         )
 

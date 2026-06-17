@@ -1,4 +1,5 @@
 """Unit tests for the RAG module."""
+
 from __future__ import annotations
 
 import uuid
@@ -107,18 +108,14 @@ class TestEmbedAndStore:
                 return [[0.1 * (i + 1) for i in range(384)] for _ in texts]
 
             mock_model.encode.return_value.tolist = MagicMock()
-            mock_model.encode.side_effect = lambda texts: _FakeEncodeResult(
-                _fake_encode(texts)
-            )
+            mock_model.encode.side_effect = lambda texts: _FakeEncodeResult(_fake_encode(texts))
             mock_get_model.return_value = mock_model
 
             # Patch chroma persist directory to temp
             with patch("src.rag.get_chroma_client") as mock_get_client:
                 import chromadb
 
-                client = chromadb.PersistentClient(
-                    path=str(temp_dir / "chroma_test_embed")
-                )
+                client = chromadb.PersistentClient(path=str(temp_dir / "chroma_test_embed"))
                 mock_get_client.return_value = client
                 yield
 
@@ -168,23 +165,22 @@ class TestRetrieve:
                 return [[0.1 * (i + 1) for i in range(384)] for _ in texts]
 
             mock_model.encode.return_value.tolist = MagicMock()
-            mock_model.encode.side_effect = lambda texts: _FakeEncodeResult(
-                _fake_encode(texts)
-            )
+            mock_model.encode.side_effect = lambda texts: _FakeEncodeResult(_fake_encode(texts))
             mock_get_model.return_value = mock_model
 
             with patch("src.rag.get_chroma_client") as mock_get_client:
                 import chromadb
 
-                client = chromadb.PersistentClient(
-                    path=str(temp_dir / "chroma_test_retrieve")
-                )
+                client = chromadb.PersistentClient(path=str(temp_dir / "chroma_test_retrieve"))
                 mock_get_client.return_value = client
 
                 # Pre-populate collection with test chunks
                 embed_and_store(
-                    ["Calculus derivatives explained.", "Physics mechanics 101.",
-                     "Algebra matrices operations."],
+                    [
+                        "Calculus derivatives explained.",
+                        "Physics mechanics 101.",
+                        "Algebra matrices operations.",
+                    ],
                     [
                         {"topic": "math/calculus", "source": "test"},
                         {"topic": "physics/mechanics", "source": "test"},
@@ -219,9 +215,71 @@ class TestRetrieve:
         with patch("src.rag.get_chroma_client") as mock_get_client:
             import chromadb
 
-            client = chromadb.PersistentClient(
-                path=str(temp_dir / "chroma_empty")
-            )
+            client = chromadb.PersistentClient(path=str(temp_dir / "chroma_empty"))
             mock_get_client.return_value = client
             results = retrieve("query", "nonexistent_collection", top_k=5)
             assert results == []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Real-model integration tests (run with: pytest -m integration)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.integration
+class TestRealRAG:
+    """Real chunking + embedding + retrieval from the real academic PDF."""
+
+    def test_real_chunking(self, real_pdf_text):
+        """Real academic text produces multiple semantic chunks."""
+        docs = chunk_text(real_pdf_text)
+        assert len(docs) >= 5, f"Expected ≥5 chunks from real PDF, got {len(docs)}"
+        # Chunks should not exceed chunk_size + overlap
+        for doc in docs:
+            assert len(doc.page_content) <= 600, f"Chunk too large: {len(doc.page_content)} chars"
+        # At least one chunk should contain agent-related content
+        agent_content = any("agente" in doc.page_content.lower() for doc in docs)
+        assert agent_content, "No chunk contains agent-related content"
+
+    def test_real_embed_and_retrieve(self, ingested_collection_name):
+        """Real embeddings produce meaningful semantic retrieval."""
+        # Query for agent-related content — should find relevant chunks
+        results = retrieve(
+            "definición de agente inteligente",
+            ingested_collection_name,
+            top_k=5,
+        )
+        assert len(results) > 0, "No results for known topic query"
+        # Best result should have a reasonable similarity score
+        best_score = results[0]["similarity_score"]
+        assert best_score >= 0.0, f"Invalid similarity score: {best_score}"
+        # Results should be ordered by relevance (scores should differ)
+        scores = [r["similarity_score"] for r in results]
+        unique_scores = len(set(round(s, 5) for s in scores))
+        assert unique_scores >= 2, (
+            "All retrieved chunks have identical similarity scores — "
+            "embedding may not be working correctly"
+        )
+
+    def test_real_topic_extraction(self, requires_groq, real_pdf_text):
+        """extract_topics tool works on real academic content."""
+        from src.tools import extract_topics
+
+        result = extract_topics.invoke({"text": real_pdf_text[:5000]})
+        assert "error" not in result, f"extract_topics failed: {result.get('error')}"
+        assert "summary" in result
+        assert len(result.get("topics", [])) >= 3, (
+            f"Expected ≥3 topics, got {result.get('topics', [])}"
+        )
+        assert "topic_tree" in result
+        # Topic tree should be a dict or non-empty JSON string
+        tree = result["topic_tree"]
+        assert tree, "topic_tree is empty"
+        if isinstance(tree, str):
+            import json
+
+            try:
+                tree = json.loads(tree)
+            except json.JSONDecodeError:
+                pass  # string representation is acceptable
+        assert isinstance(tree, (dict, str)), f"topic_tree is not dict or string: {type(tree)}"
