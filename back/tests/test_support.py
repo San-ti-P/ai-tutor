@@ -566,8 +566,64 @@ class TestSupportGraphBuilder:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# T-6.7: Evaluator sync_scores → upsert_topic_scores integration test
+# T-6.9: Multi-session adaptation integration test (PRD case 4)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.integration
+class TestMultiSessionAdaptation:
+    """SUP-07 / PRD case 4: weak topics are detected across sessions."""
+
+    def test_second_session_prioritizes_weak_topics(self, populated_db, evaluator_state):
+        """GIVEN first session with low scores on topic X → WHEN compute_weak_topics
+        → THEN X appears in weak_topics for the second session.
+        """
+        from src.agents.evaluator import sync_scores
+        from src.memory.schema import compute_weak_topics
+
+        with patch("src.memory.schema.settings") as mock_settings:
+            mock_settings.sqlite_db_path = populated_db
+
+            # Session 1: student answers poorly on cálculo, well on álgebra
+            state = dict(evaluator_state)
+            state["student_id"] = "test-student-001"
+            state["evaluation_results"] = [
+                {
+                    "question_id": "q-001",
+                    "topic": "cálculo",
+                    "score": 3.0,
+                    "justification": "Poor understanding of derivatives",
+                    "conceptual_errors": ["Wrong definition"],
+                    "suggestions": ["Review limits"],
+                    "source_chunk_ids": [],
+                    "status": "evaluated",
+                },
+                {
+                    "question_id": "q-002",
+                    "topic": "álgebra",
+                    "score": 8.0,
+                    "justification": "Good matrix understanding",
+                    "conceptual_errors": [],
+                    "suggestions": [],
+                    "source_chunk_ids": [],
+                    "status": "evaluated",
+                },
+            ]
+
+            result = sync_scores(state)
+            assert result["scores_synced"] is True
+
+            # Session 2: compute weak topics — cálculo should appear (score 3.0 < 6.0)
+            import asyncio
+
+            async def _check():
+                return await compute_weak_topics("test-student-001")
+
+            weak = asyncio.run(_check())
+            assert "cálculo" in weak, f"Expected 'cálculo' in weak topics, got {weak}"
+            assert "álgebra" not in weak, (
+                f"'álgebra' with score 8.0 should not be weak, got {weak}"
+            )
 
 
 @pytest.mark.integration
