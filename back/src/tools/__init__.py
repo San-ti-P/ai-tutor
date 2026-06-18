@@ -206,6 +206,65 @@ def extract_topics(
 
 
 @tool
+def generate_exercise(
+    session_id: str,
+    topic: str,
+    difficulty: str = "medium",
+    exercise_type: str = "problem_solving",
+    student_profile: dict | None = None,
+) -> dict:
+    """Generate a practical exercise with step-by-step model solution.
+
+    Invokes the full ExerciseGenerator StateGraph: retrieves chunks from
+    ChromaDB for the requested topic, generates a single complex exercise
+    via structured LLM output (PracticalExercise with ModelSolution), validates
+    against source chunks using claim-level embedding similarity, retries
+    hallucinated content up to 3 times, and returns the final exercise dict.
+
+    Args:
+        session_id: The current session ID (determines ChromaDB collection).
+        topic: Topic string for the exercise (e.g. 'cálculo/derivadas').
+        difficulty: 'easy', 'medium', or 'hard' (default 'medium').
+        exercise_type: 'problem_solving', 'proof', or 'calculation'
+            (default 'problem_solving').
+        student_profile: Optional dict with 'weak_topics' and 'preferences'.
+
+    Returns:
+        An exercise dict with keys: exercise_id, session_id, student_id,
+        generated_at, topic, difficulty, exercise_type, statement, given_data,
+        question, model_solution (steps, final_answer, key_concepts),
+        source_chunk_ids, topics_covered, source_chunks_total, topic_not_found,
+        topic_suggestions, status, warnings.
+    """
+    from src.agents.exercise_generator import ExerciseGeneratorState
+
+    graph = _get_or_compile(
+        "exercise_generator", "src.agents.exercise_generator.build_exercise_generator"
+    )
+    initial_state: ExerciseGeneratorState = {
+        "session_id": session_id,
+        "student_id": student_profile.get("student_id", "") if student_profile else "",
+        "topic": topic,
+        "difficulty": difficulty,
+        "exercise_type": exercise_type,
+        "collection_name": f"session_{session_id}",
+        "student_profile": student_profile,
+        "retrieved_chunks": [],
+        "generated_exercise": {},
+        "validation_passed": False,
+        "validation_errors": [],
+        "retry_count": 0,
+        "topic_not_found": [],
+        "topic_suggestions": [],
+        "exercise": {},
+        "status": "pending",
+    }
+
+    result = graph.invoke(initial_state)
+    return result.get("exercise", {})
+
+
+@tool
 def generate_exam(
     session_id: str,
     topics: list[str],
