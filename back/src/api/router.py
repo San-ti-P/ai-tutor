@@ -134,19 +134,68 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
 @router.post("/evaluate", response_model=ApiResponse[list[EvaluationResult]])
 async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationResult]]:
     logger.info("Evaluation requested for exam %s", request.exam_id)
-    return ApiResponse(
-        data=[
+
+    from src.tools import evaluate_answer as _evaluate_tool
+
+    # Convert dict[str, str] answers to list[dict] format expected by evaluator
+    answers_list: list[dict] = []
+    for question_id, student_answer in request.answers.items():
+        answers_list.append(
+            {
+                "question_id": question_id,
+                "question": "",  # Would come from exam data in full impl
+                "base_answer": "",  # Would come from exam data
+                "student_answer": student_answer,
+                "source_chunk_ids": [],
+                "topic": "",
+                "difficulty": "medium",
+            }
+        )
+
+    try:
+        results = _evaluate_tool.invoke(
+            {
+                "session_id": request.session_id,
+                "exam_id": request.exam_id,
+                "answers": answers_list,
+                "student_id": "",
+            }
+        )
+
+        evaluation_results = [
             EvaluationResult(
-                question_id=q_id,
-                score=0.0,
-                justification="Agentes de evaluación aún no implementados.",
-                conceptual_errors=[],
-                suggestions=[],
+                question_id=r.get("question_id", ""),
+                score=r.get("score", 0.0),
+                justification=r.get("justification", ""),
+                conceptual_errors=r.get("conceptual_errors", []),
+                suggestions=r.get("suggestions", []),
+                is_evaluable=r.get("is_evaluable", True),
+                non_evaluable_reason=r.get("non_evaluable_reason", ""),
+                requires_review=r.get("requires_review", False),
+                judge_score=r.get("judge_verdict", {}).get("score")
+                if isinstance(r.get("judge_verdict"), dict)
+                else None,
             )
-            for q_id in request.answers
-        ],
-        error=None,
-    )
+            for r in results
+        ]
+
+        return ApiResponse(data=evaluation_results, error=None)
+
+    except Exception as exc:
+        logger.exception("Evaluation failed for exam %s", request.exam_id)
+        return ApiResponse(
+            data=[
+                EvaluationResult(
+                    question_id=q_id,
+                    score=0.0,
+                    justification=f"Evaluation error: {exc}",
+                    conceptual_errors=[],
+                    suggestions=[],
+                )
+                for q_id in request.answers
+            ],
+            error=str(exc),
+        )
 
 
 @router.get("/profile/{session_id}", response_model=ApiResponse[StudentProfile])

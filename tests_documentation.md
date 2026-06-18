@@ -38,7 +38,7 @@ GROQ_API_KEY=gsk_...      # only needed for groq
 
 ## Test Inventory
 
-### Integration Tests (9 tests — `-m integration`)
+### Integration Tests (12 tests — `-m integration`)
 
 | # | Test | File | Real Resource | What It Proves |
 |---|------|------|--------------|----------------|
@@ -51,14 +51,18 @@ GROQ_API_KEY=gsk_...      # only needed for groq
 | 7 | `test_real_topic_extraction` | `test_rag.py` | ChatOllama/ChatGroq | LLM extracts ≥3 topics + summary from real PDF text |
 | 8 | `test_generate_exam_from_real_pdf` | `test_exam_generator.py` | ChatOllama/ChatGroq + all above | Full pipeline: PDF → chunks → LLM exam. Verifies R1, R2, R3, R6 |
 | 9 | `test_anti_hallucination_catches_fabrication` | `test_exam_generator.py` | SentenceTransformer + ChromaDB | Claim-level validation catches fabricated astrophysics claims against real agent-theory chunks. Verifies R3 |
+| 10 | `test_evaluate_correct_answer` | `test_evaluator.py` | ChatOllama + SentenceTransformer + ChromaDB (real PDF) | PRD Case 3: correct answer scored ≥6 by real LLM with RAG backing. Verifies EVAL-SPEC-01, EVAL-SPEC-02 |
+| 11 | `test_evaluate_partially_correct` | `test_evaluator.py` | ChatOllama + SentenceTransformer + ChromaDB (real PDF) | PRD Case 8: partially correct answer scored mid-range. Verifies EVAL-SPEC-03, EVAL-SPEC-04 |
+| 12 | `test_evaluate_wrong_language` | `test_evaluator.py` | None (rule-based guard) | PRD Case 12: gibberish rejected with structured cannot_evaluate response. Verifies EVAL-SPEC-09, EVAL-SPEC-10 |
 
-### Unit Tests (35 tests — default)
+### Unit Tests (57 tests — default)
 
 | File | Tests | Mocks | Covers |
 |------|-------|-------|--------|
 | `test_exam_generator.py` | 15 | ChatGroq, retrieve_chunks, embeddings | Graph topology, state transitions, retry logic, dedup, output structure, PRD cases (mocked) |
 | `test_ingestor.py` | 12 | ChatGroq | Parse, classify, incremental ingestion, non-academic rejection, image rejection, error handling |
 | `test_rag.py` | 10 | Embedding model, ChromaDB client | Chunking, ThematicIndex (CRUD + merge), embed/store, retrieve (with topic filter) |
+| `test_evaluator.py` | 22 | ChatOllama (provider-aware mock), SentenceTransformer, retrieve_chunks | 8-node graph: state schema, evaluability guard (gibberish, language mismatch, length), structured LLM evaluation, anti-hallucination claim validation, LLM-as-judge sampling + disagreement, batch loop, DB sync, full graph E2E mocked |
 
 ---
 
@@ -70,18 +74,18 @@ All 12 cases from `init_PRD.md` §8. Mapping shows which test file covers each c
 |-------|----------|-------------|------|-------------|
 | 1 | Happy Path | Ingest PDF, verify chunks | `test_parse_real_pdf` + `test_ingest_real_pdf` | ✅ Yes |
 | 2 | Happy Path | Generate 5-question exam on specific topic | `test_prd2_happy_path_5_questions` (mock) + `test_generate_exam_from_real_pdf` (real) | Both |
-| 3 | Happy Path | Evaluate correct answer (score ≥8) | ⏳ Epic 5 (not yet implemented) | — |
+| 3 | Happy Path | Evaluate correct answer (score ≥8) | `test_evaluate_answer_structured_output` (mock) + `test_evaluate_correct_answer` (real) | Both |
 | 4 | Happy Path | Second session prioritizes weak topics | ⏳ Epic 1 + Epic 6 (not yet implemented) | — |
 | 5 | Happy Path | Incremental ingestion (second PDF) | `test_incremental_ingestion` | ❌ Mock |
 | 6 | Edge Case | PDF with complex tables/equations | ⏸️ Deferred (OCR math postponed) | — |
 | 7 | Edge Case | Topic not in material | `test_prd7_missing_topic_handling` (mock) | ❌ Mock |
-| 8 | Edge Case | Partially correct answer (score 5-7) | ⏳ Epic 5 (not yet implemented) | — |
+| 8 | Edge Case | Partially correct answer (score 5-7) | `test_evaluate_partially_correct` (real) | ✅ Yes |
 | 9 | Edge Case | Low-confidence OCR confirmation | ⏸️ Deferred (OCR math postponed) | — |
 | 10 | Adversarial | Non-academic random text rejected | `test_reject_non_academic_content` | ❌ Mock |
 | 11 | Adversarial | Topic from different subject — no invention | `test_prd11_adversarial_no_content` (mock) + `test_anti_hallucination_catches_fabrication` (real) | Both |
-| 12 | Adversarial | Answer in different language | ⏳ Epic 5 (not yet implemented) | — |
+| 12 | Adversarial | Answer in different language | `test_check_evaluability_rejects_gibberish` (mock) + `test_evaluate_wrong_language` (real) | Both |
 
-**Coverage status**: 5/12 with real models, 3/12 mock-only, 2/12 deferred (OCR), 2/12 not yet implemented (Epic 5 Evaluator).
+**Coverage status**: 7/12 with real models, 3/12 mock-only, 2/12 deferred (OCR), 0/12 not yet implemented.
 
 ---
 
@@ -101,7 +105,7 @@ All 12 cases from `init_PRD.md` §8. Mapping shows which test file covers each c
 - Any test that depends on an external service (Groq, Ollama, HuggingFace download)
 
 ### Rules
-1. Every integration test **must** have a `requires_groq` fixture (or equivalent) so it skips gracefully when the provider is unavailable.
+1. Every integration test **must** have a `requires_ollama` fixture (or equivalent) so it skips gracefully when the provider is unavailable.
 2. Integration tests go in the existing test files under a `@pytest.mark.integration` class — do not create separate files.
 3. Test fixtures (PDFs, sample data) go in `back/tests/fixtures/`.
 4. When adding or modifying an integration test or a PRD-mapped test, **update this document**.
@@ -115,7 +119,12 @@ All 12 cases from `init_PRD.md` §8. Mapping shows which test file covers each c
 | `real_pdf_path` | `conftest.py` | Path to `tests/fixtures/apunteAgentes_IA2007.pdf`. Skips if missing. |
 | `real_pdf_text` | `conftest.py` | Parsed text from the real PDF via markitdown. Skips if empty. |
 | `ingested_collection_name` | `conftest.py` | Ingests real PDF into ChromaDB, returns collection name. Expensive. |
-| `requires_groq` | `conftest.py` | Skips test if `GROQ_API_KEY` is not configured in settings. |
+| `requires_ollama` | `conftest.py` | Skips test if Ollama is not reachable or model not pulled. |
 | `sample_chunks` | `conftest.py` | Mock chunk dicts for unit tests (math topics). |
-| `mock_exam_llm` | `conftest.py` | Mocks ChatGroq to return a valid ExamGeneration. |
+| `mock_exam_llm` | `conftest.py` | Mocks LLM (provider-aware) to return a valid ExamGeneration. |
 | `exam_generator_state` | `conftest.py` | Base ExamGeneratorState dict for graph invocation. |
+| `evaluator_state` | `conftest.py` | Base EvaluatorState dict with 3-answer batch, sample_chunks, and collection_name. |
+| `mock_evaluator_llm` | `conftest.py` | Mocks LLM (provider-aware) to return SingleEvaluation score=8, is_evaluable=True. |
+| `mock_judge_llm` | `conftest.py` | Mocks LLM (provider-aware) to return JudgeVerdict agreeing with primary (score=7.5). |
+| `patch_llm` | `conftest.py` | Context manager helper: patches current provider's chat class with structured-output mock chain. |
+| `_llm_provider_module` | `conftest.py` | Returns `"langchain_ollama.ChatOllama"` or `"langchain_groq.ChatGroq"` based on settings. |

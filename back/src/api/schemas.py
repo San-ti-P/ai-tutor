@@ -74,6 +74,10 @@ class EvaluationResult(BaseModel):
     justification: str
     conceptual_errors: list[str] = Field(alias="conceptualErrors")
     suggestions: list[str]
+    is_evaluable: bool = Field(default=True, alias="isEvaluable")
+    non_evaluable_reason: str = Field(default="", alias="nonEvaluableReason")
+    requires_review: bool = Field(default=False, alias="requiresReview")
+    judge_score: float | None = Field(default=None, alias="judgeScore")
 
     model_config = {"populate_by_name": True}
 

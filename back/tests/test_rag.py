@@ -261,7 +261,7 @@ class TestRealRAG:
             "embedding may not be working correctly"
         )
 
-    def test_real_topic_extraction(self, requires_groq, real_pdf_text):
+    def test_real_topic_extraction(self, requires_ollama, real_pdf_text):
         """extract_topics tool works on real academic content."""
         from src.tools import extract_topics
 

@@ -265,6 +265,65 @@ def generate_exercise(
 
 
 @tool
+def evaluate_answer(
+    session_id: str,
+    exam_id: str,
+    answers: list[dict],
+    student_id: str = "",
+) -> list[dict]:
+    """Evaluate a batch of student answers and return structured results.
+
+    Invokes the full Evaluator StateGraph: retrieves chunks, checks
+    evaluability, grades each answer via structured LLM output, validates
+    feedback against source chunks (anti-hallucination), optionally runs
+    LLM-as-judge on a sample, and persists scores to the evaluations table.
+
+    Args:
+        session_id: The current session ID (determines ChromaDB collection).
+        exam_id: Identifier for the exam being evaluated.
+        answers: List of answer dicts. Each dict must have: question_id,
+            question, base_answer, student_answer. Optional: answer_image,
+            source_chunk_ids, topic, difficulty.
+        student_id: Student identifier for profile tracking.
+
+    Returns:
+        A list of evaluation result dicts, each with: question_id, score,
+        justification, conceptual_errors, suggestions, is_evaluable,
+        non_evaluable_reason, requires_review, validation_warnings, status.
+    """
+    import uuid
+
+    from src.agents.evaluator import EvaluatorState
+
+    graph = _get_or_compile("evaluator", "src.agents.evaluator.build_evaluator")
+    initial_state: EvaluatorState = {
+        "session_id": session_id,
+        "student_id": student_id,
+        "exam_id": exam_id,
+        "trace_id": str(uuid.uuid4()),
+        "answers": answers,
+        "current_index": 0,
+        "answer_text": "",
+        "ocr_extracted_text": None,
+        "ocr_confidence": 0.0,
+        "retrieved_chunks": [],
+        "evaluation": None,
+        "evaluation_results": [],
+        "non_evaluable": False,
+        "non_evaluable_reason": "",
+        "judge_sample": False,
+        "judge_result": None,
+        "requires_review": False,
+        "scores_synced": False,
+        "errors": [],
+        "status": "pending",
+    }
+
+    result = graph.invoke(initial_state)
+    return result.get("evaluation_results", [])
+
+
+@tool
 def generate_exam(
     session_id: str,
     topics: list[str],
