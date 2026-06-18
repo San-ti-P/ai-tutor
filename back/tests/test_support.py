@@ -504,17 +504,17 @@ class TestSupportAgentNodes:
 
 
 class TestSupportAgentRouting:
-    """SUP-04: conditional routing based on query_type."""
+    """Conditional routing based on query_type."""
 
     def test_route_after_fetch_query(self):
-        """When query_type is 'query', route to compute_progress_summary."""
+        """When query_type is 'query', route to fetch_session_history."""
         from src.agents.support import _route_after_fetch
 
         state = {"query_type": "query"}
-        assert _route_after_fetch(state) == "compute_progress_summary"
+        assert _route_after_fetch(state) == "fetch_session_history"
 
     def test_route_after_fetch_update(self):
-        """When query_type is 'update', route to compute_progress_summary (converge)."""
+        """When query_type is 'update', skip history, go to compute_progress_summary."""
         from src.agents.support import _route_after_fetch
 
         state = {"query_type": "update"}
@@ -574,7 +574,7 @@ class TestSupportGraphBuilder:
 class TestEvaluatorTopicScoresSync:
     """SUP-03: Evaluator sync_scores calls upsert_topic_scores after save_evaluation."""
 
-    def test_evaluator_updates_topic_scores(self, populated_db, evaluator_state, mock_evaluator_llm, mock_embedding_model):
+    def test_evaluator_updates_topic_scores(self, populated_db, evaluator_state):
         """GIVEN eval results → WHEN sync_scores runs → THEN topic_scores table updated."""
         import asyncio
         import aiosqlite

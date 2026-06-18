@@ -718,13 +718,15 @@ def sync_scores(state: EvaluatorState) -> dict:
     import asyncio
     import uuid as _uuid
 
-    from src.memory.schema import save_evaluation
+    from src.memory.schema import save_evaluation, upsert_topic_scores
 
     results: list[dict] = state.get("evaluation_results", [])
     session_id: str = state.get("session_id", "")
     student_id: str = state.get("student_id", "")
 
     errors: list[str] = []
+    # Collect topic→score pairs for upsert after saving evaluations
+    topic_score_pairs: list[dict] = []
 
     for result in results:
         try:
@@ -750,9 +752,37 @@ def sync_scores(state: EvaluatorState) -> dict:
                 # No event loop — create one
                 asyncio.run(save_evaluation(eval_record))
 
+            # Collect topic/score for profile update (SUP-03)
+            topic = result.get("topic", "")
+            score = result.get("score", 0.0)
+            # Only track evaluable answers that have a topic
+            if topic and result.get("status") != "cannot_evaluate":
+                topic_score_pairs.append({"topic": topic, "score": score})
+
         except Exception as exc:
             logger.warning("Failed to save evaluation for %s: %s", result.get("question_id"), exc)
             errors.append(f"DB write failed for {result.get('question_id')}: {exc}")
+
+    # Upsert topic scores if we have student_id and scores (SUP-03)
+    if student_id and topic_score_pairs:
+        try:
+            # Deduplicate: keep latest score per topic from this batch
+            deduped: dict[str, float] = {}
+            for pair in topic_score_pairs:
+                deduped[pair["topic"]] = pair["score"]
+            deduped_list = [{"topic": t, "score": s} for t, s in deduped.items()]
+
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.ensure_future(upsert_topic_scores(student_id, deduped_list))
+                else:
+                    loop.run_until_complete(upsert_topic_scores(student_id, deduped_list))
+            except RuntimeError:
+                asyncio.run(upsert_topic_scores(student_id, deduped_list))
+        except Exception as exc:
+            logger.warning("Failed to upsert topic scores for %s: %s", student_id, exc)
+            errors.append(f"Topic score upsert failed: {exc}")
 
     if errors:
         return {"scores_synced": True, "errors": errors, "status": "synced_with_errors"}
