@@ -389,6 +389,105 @@ def real_pdf_text(real_pdf_path: Path) -> str:
     return text
 
 
+# ── ExerciseGenerator fixtures ──────────────────────────────────────────────
+
+
+@pytest.fixture
+def exercise_generator_state(sample_chunks) -> dict:
+    """Return the base state dict for ExerciseGenerator graph invocation."""
+    return {
+        "session_id": str(uuid.uuid4()),
+        "student_id": "student-001",
+        "topic": "cálculo/derivadas",
+        "difficulty": "medium",
+        "exercise_type": "problem_solving",
+        "collection_name": "",
+        "student_profile": None,
+        "retrieved_chunks": [],
+        "generated_exercise": {},
+        "validation_passed": False,
+        "validation_errors": [],
+        "retry_count": 0,
+        "topic_not_found": [],
+        "topic_suggestions": [],
+        "exercise": {},
+        "status": "pending",
+    }
+
+
+@pytest.fixture
+def mock_exercise_llm():
+    """Patch ChatGroq to return a valid ExerciseGeneration structured output.
+
+    Mocks the entire ChatGroq with_structured_output → invoke chain so
+    generate_exercise can run without a real LLM. The mock returns
+    one PracticalExercise with a 3-step ModelSolution.
+    """
+    from src.agents.exercise_generator import (
+        ExerciseGeneration,
+        ExerciseStep,
+        ModelSolution,
+        PracticalExercise,
+    )
+
+    fake_exercise = ExerciseGeneration(
+        exercises=[
+            PracticalExercise(
+                statement=(
+                    "Un estudiante quiere calcular la derivada de la función "
+                    "f(x) = 3x² + 2x - 5 en el punto x = 2."
+                ),
+                given_data="f(x) = 3x² + 2x - 5, x₀ = 2",
+                question="Calculá f'(2) usando la definición de derivada.",
+                difficulty="medium",
+                topic="cálculo/derivadas",
+                source_chunk_ids=["chunk-math-001"],
+                model_solution=ModelSolution(
+                    steps=[
+                        ExerciseStep(
+                            step_number=1,
+                            description="Escribir la definición de derivada como límite",
+                            result="f'(x) = lim(h→0) [f(x+h) - f(x)] / h",
+                            source_chunk_ids=["chunk-math-001"],
+                        ),
+                        ExerciseStep(
+                            step_number=2,
+                            description="Evaluar f(2+h) y f(2)",
+                            result="f(2+h) = 3(2+h)² + 2(2+h) - 5",
+                            source_chunk_ids=["chunk-math-001", "chunk-math-002"],
+                        ),
+                        ExerciseStep(
+                            step_number=3,
+                            description="Calcular el límite y obtener f'(2)",
+                            result="f'(2) = 14",
+                            source_chunk_ids=["chunk-math-001", "chunk-math-002"],
+                        ),
+                    ],
+                    final_answer="La derivada de f(x) en x=2 es 14.",
+                    key_concepts=[
+                        "definición de derivada como límite",
+                        "cálculo de límite",
+                        "evaluación de funciones",
+                    ],
+                    source_chunk_ids=["chunk-math-001", "chunk-math-002"],
+                ),
+            ),
+        ],
+        metadata={
+            "topics_covered": ["cálculo/derivadas"],
+            "total_source_chunks": 2,
+        },
+    )
+
+    with patch("langchain_groq.ChatGroq") as mock_groq:
+        mock_structured = MagicMock()
+        mock_structured.invoke.return_value = fake_exercise
+        mock_instance = MagicMock()
+        mock_instance.with_structured_output.return_value = mock_structured
+        mock_groq.return_value = mock_instance
+        yield mock_groq
+
+
 @pytest.fixture
 def ingested_collection_name(real_pdf_path: Path, temp_dir: Path) -> str:
     """Ingest the real PDF into an ephemeral ChromaDB collection.
