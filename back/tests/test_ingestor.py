@@ -115,7 +115,9 @@ class TestNonAcademicRejection:
     def test_reject_non_academic_content(self, non_academic_txt, ingestor_state):
         """PRD Case #10: Non-academic text is rejected."""
         # Create a mock that returns non-academic classification
-        with patch("langchain_groq.ChatGroq") as mock_llm:
+        from tests.conftest import _llm_provider_module as _provider
+
+        with patch(_provider()) as mock_llm:
             mock_result = MagicMock()
             mock_result.classification = "no_academico"
             mock_result.confidence = 0.88
@@ -185,8 +187,9 @@ class TestExtractTopics:
     def test_extract_topics_from_text(self):
         """extract_topics returns structured topics from text input."""
         from src.tools import extract_topics
+        from tests.conftest import _llm_provider_module as _provider
 
-        with patch("langchain_groq.ChatGroq") as mock_llm:
+        with patch(_provider()) as mock_llm:
             mock_result = MagicMock()
             mock_result.summary = "Resumen sobre álgebra lineal."
             mock_result.topics = ["álgebra", "vectores", "matrices"]
@@ -207,8 +210,9 @@ class TestExtractTopics:
     def test_extract_topics_from_file(self, sample_txt):
         """extract_topics parses a TXT file and extracts topics."""
         from src.tools import extract_topics
+        from tests.conftest import _llm_provider_module as _provider
 
-        with patch("langchain_groq.ChatGroq") as mock_llm:
+        with patch(_provider()) as mock_llm:
             mock_result = MagicMock()
             mock_result.summary = "Material sobre álgebra lineal."
             mock_result.topics = ["álgebra", "vectores"]
@@ -321,7 +325,7 @@ class TestRealPDFIngestion:
         count = collection.count()
         assert count > 0, "Ingested collection is empty"
 
-    def test_classify_real_pdf(self, requires_groq, real_pdf_text):
+    def test_classify_real_pdf(self, requires_ollama, real_pdf_text):
         """Real LLM classifies the PDF as academic material."""
         from src.agents.ingestor import classify_document
 

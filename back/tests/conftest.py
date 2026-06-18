@@ -3,17 +3,48 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Load .env before any test runs — ChatGroq reads GROQ_API_KEY from os.environ
+# Load .env before any test runs
 from dotenv import load_dotenv as _load_dotenv
 
 _env_path = Path(__file__).resolve().parent.parent / ".env"
 if _env_path.exists():
     _load_dotenv(_env_path)
+
+
+def _llm_provider_module() -> str:
+    """Return the import path for the current LLM provider's chat class.
+
+    Returns ``"langchain_ollama.ChatOllama"`` or ``"langchain_groq.ChatGroq"``
+    based on ``settings.llm_provider`` so mock patches target the right class.
+    """
+    from src.config import settings
+
+    if settings.llm_provider == "ollama":
+        return "langchain_ollama.ChatOllama"
+    return "langchain_groq.ChatGroq"
+
+
+@contextmanager
+def patch_llm(fake_return: Any):
+    """Context manager that patches the current LLM provider's chat class.
+
+    The mock is set up with ``with_structured_output().invoke()`` returning
+    *fake_return*, matching the pattern used by all agent nodes.
+    """
+    with patch(_llm_provider_module()) as mock_llm:
+        mock_structured = MagicMock()
+        mock_structured.invoke.return_value = fake_return
+        mock_instance = MagicMock()
+        mock_instance.with_structured_output.return_value = mock_structured
+        mock_llm.return_value = mock_instance
+        yield mock_llm
 
 
 @pytest.fixture
@@ -90,19 +121,12 @@ def in_memory_chroma(temp_dir):
 @pytest.fixture
 def mock_llm_response():
     """Mock LLM that returns a valid academic classification."""
-    with patch("langchain_groq.ChatGroq") as mock:
-        # Create a mock classification result
-        mock_result = MagicMock()
-        mock_result.classification = "apunte_teorico"
-        mock_result.confidence = 0.95
-        mock_result.topics = ["álgebra", "vectores", "matrices", "espacio vectorial"]
+    mock_result = MagicMock()
+    mock_result.classification = "apunte_teorico"
+    mock_result.confidence = 0.95
+    mock_result.topics = ["álgebra", "vectores", "matrices", "espacio vectorial"]
 
-        mock_structured = MagicMock()
-        mock_structured.invoke.return_value = mock_result
-
-        mock_instance = MagicMock()
-        mock_instance.with_structured_output.return_value = mock_structured
-        mock.return_value = mock_instance
+    with patch_llm(mock_result) as mock:
         yield mock
 
 
@@ -342,7 +366,7 @@ def mock_exam_llm():
         },
     )
 
-    with patch("langchain_groq.ChatGroq") as mock_groq:
+    with patch(_llm_provider_module()) as mock_groq:
         mock_structured = MagicMock()
         mock_structured.invoke.return_value = fake_exam
         mock_instance = MagicMock()
@@ -355,12 +379,20 @@ def mock_exam_llm():
 
 
 @pytest.fixture
-def requires_groq():
-    """Skip integration tests when GROQ_API_KEY is not configured."""
+def requires_ollama():
+    """Skip integration tests when Ollama is not reachable or model not pulled."""
+    from langchain_ollama import ChatOllama
+
     from src.config import settings
 
-    if not settings.groq_api_key:
-        pytest.skip("GROQ_API_KEY not set — real LLM integration test skipped")
+    try:
+        llm = ChatOllama(model=settings.ollama_model_name, base_url=settings.ollama_base_url)
+        llm.invoke("ping")
+    except Exception as exc:
+        pytest.skip(
+            f"Ollama not reachable or model "
+            f"'{settings.ollama_model_name}' not available: {exc}"
+        )
 
 
 @pytest.fixture
@@ -479,13 +511,133 @@ def mock_exercise_llm():
         },
     )
 
-    with patch("langchain_groq.ChatGroq") as mock_groq:
+    with patch(_llm_provider_module()) as mock_groq:
         mock_structured = MagicMock()
         mock_structured.invoke.return_value = fake_exercise
         mock_instance = MagicMock()
         mock_instance.with_structured_output.return_value = mock_structured
         mock_groq.return_value = mock_instance
         yield mock_groq
+
+
+# ── Evaluator fixtures ──────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def evaluator_state(sample_chunks) -> dict:
+    """Return base EvaluatorState dict with a 3-answer batch for graph tests."""
+    import uuid
+
+    return {
+        "session_id": str(uuid.uuid4()),
+        "student_id": "student-001",
+        "exam_id": "exam-test-001",
+        "trace_id": str(uuid.uuid4()),
+        "answers": [
+            {
+                "question_id": "q-001",
+                "question": "¿Cuál es la definición de derivada?",
+                "base_answer": (
+                    "La derivada es el límite del cociente incremental: "
+                    "f'(a) = lim(h→0) [f(a+h) - f(a)] / h."
+                ),
+                "student_answer": (
+                    "La derivada es el límite del cociente incremental, "
+                    "representa la pendiente de la tangente."
+                ),
+                "source_chunk_ids": ["chunk-math-001"],
+                "topic": "cálculo/derivadas",
+                "difficulty": "medium",
+            },
+            {
+                "question_id": "q-002",
+                "question": "¿Cómo se calcula el rango de una matriz?",
+                "base_answer": (
+                    "El rango se calcula mediante eliminación gaussiana. "
+                    "Es el número de columnas linealmente independientes."
+                ),
+                "student_answer": (
+                    "Se calcula con eliminación gaussiana y es el número "
+                    "de columnas independientes."
+                ),
+                "source_chunk_ids": ["chunk-math-004"],
+                "topic": "álgebra/matrices",
+                "difficulty": "hard",
+            },
+            {
+                "question_id": "q-003",
+                "question": "¿Qué establece el Teorema Fundamental del Cálculo?",
+                "base_answer": (
+                    "Establece que la integración y la derivación son "
+                    "operaciones inversas."
+                ),
+                "student_answer": "asdf jkl qwerty zxcv nm",
+                "source_chunk_ids": ["chunk-math-005"],
+                "topic": "cálculo/integrales",
+                "difficulty": "easy",
+            },
+        ],
+        "current_index": 0,
+        "answer_text": "",
+        "ocr_extracted_text": None,
+        "ocr_confidence": 0.0,
+        "retrieved_chunks": sample_chunks,
+        "collection_name": "",
+        "evaluation": None,
+        "evaluation_results": [],
+        "non_evaluable": False,
+        "non_evaluable_reason": "",
+        "judge_sample": False,
+        "judge_result": None,
+        "requires_review": False,
+        "scores_synced": False,
+        "errors": [],
+        "status": "pending",
+    }
+
+
+@pytest.fixture
+def mock_evaluator_llm():
+    """Patch LLM to return a valid SingleEvaluation (score=8).
+
+    Mocks the entire with_structured_output → invoke chain so the
+    evaluate_answer node can run without a real LLM.
+    """
+    from src.agents.evaluator import SingleEvaluation
+
+    fake_eval = SingleEvaluation(
+        score=8.0,
+        justification=(
+            "El estudiante demuestra comprensión del concepto de derivada "
+            "como límite del cociente incremental y su interpretación "
+            "geométrica como pendiente de la recta tangente."
+        ),
+        conceptual_errors=[],
+        suggestions=["Profundizar en la interpretación física de la derivada."],
+        is_evaluable=True,
+    )
+
+    with patch_llm(fake_eval) as mock_llm:
+        yield mock_llm
+
+
+@pytest.fixture
+def mock_judge_llm():
+    """Patch LLM to return a JudgeVerdict that agrees with primary.
+
+    Judge score is within ±1 of primary, so requires_review stays False.
+    """
+    from src.agents.evaluator import JudgeVerdict
+
+    fake_verdict = JudgeVerdict(
+        score=7.5,
+        agrees_with_primary=True,
+        discrepancy="",
+        suggested_score=None,
+    )
+
+    with patch_llm(fake_verdict) as mock_llm:
+        yield mock_llm
 
 
 @pytest.fixture
