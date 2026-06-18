@@ -11,6 +11,8 @@ import logging
 from langchain_core.tools import tool
 
 from src.rag import retrieve as _rag_retrieve
+from src.tools.get_student_summary import get_student_summary
+from src.tools.update_student_profile import update_student_profile
 
 logger = logging.getLogger(__name__)
 
