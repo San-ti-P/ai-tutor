@@ -668,18 +668,6 @@ class TestSynthesizeResponse:
 
 
 # ==============================================================================
-# Helpers for fake LLM responses
-# ==============================================================================
-    """Fake LLM that returns a pre-programmed string for synthesize_response."""
-
-    def __init__(self, response: str):
-        self._response = response
-
-    def invoke(self, prompt):
-        return type("FakeAIMessage", (), {"content": self._response})()
-
-
-# ==============================================================================
 # TASK-ORCH-009: Full graph wiring (build_orchestrator end-to-end)
 # ==============================================================================
 
