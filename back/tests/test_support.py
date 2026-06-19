@@ -19,7 +19,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Fixtures for support tests
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -178,7 +177,6 @@ class TestComputeWeakTopics:
     @pytest.mark.asyncio
     async def test_weak_topics_below_threshold(self, populated_db):
         """GIVEN scores {Cálculo:4, Álgebra:8, Física:5.5} → THEN weak = ['cálculo','física']."""
-        import aiosqlite
 
         from src.memory.schema import compute_weak_topics, upsert_topic_scores
 
@@ -303,7 +301,10 @@ class TestUpdateStudentProfileTool:
 
     @pytest.mark.asyncio
     async def test_update_student_profile_no_preferences_uses_defaults(self, populated_db):
-        """GIVEN no preferences → THEN tool stores defaults."""
+        """GIVEN no preferences → THEN tool stores defaults in DB."""
+        import aiosqlite
+        import json
+
         from src.tools.update_student_profile import update_student_profile
 
         with patch("src.memory.schema.settings") as mock_schema_settings:
@@ -318,6 +319,21 @@ class TestUpdateStudentProfileTool:
 
             assert result["status"] == "ok"
 
+            # Verify defaults were persisted in DB
+            async with aiosqlite.connect(populated_db) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    "SELECT preferences_json FROM students WHERE id = ?",
+                    ("test-student-001",),
+                )
+                row = await cursor.fetchone()
+                prefs = json.loads(dict(row)["preferences_json"])
+                assert prefs["difficulty"] == "medium"
+                assert prefs["question_types"] == ["mcq"]
+                assert prefs["question_count"] == 5
+                assert prefs["include_topics"] == []
+                assert prefs["exclude_topics"] == []
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # T-6.4: get_student_summary tool
@@ -330,7 +346,6 @@ class TestGetStudentSummaryTool:
     @pytest.mark.asyncio
     async def test_get_student_summary_returns_full_profile(self, populated_db):
         """GIVEN valid student with scores → WHEN tool called → THEN full dict."""
-        import aiosqlite
 
         from src.memory.schema import upsert_topic_scores
         from src.tools.get_student_summary import get_student_summary
@@ -440,7 +455,12 @@ class TestSupportAgentNodes:
             "session_id": "sess-001",
             "student_id": "test-student-001",
             "query_type": "query",
-            "profile_data": {"id": "test-student-001", "preferences": {}, "topic_scores": {}, "session_count": 0},
+            "profile_data": {
+                "id": "test-student-001",
+                "preferences": {},
+                "topic_scores": {},
+                "session_count": 0,
+            },
             "session_history": [],
             "topic_scores": [
                 {"topic": "cálculo", "score": 4.0},
@@ -466,7 +486,12 @@ class TestSupportAgentNodes:
             "session_id": "sess-001",
             "student_id": "test-student-001",
             "query_type": "query",
-            "profile_data": {"id": "test-student-001", "preferences": {}, "topic_scores": {}, "session_count": 3},
+            "profile_data": {
+                "id": "test-student-001",
+                "preferences": {},
+                "topic_scores": {},
+                "session_count": 3,
+            },
             "session_history": [],
             "topic_scores": [{"topic": "cálculo", "score": 4.0}],
             "weak_topics": ["cálculo"],
@@ -488,7 +513,12 @@ class TestSupportAgentNodes:
             "session_id": "sess-001",
             "student_id": "test-student-001",
             "query_type": "update",
-            "profile_data": {"id": "test-student-001", "preferences": {}, "topic_scores": {}, "session_count": 1},
+            "profile_data": {
+                "id": "test-student-001",
+                "preferences": {},
+                "topic_scores": {},
+                "session_count": 1,
+            },
             "session_history": [],
             "topic_scores": [],
             "weak_topics": [],
@@ -633,6 +663,7 @@ class TestEvaluatorTopicScoresSync:
     def test_evaluator_updates_topic_scores(self, populated_db, evaluator_state):
         """GIVEN eval results → WHEN sync_scores runs → THEN topic_scores table updated."""
         import asyncio
+
         import aiosqlite
 
         from src.agents.evaluator import sync_scores
@@ -758,3 +789,45 @@ class TestDashboardEndpoint:
 
             response = client.get("/students/nonexistent/dashboard")
             assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_dashboard_latency_p95_under_300ms(self, populated_db):
+        """SUP-NFR-02: Dashboard endpoint responds within 300ms p95."""
+        import time
+
+        from fastapi.testclient import TestClient
+
+        from src.memory.schema import upsert_topic_scores
+
+        with patch("src.memory.schema.settings") as mock_settings:
+            mock_settings.sqlite_db_path = populated_db
+
+            # Seed realistic data volume
+            topics = [
+                {"topic": f"topic_{i}", "score": float(i % 10)}
+                for i in range(20)
+            ]
+            await upsert_topic_scores("test-student-001", topics)
+
+            from src.main import app
+            client = TestClient(app)
+
+            # Warm-up
+            client.get("/students/test-student-001/dashboard")
+
+            # Measure 20 samples, check p95
+            latencies: list[float] = []
+            for _ in range(20):
+                start = time.perf_counter()
+                response = client.get("/students/test-student-001/dashboard")
+                elapsed = (time.perf_counter() - start) * 1000  # ms
+                latencies.append(elapsed)
+                assert response.status_code == 200
+
+            latencies.sort()
+            p95_index = int(len(latencies) * 0.95)
+            p95_latency = latencies[p95_index]
+
+            assert p95_latency < 300, (
+                f"Dashboard p95 latency {p95_latency:.1f}ms exceeds 300ms budget"
+            )

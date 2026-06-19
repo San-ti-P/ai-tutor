@@ -201,7 +201,7 @@ def compute_progress_summary(state: SupportState) -> dict:
 
         return {"weak_topics": weak}
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: F841
         logger.exception("Failed to compute weak topics for %s", student_id)
         # Fallback: compute from in-memory topic_scores
         weak = sorted(
