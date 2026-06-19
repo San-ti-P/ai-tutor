@@ -16,6 +16,14 @@
       "sessions": 0,
       "memories": 10,
       "prompts": 10
+    },
+    {
+      "id": "8ea20dbb",
+      "created_by": "santino",
+      "created_at": "2026-06-19T00:18:44Z",
+      "sessions": 2,
+      "memories": 14,
+      "prompts": 13
     }
   ]
 }
