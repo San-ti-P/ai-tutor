@@ -475,6 +475,208 @@ class TestExecuteStepRetry:
 
 
 # ==============================================================================
+# TASK-ORCH-007: check_iteration_limit
+# ==============================================================================
+
+
+class TestCheckIterationLimit:
+    """REQ-ORCH-005: Guardrail enforces max_iterations_per_task."""
+
+    def test_within_cap_continue(self, orchestrator_state):
+        """iteration_count < max, more steps → continue."""
+        from src.agents.orchestrator import check_iteration_limit
+
+        state = {
+            **orchestrator_state,
+            "plan": ["a", "b", "c"],
+            "current_step": 0,
+            "iteration_count": 5,
+            "status": "pending",
+        }
+        result = check_iteration_limit(state)
+        assert result == "continue"
+
+    def test_cap_hit_terminate(self, orchestrator_state):
+        """iteration_count >= max → terminate."""
+        from src.agents.orchestrator import check_iteration_limit
+
+        from src.config import settings
+
+        state = {
+            **orchestrator_state,
+            "plan": ["a"],
+            "current_step": 0,
+            "iteration_count": settings.max_iterations_per_task,
+            "status": "pending",
+        }
+        result = check_iteration_limit(state)
+        assert result == "terminate"
+
+    def test_all_done_terminate(self, orchestrator_state):
+        """current_step >= len(plan) → terminate (all steps complete)."""
+        from src.agents.orchestrator import check_iteration_limit
+
+        state = {
+            **orchestrator_state,
+            "plan": ["a", "b"],
+            "current_step": 2,  # equals len(plan)
+            "iteration_count": 2,
+            "status": "pending",
+        }
+        result = check_iteration_limit(state)
+        assert result == "terminate"
+
+    def test_partial_status_terminate(self, orchestrator_state):
+        """status=partial → terminate immediately (error already hit)."""
+        from src.agents.orchestrator import check_iteration_limit
+
+        state = {
+            **orchestrator_state,
+            "plan": ["a", "b", "c"],
+            "current_step": 1,
+            "iteration_count": 2,
+            "status": "partial",
+        }
+        result = check_iteration_limit(state)
+        assert result == "terminate"
+
+
+# ==============================================================================
+# TASK-ORCH-008: synthesize_response
+# ==============================================================================
+
+
+class TestSynthesizeResponse:
+    """REQ-ORCH-003/005: Aggregates results into final user-facing response."""
+
+    def test_general_chat_inline_response(self, orchestrator_state):
+        """general_chat → LLM synthesizes direct answer from user_message."""
+        from src.agents.orchestrator import synthesize_response
+
+        state = {
+            **orchestrator_state,
+            "intent": "general_chat",
+            "user_message": "¿Qué es un vector?",
+            "plan": [],
+            "results": [],
+            "errors": [],
+            "status": "pending",
+        }
+
+        with patch(
+            "src.agents.orchestrator._get_llm", return_value=_FakeDirectLLM(
+                "Un vector es un elemento de un espacio vectorial."
+            )
+        ):
+            result = synthesize_response(state)
+
+        assert "vector" in result["response"]
+        assert result["status"] == "complete"
+
+    def test_composite_aggregation(self, orchestrator_state):
+        """Composite with results → LLM aggregates into coherent response."""
+        from src.agents.orchestrator import synthesize_response
+
+        state = {
+            **orchestrator_state,
+            "intent": "composite",
+            "user_message": "Ingest notes then quiz me",
+            "results": [
+                {"step": 0, "tool": "ingest", "result": {"status": "ok", "chunks": 5}},
+                {"step": 1, "tool": "generate_exam", "result": {"exam": "ready"}},
+            ],
+            "errors": [],
+            "status": "pending",
+        }
+
+        with patch(
+            "src.agents.orchestrator._get_llm", return_value=_FakeDirectLLM(
+                "Completé la ingesta y generé el examen."
+            )
+        ):
+            result = synthesize_response(state)
+
+        assert "ingesta" in result["response"].lower() or "examen" in result["response"].lower()
+        assert result["status"] == "complete"
+
+    def test_incomplete_status_prepends_warning(self, orchestrator_state):
+        """status='incomplete' → prepends cap-hit warning in Spanish."""
+        from src.agents.orchestrator import synthesize_response
+
+        state = {
+            **orchestrator_state,
+            "intent": "composite",
+            "results": [{"step": 0, "tool": "a", "result": {}}],
+            "errors": [],
+            "status": "incomplete",
+        }
+
+        with patch(
+            "src.agents.orchestrator._get_llm", return_value=_FakeDirectLLM(
+                "Acá está el resumen."
+            )
+        ):
+            result = synthesize_response(state)
+
+        assert "límite" in result["response"].lower() or "limite" in result["response"].lower()
+        assert result["status"] == "incomplete"
+
+    def test_partial_error_summary(self, orchestrator_state):
+        """status='partial' → response includes error summary."""
+        from src.agents.orchestrator import synthesize_response
+
+        state = {
+            **orchestrator_state,
+            "intent": "composite",
+            "results": [{"step": 0, "tool": "a", "result": {}}],
+            "errors": [{"step": 1, "tool": "b", "error": "Connection refused"}],
+            "status": "partial",
+        }
+
+        with patch(
+            "src.agents.orchestrator._get_llm", return_value=_FakeDirectLLM(
+                "Parcial completado. Error en paso b."
+            )
+        ):
+            result = synthesize_response(state)
+
+        assert result["status"] == "partial"
+        assert "error" in result["response"].lower()
+
+    def test_llm_failure_hardcoded_fallback(self, orchestrator_state):
+        """LLM synthesize fails → hardcoded Spanish apology + raw results."""
+        from src.agents.orchestrator import synthesize_response
+
+        state = {
+            **orchestrator_state,
+            "intent": "general_chat",
+            "results": [{"step": 0, "tool": "x", "result": {"ok": True}}],
+            "errors": [],
+            "status": "pending",
+        }
+
+        with patch(
+            "src.agents.orchestrator._get_llm",
+            side_effect=RuntimeError("LLM down"),
+        ):
+            result = synthesize_response(state)
+
+        assert "disculpas" in result["response"].lower() or "error" in result["response"].lower()
+        assert '"ok"' in result["response"] or "ok" in result["response"].lower()
+        assert result["status"] == "complete"
+
+
+class _FakeDirectLLM:
+    """Fake LLM that returns a pre-programmed string for synthesize_response."""
+
+    def __init__(self, response: str):
+        self._response = response
+
+    def invoke(self, prompt):
+        return type("FakeAIMessage", (), {"content": self._response})()
+
+
+# ==============================================================================
 # Helpers for fake LLM responses
 # ==============================================================================
 

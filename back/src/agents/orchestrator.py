@@ -293,13 +293,99 @@ async def execute_step(state: OrchestratorState) -> dict:
 
 
 def synthesize_response(state: OrchestratorState) -> dict:
-    """Combine results from agent executions into a final response."""
-    raise NotImplementedError
+    """Combine results from agent executions into a final response.
+
+    - general_chat: LLM synthesizes direct answer from user_message.
+    - composite/single: LLM aggregates results into coherent narrative.
+    - incomplete: prepends cap warning in Spanish.
+    - partial: includes error summary.
+    - On LLM failure: hardcoded Spanish apology + raw results.
+    """
+    import json
+
+    intent = state["intent"]
+    message = state["user_message"]
+    results = state.get("results", [])
+    errors = state.get("errors", [])
+    status = state.get("status", "pending")
+
+    # Prepend cap warning for incomplete
+    prefix = ""
+    if status == "incomplete":
+        prefix = (
+            "⚠️ No pude completar todas las tareas solicitadas debido al límite de pasos. "
+            "Esto es lo que logré hasta ahora:\n\n"
+        )
+
+    # Build prompt for LLM synthesis
+    try:
+        llm = _get_llm()
+
+        if intent == "general_chat" and not results:
+            prompt = (
+                f"El usuario preguntó: \"{message}\"\n"
+                "Respondé de forma clara y educativa en español."
+            )
+        else:
+            results_str = json.dumps(results, ensure_ascii=False, indent=2)
+            errors_str = json.dumps(errors, ensure_ascii=False, indent=2) if errors else "ninguno"
+
+            prompt = (
+                f"Consulta original del usuario: \"{message}\"\n\n"
+                f"Resultados de las herramientas ejecutadas:\n{results_str}\n\n"
+                f"Errores encontrados:\n{errors_str}\n\n"
+            )
+            if status == "partial":
+                prompt += (
+                    "Algunas tareas no se completaron exitosamente. "
+                    "Generá una respuesta que resuma lo logrado y mencione los errores. "
+                    "Sé honesto pero alentador en español."
+                )
+            else:
+                prompt += (
+                    "Generá una respuesta coherente que resuma todos estos resultados "
+                    "en español, de forma clara y educativa."
+                )
+
+        response = llm.invoke(prompt)
+        text = response.content if hasattr(response, "content") else str(response)
+
+        final_status = "complete" if status == "pending" else status
+        return {"response": prefix + text, "status": final_status}
+
+    except Exception:
+        logger.exception("synthesize_response LLM failed, using fallback")
+        results_str = json.dumps(
+            {"results": results, "errors": errors},
+            ensure_ascii=False,
+            indent=2,
+        )
+        return {
+            "response": (
+                "Mis disculpas, no pude generar una respuesta elaborada en este momento. "
+                "Acá están los resultados sin procesar:\n\n"
+                f"{results_str}"
+            ),
+            "status": "complete" if not errors else "partial",
+        }
 
 
 def check_iteration_limit(state: OrchestratorState) -> Literal["continue", "terminate"]:
-    """Guardrail: enforce max iterations per task."""
-    raise NotImplementedError
+    """Guardrail: enforce max iterations per task.
+
+    Returns "terminate" if:
+    - iteration_count >= settings.max_iterations_per_task
+    - current_step >= len(plan) (all steps done)
+    - status is "partial" (error already hit)
+    Otherwise returns "continue".
+    """
+    if state.get("status") == "partial":
+        return "terminate"
+    if state["iteration_count"] >= settings.max_iterations_per_task:
+        return "terminate"
+    if state["current_step"] >= len(state["plan"]):
+        return "terminate"
+    return "continue"
 
 
 def build_orchestrator() -> StateGraph:
