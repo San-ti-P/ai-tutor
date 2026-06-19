@@ -235,6 +235,76 @@ class TestRouteToAgent:
 
 
 # ==============================================================================
+# TASK-ORCH-004: plan_composite
+# ==============================================================================
+
+
+class TestPlanComposite:
+    """REQ-ORCH-004: Plan-and-Execute planner for composite intents."""
+
+    def test_plan_composite_generates_valid_plan(self, orchestrator_state):
+        """Valid composite plan with known tool names is returned."""
+        from src.agents.orchestrator import plan_composite
+
+        state = {**orchestrator_state, "intent": "composite",
+                 "user_message": "Ingest notes then generate exam"}
+
+        with patch(
+            "src.agents.orchestrator._get_llm", return_value=_FakeCompositeLLM(
+                steps=["ingest", "generate_exam"]
+            )
+        ):
+            result = plan_composite(state)
+
+        assert result["plan"] == ["ingest", "generate_exam"]
+
+    def test_plan_composite_strips_invalid_tools(self, orchestrator_state):
+        """Tool names not in TOOL_MAP are stripped from the plan."""
+        from src.agents.orchestrator import plan_composite
+
+        state = {**orchestrator_state, "intent": "composite",
+                 "user_message": "Do something impossible"}
+
+        with patch(
+            "src.agents.orchestrator._get_llm", return_value=_FakeCompositeLLM(
+                steps=["nonexistent_tool", "ingest", "bad_tool"]
+            )
+        ):
+            result = plan_composite(state)
+
+        assert result["plan"] == ["ingest"]  # only valid tool kept
+
+    def test_plan_composite_empty_plan_fallback(self, orchestrator_state):
+        """Empty plan after stripping → returns empty list (treated as general_chat downstream)."""
+        from src.agents.orchestrator import plan_composite
+
+        state = {**orchestrator_state, "intent": "composite",
+                 "user_message": "something"}
+
+        with patch(
+            "src.agents.orchestrator._get_llm", return_value=_FakeCompositeLLM(steps=[])
+        ):
+            result = plan_composite(state)
+
+        assert result["plan"] == []
+
+    def test_plan_composite_exception_returns_empty_plan(self, orchestrator_state):
+        """Planner failure → returns empty plan (treated as general_chat downstream)."""
+        from src.agents.orchestrator import plan_composite
+
+        state = {**orchestrator_state, "intent": "composite",
+                 "user_message": "Do stuff"}
+
+        with patch(
+            "src.agents.orchestrator._get_llm",
+            side_effect=RuntimeError("Planner LLM down"),
+        ):
+            result = plan_composite(state)
+
+        assert result["plan"] == []
+
+
+# ==============================================================================
 # Helpers for fake LLM responses
 # ==============================================================================
 
@@ -258,3 +328,22 @@ class _FakeStructured:
     def invoke(self, prompt):
         from src.agents.orchestrator import IntentClassification
         return IntentClassification(intent=self._intent, confidence=self._confidence)
+
+
+class _FakeCompositeLLM:
+    """Fake LLM for plan_composite testing."""
+
+    def __init__(self, steps: list[str]):
+        self._steps = steps
+
+    def with_structured_output(self, schema):
+        return _FakeCompositeStructured(self._steps)
+
+
+class _FakeCompositeStructured:
+    def __init__(self, steps: list[str]):
+        self._steps = steps
+
+    def invoke(self, prompt):
+        from src.agents.orchestrator import CompositePlan
+        return CompositePlan(steps=self._steps)

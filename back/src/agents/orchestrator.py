@@ -38,6 +38,39 @@ class IntentClassification(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
+class CompositePlan(BaseModel):
+    steps: list[str] = Field(description="Ordered tool names from TOOL_MAP")
+
+
+# ── Tool wiring ──────────────────────────────────────────────────────────────
+# Must be built after tool imports (avoid circular imports with tools/__init__.py)
+
+TOOL_MAP: dict[str, object] = {}
+
+
+def _init_tool_map() -> dict[str, object]:
+    """Lazy-init TOOL_MAP to avoid circular imports at module level."""
+    global TOOL_MAP
+    if TOOL_MAP:
+        return TOOL_MAP
+    from src.tools import (  # noqa: F811
+        evaluate_answer,
+        generate_exam,
+        generate_exercise,
+        ingest_document,
+    )
+    from src.tools.get_student_summary import get_student_summary
+
+    TOOL_MAP = {
+        "ingest": ingest_document,
+        "generate_exam": generate_exam,
+        "generate_exercise": generate_exercise,
+        "evaluate": evaluate_answer,
+        "query_profile": get_student_summary,
+    }
+    return TOOL_MAP
+
+
 class OrchestratorState(TypedDict):
     session_id: str
     user_message: str
@@ -124,8 +157,41 @@ def route_to_agent(state: OrchestratorState) -> str:
 
 
 def plan_composite(state: OrchestratorState) -> dict:
-    """Plan steps for composite (multi-step) tasks."""
-    raise NotImplementedError
+    """Plan steps for composite (multi-step) tasks.
+
+    Uses LLM planner to generate an ordered list of tool names.
+    Strips tools not in TOOL_MAP. Empty plan → treated as general_chat downstream.
+    """
+    message = state["user_message"]
+    tool_map = _init_tool_map()
+    tool_descriptions = "\n".join(
+        f"- {name}: {getattr(tool, 'description', '')}" for name, tool in tool_map.items()
+    )
+
+    try:
+        llm = _get_llm()
+        structured = llm.with_structured_output(CompositePlan)
+
+        prompt = (
+            "Sos un planificador de tareas académicas. El usuario quiere:\n"
+            f'"{message}"\n\n'
+            "Herramientas disponibles:\n"
+            f"{tool_descriptions}\n\n"
+            "Generá una lista ORDENADA de nombres de herramientas a ejecutar. "
+            "Solo usá herramientas de la lista. Respondé SOLO en formato JSON."
+        )
+
+        result = structured.invoke(prompt)
+        plan = result.steps
+
+        # Strip invalid tool names
+        valid_plan = [step for step in plan if step in tool_map]
+
+        return {"plan": valid_plan}
+
+    except Exception:
+        logger.exception("plan_composite failed")
+        return {"plan": []}
 
 
 def execute_step(state: OrchestratorState) -> dict:
