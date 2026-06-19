@@ -1157,6 +1157,88 @@ class TestIntegrationPersistence:
 
 
 @pytest.mark.integration
+class TestIntegrationSqliteSaver:
+    """REQ-ORCH-001: Integration tests exercising AsyncSqliteSaver persistence.
+
+    Uses a temporary SQLite database via tmp_path. LLM is mocked.
+    These tests exercise the real persistence path (unlike the InMemorySaver
+    tests above).
+    """
+
+    async def test_sqlite_saver_persists_session(self, orchestrator_state, tmp_path):
+        """Invoke with AsyncSqliteSaver, then again with same thread_id — state restored."""
+        from unittest.mock import patch
+
+        import src.agents.orchestrator as orch_mod
+
+        db_path = tmp_path / "test_orch_persist.db"
+
+        # Force a fresh singleton with temp DB path
+        orch_mod._orchestrator_graph = None
+        orch_mod._orchestrator_db_conn = None
+
+        with patch.object(orch_mod.settings, "sqlite_db_path", str(db_path)):
+            graph = await orch_mod.get_orchestrator_graph()
+
+            thread_id = "sqlite-persist-int-001"
+            config = {"configurable": {"thread_id": thread_id}}
+
+            # First invocation
+            with patch(
+                "src.agents.orchestrator._get_llm",
+                return_value=_FakeDirectLLM("Respuesta uno."),
+            ):
+                state = {**orchestrator_state, "user_message": "Mensaje uno"}
+                result1 = await graph.ainvoke(state, config=config)
+
+            assert result1["response"] == "Respuesta uno."
+            assert result1["status"] == "complete"
+            assert result1["intent"] == "general_chat"
+
+            # Second invocation — same thread_id → state restored from checkpoint
+            with patch(
+                "src.agents.orchestrator._get_llm",
+                return_value=_FakeDirectLLM("Respuesta dos."),
+            ):
+                state2 = {**orchestrator_state, "user_message": "Mensaje dos"}
+                result2 = await graph.ainvoke(state2, config=config)
+
+            assert result2["response"] == "Respuesta dos."
+            assert result2["status"] == "complete"
+            # With operator.add reducer, results accumulate across invocations
+            # on the same thread_id (checkpointer restores previous state)
+
+            # Clean up
+            await orch_mod.close_orchestrator_graph()
+
+    async def test_sqlite_saver_singleton_reuses_connection(self, orchestrator_state, tmp_path):
+        """get_orchestrator_graph() reuses the same aiosqlite connection across calls."""
+        from unittest.mock import patch
+
+        import src.agents.orchestrator as orch_mod
+
+        db_path = tmp_path / "test_orch_singleton.db"
+
+        # Force a fresh singleton with temp DB path
+        orch_mod._orchestrator_graph = None
+        orch_mod._orchestrator_db_conn = None
+
+        with patch.object(orch_mod.settings, "sqlite_db_path", str(db_path)):
+            graph1 = await orch_mod.get_orchestrator_graph()
+            conn1 = orch_mod._orchestrator_db_conn
+
+            graph2 = await orch_mod.get_orchestrator_graph()
+            conn2 = orch_mod._orchestrator_db_conn
+
+            assert graph1 is graph2, "Same compiled graph instance expected"
+            assert conn1 is not None, "DB connection should be stored"
+            assert conn1 is conn2, "Same DB connection expected across calls"
+
+            # Clean up
+            await orch_mod.close_orchestrator_graph()
+
+
+@pytest.mark.integration
 class TestSecurityAndPublicAPI:
     """REQ-ORCH-007: Single public entry point, no hardcoded secrets."""
 
