@@ -1,7 +1,7 @@
 """TDD test suite for Orchestrator agent — epic-01-orchestrator.
 
-All unit tests mock the LLM via conftest's patch_llm().
-Integration tests are marked @pytest.mark.integration (skipped by default).
+Plumbing tests mock the LLM via conftest's patch_llm() and run by default.
+Real LLM integration tests are marked @pytest.mark.integration (requires Ollama).
 """
 
 from __future__ import annotations
@@ -961,11 +961,10 @@ class _FakeDirectLLM:
 
 
 # ==============================================================================
-# TASK-ORCH-012: Integration tests
+# TASK-ORCH-012: Persistence & plumbing tests (runs by default, LLM mocked)
 # ==============================================================================
 
 
-@pytest.mark.integration
 class TestIntegrationPersistence:
     """End-to-end integration: graph wiring + checkpointer persistence.
 
@@ -1156,7 +1155,6 @@ class TestIntegrationPersistence:
         assert len(result["errors"]) >= 1
 
 
-@pytest.mark.integration
 class TestIntegrationSqliteSaver:
     """REQ-ORCH-001: Integration tests exercising AsyncSqliteSaver persistence.
 
@@ -1238,7 +1236,6 @@ class TestIntegrationSqliteSaver:
             await orch_mod.close_orchestrator_graph()
 
 
-@pytest.mark.integration
 class TestSecurityAndPublicAPI:
     """REQ-ORCH-007: Single public entry point, no hardcoded secrets."""
 
@@ -1265,7 +1262,7 @@ class TestSecurityAndPublicAPI:
         orchestrator_path = (
             Path(__file__).resolve().parent.parent / "src" / "agents" / "orchestrator.py"
         )
-        source = orchestrator_path.read_text()
+        source = orchestrator_path.read_text(encoding="utf-8")
 
         # Look for common API key patterns (in strings, not identifiers)
         key_patterns = [
@@ -1288,3 +1285,262 @@ class TestSecurityAndPublicAPI:
             assert len(matches) == 0, f"Found potential API key: {matches}"
 
         assert len(real_matches) == 0, f"Found potential secret: {real_matches}"
+
+
+# ==============================================================================
+# TASK-ORCH-013: Real LLM integration tests (Ollama)
+# ==============================================================================
+
+
+@pytest.mark.integration
+class TestRealOrchestratorIntegration:
+    """End-to-end orchestrator with real Ollama LLM.
+
+    These tests exercise classify_intent, synthesize_response, and the
+    full graph with the real configured model. No LLM mocking — uses
+    the same ChatOllama that production does.
+
+    Run with: pytest tests/test_orchestrator.py -v -m integration
+    """
+
+    # ── classify_intent with real LLM ─────────────────────────────────────
+
+    def test_classify_exam_request(self, requires_ollama, orchestrator_state):
+        """Clear exam request → intent=generate_exam with high confidence."""
+        from src.agents.orchestrator import classify_intent
+
+        state = {**orchestrator_state, "user_message": "Generame un examen de álgebra lineal"}
+        result = classify_intent(state)
+
+        assert result["intent"] in ("generate_exam", "composite"), (
+            f"Expected generate_exam, got {result['intent']}"
+        )
+        assert result["confidence"] > 0.50, f"Confidence too low: {result['confidence']}"
+
+    def test_classify_general_chat(self, requires_ollama, orchestrator_state):
+        """Casual greeting → intent=general_chat."""
+        from src.agents.orchestrator import classify_intent
+
+        state = {**orchestrator_state, "user_message": "Hola, ¿cómo estás?"}
+        result = classify_intent(state)
+
+        assert result["intent"] == "general_chat", f"Expected general_chat, got {result['intent']}"
+
+    def test_classify_multi_step_request(self, requires_ollama, orchestrator_state):
+        """Multi-task query → intent=composite or pre-populates plan."""
+        from src.agents.orchestrator import classify_intent
+
+        state = {
+            **orchestrator_state,
+            "user_message": "Subí mis apuntes de cálculo y después generame un examen",
+        }
+        result = classify_intent(state)
+
+        # Either classified as composite, or as single-tool with a plan
+        valid = result["intent"] == "composite" or len(result.get("plan", [])) > 0
+        assert valid, (
+            f"Expected composite or single-tool with plan, got intent={result['intent']}, "
+            f"plan={result.get('plan')}"
+        )
+
+    def test_classify_ingest_request(self, requires_ollama, orchestrator_state):
+        """Upload/document request → intent=ingest."""
+        from src.agents.orchestrator import classify_intent
+
+        state = {
+            **orchestrator_state,
+            "user_message": "Quiero subir un PDF con apuntes de física cuántica",
+        }
+        result = classify_intent(state)
+
+        assert result["intent"] in ("ingest", "composite"), (
+            f"Expected ingest or composite, got {result['intent']}"
+        )
+
+    # ── synthesize_response with real LLM ──────────────────────────────────
+
+    def test_synthesize_general_chat_response(self, requires_ollama, orchestrator_state):
+        """Simple question → coherent Spanish response."""
+        from src.agents.orchestrator import synthesize_response
+
+        state = {
+            **orchestrator_state,
+            "intent": "general_chat",
+            "user_message": "¿Qué es un vector en álgebra lineal?",
+            "plan": [],
+            "results": [],
+            "errors": [],
+            "status": "pending",
+        }
+        result = synthesize_response(state)
+
+        assert len(result["response"]) > 20, f"Response too short: '{result['response']}'"
+        assert result["status"] == "complete"
+        # Should contain Spanish educational content
+        assert any(
+            word in result["response"].lower()
+            for word in ("vector", "magnitud", "dirección", "elemento", "espacio")
+        ), f"Response doesn't discuss vectors: '{result['response'][:100]}'"
+
+    def test_synthesize_composite_aggregation(self, requires_ollama, orchestrator_state):
+        """Composite results → LLM aggregates into coherent summary."""
+        from src.agents.orchestrator import synthesize_response
+
+        state = {
+            **orchestrator_state,
+            "intent": "composite",
+            "user_message": "Subí apuntes y generame un examen",
+            "results": [
+                {"step": 0, "tool": "ingest", "result": {"status": "ok", "chunks": 5}},
+                {"step": 1, "tool": "generate_exam", "result": {"exam": "generado"}},
+            ],
+            "errors": [],
+            "status": "pending",
+        }
+        result = synthesize_response(state)
+
+        assert len(result["response"]) > 30, f"Response too short: '{result['response']}'"
+        assert result["status"] == "complete"
+
+    def test_synthesize_incomplete_response(self, requires_ollama, orchestrator_state):
+        """Incomplete status → response includes cap warning."""
+        from src.agents.orchestrator import synthesize_response
+
+        state = {
+            **orchestrator_state,
+            "intent": "composite",
+            "user_message": "Procesá todo",
+            "results": [{"step": 0, "tool": "ingest", "result": {"ok": True}}],
+            "errors": [],
+            "status": "incomplete",
+        }
+        result = synthesize_response(state)
+
+        assert result["status"] == "incomplete"
+        # Should include limit/cap warning or be substantially longer than prefix
+        assert len(result["response"]) > 40, (
+            f"Response too short for incomplete status: '{result['response']}'"
+        )
+
+    def test_synthesize_partial_with_errors(self, requires_ollama, orchestrator_state):
+        """Partial status with errors → response mentions issues."""
+        from src.agents.orchestrator import synthesize_response
+
+        state = {
+            **orchestrator_state,
+            "intent": "composite",
+            "user_message": "Generame un examen de derivadas",
+            "results": [],
+            "errors": [
+                {"step": 0, "tool": "generate_exam", "error": "No se encontraron chunks relevantes"}
+            ],
+            "status": "partial",
+        }
+        result = synthesize_response(state)
+
+        assert result["status"] == "partial"
+        assert len(result["response"]) > 30, f"Response too short: '{result['response']}'"
+        # Response should acknowledge the error
+        assert any(
+            word in result["response"].lower()
+            for word in ("error", "problema", "falló", "disculpa", "lamentablemente", "no pude")
+        ), f"Response doesn't mention error: '{result['response'][:150]}'"
+
+    # ── Full graph with real LLM ───────────────────────────────────────────
+
+    async def test_e2e_general_chat_real(self, requires_ollama, orchestrator_state):
+        """Full graph invoke with real LLM: classify → synthesize → response."""
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from src.agents.orchestrator import build_orchestrator
+
+        graph = build_orchestrator().compile(checkpointer=InMemorySaver())
+        config = {"configurable": {"thread_id": "real-chat-001"}}
+
+        state = {**orchestrator_state, "user_message": "Hola, ¿qué podés hacer?"}
+        result = await graph.ainvoke(state, config=config)
+
+        assert result["intent"] == "general_chat", f"Expected general_chat, got {result['intent']}"
+        assert result["status"] == "complete"
+        assert len(result["response"]) > 10, f"Empty or too-short response: '{result['response']}'"
+        # Should be Spanish
+        assert (
+            any(char in result["response"] for char in "áéíóúñ") or len(result["response"]) > 30
+        ), f"Response doesn't look like Spanish: '{result['response'][:80]}'"
+
+    async def test_e2e_exam_request_real(self, requires_ollama, orchestrator_state):
+        """Exam request → classifies correctly, reaches synthesize with real LLM.
+
+        Tools are mocked to avoid ChromaDB dependency — we're testing the
+        orchestration pipeline (classify → route → execute → synthesize)
+        with real LLM, not the actual tool implementations.
+        """
+        from unittest.mock import AsyncMock
+
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from src.agents.orchestrator import build_orchestrator
+
+        graph = build_orchestrator().compile(checkpointer=InMemorySaver())
+        config = {"configurable": {"thread_id": "real-exam-001"}}
+
+        # Mock the generate_exam tool so we don't need real ChromaDB
+        mock_tool = AsyncMock()
+        mock_tool.name = "generate_exam"
+        mock_tool.ainvoke = AsyncMock(
+            return_value={
+                "status": "complete",
+                "total_questions": 5,
+                "exam_id": "exam-real-test",
+            }
+        )
+
+        state = {
+            **orchestrator_state,
+            "user_message": "Generame un examen de álgebra lineal con 5 preguntas",
+        }
+
+        with patch.dict("src.agents.orchestrator.TOOL_MAP", {"generate_exam": mock_tool}):
+            result = await graph.ainvoke(state, config=config)
+
+        # Real LLM classifies intent; tool mock provides result
+        assert result["intent"] in ("generate_exam", "composite"), (
+            f"Unexpected intent: {result['intent']}"
+        )
+        # Response synthesized by real LLM
+        assert len(result["response"]) > 10, f"Empty or too-short response: '{result['response']}'"
+        assert result["status"] in ("complete", "partial", "incomplete"), (
+            f"Unexpected status: {result['status']}"
+        )
+
+    async def test_e2e_multi_turn_accumulation(self, requires_ollama, orchestrator_state):
+        """Two turns on same thread → results accumulate via operator.add."""
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from src.agents.orchestrator import build_orchestrator
+
+        graph = build_orchestrator().compile(checkpointer=InMemorySaver())
+        config = {"configurable": {"thread_id": "real-multi-001"}}
+
+        # Turn 1: simple greeting
+        state1 = {**orchestrator_state, "user_message": "Hola"}
+        result1 = await graph.ainvoke(state1, config=config)
+
+        assert result1["status"] == "complete"
+        assert result1["intent"] == "general_chat"
+        initial_results = len(result1.get("results", []))
+
+        # Turn 2: follow-up — LANGGRAPH RESUMES STATE FROM CHECKPOINT
+        # When invoked on the same thread_id, LangGraph restores the full state
+        # including accumulated results. So the new user_message replaces the
+        # old one, and results from turn 1 persist via operator.add reducer.
+        state2 = {**orchestrator_state, "user_message": "¿Qué materias podés ayudarme a estudiar?"}
+        result2 = await graph.ainvoke(state2, config=config)
+
+        assert result2["status"] == "complete"
+        assert result2["intent"] == "general_chat"
+        # Results from turn 1 should persist in accumulated state
+        assert len(result2.get("results", [])) >= initial_results, (
+            f"Results should not shrink across turns: "
+            f"{initial_results} → {len(result2.get('results', []))}"
+        )
