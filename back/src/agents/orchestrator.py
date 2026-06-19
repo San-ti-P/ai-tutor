@@ -194,9 +194,102 @@ def plan_composite(state: OrchestratorState) -> dict:
         return {"plan": []}
 
 
-def execute_step(state: OrchestratorState) -> dict:
-    """Execute the current step in the plan."""
-    raise NotImplementedError
+def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
+    """Build argument dict for a tool call from the current state.
+
+    Each tool gets the fields it needs extracted from shared state.
+    """
+    args: dict = {"session_id": state["session_id"]}
+    profile = state.get("student_profile")
+
+    if tool_name == "ingest":
+        # ingest_document needs file_path, session_id
+        pass  # file_path not in orchestrator state; tool will use its own
+    elif tool_name == "generate_exam":
+        args["topics"] = ["general"]
+        args["difficulty"] = "medium"
+        args["question_count"] = 5
+        args["mcq_ratio"] = 0.5
+        if profile:
+            args["student_profile"] = profile
+    elif tool_name == "generate_exercise":
+        args["topic"] = profile.get("weak_topics", ["general"])[0] if profile else "general"
+        args["difficulty"] = "medium"
+        args["exercise_type"] = "problem_solving"
+        if profile:
+            args["student_profile"] = profile
+    elif tool_name == "evaluate":
+        args["exam_id"] = ""
+        args["answers"] = []
+        args["student_id"] = ""
+    elif tool_name == "query_profile":
+        args["student_id"] = state.get("session_id", "unknown")
+
+    return args
+
+
+async def _invoke_tool_with_retry(tool, args: dict, step: int) -> dict:
+    """Invoke a tool with exactly one retry on failure.
+
+    Returns the tool result on success. Raises ValueError on double-failure.
+    """
+    try:
+        return await tool.ainvoke(args)
+    except Exception as first_err:
+        logger.warning("Step %d failed, retrying once: %s", step, first_err)
+        try:
+            return await tool.ainvoke(args)
+        except Exception as second_err:
+            logger.exception("Step %d failed after retry", step)
+            raise ValueError(
+                f"Tool '{tool.name}' failed after retry: {second_err}"
+            ) from second_err
+
+
+async def execute_step(state: OrchestratorState) -> dict:
+    """Execute the current step in the plan.
+
+    Resolves tool from TOOL_MAP, builds args, invokes with one retry, appends result.
+    Increments current_step and iteration_count. On failure, records error.
+    """
+    plan = state["plan"]
+    current = state["current_step"]
+    iteration = state["iteration_count"]
+
+    tool_map = _init_tool_map()
+
+    # Safeguard: empty plan
+    if not plan or current >= len(plan):
+        return {"current_step": current, "iteration_count": iteration}
+
+    tool_name = plan[current]
+    tool = tool_map.get(tool_name)
+
+    if tool is None:
+        logger.warning("Tool '%s' not found in TOOL_MAP", tool_name)
+        return {
+            "errors": [{"step": current, "tool": tool_name, "error": f"Tool '{tool_name}' not found"}],
+            "status": "partial",
+            "current_step": current + 1,
+            "iteration_count": iteration + 1,
+        }
+
+    try:
+        args = _build_tool_args(tool_name, state)
+        result = await _invoke_tool_with_retry(tool, args, current)
+        return {
+            "results": [{"step": current, "tool": tool_name, "result": result}],
+            "current_step": current + 1,
+            "iteration_count": iteration + 1,
+        }
+    except Exception as exc:
+        logger.warning("execute_step failed for tool '%s': %s", tool_name, exc)
+        return {
+            "errors": [{"step": current, "tool": tool_name, "error": str(exc)}],
+            "status": "partial",
+            "current_step": current + 1,
+            "iteration_count": iteration + 1,
+        }
 
 
 def synthesize_response(state: OrchestratorState) -> dict:

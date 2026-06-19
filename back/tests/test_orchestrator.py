@@ -305,6 +305,176 @@ class TestPlanComposite:
 
 
 # ==============================================================================
+# TASK-ORCH-005: execute_step success path
+# ==============================================================================
+
+
+class TestExecuteStepSuccess:
+    """REQ-ORCH-004/003: Execute step invokes tool, appends result, increments counter."""
+
+    async def test_execute_step_single_tool_invocation(self, orchestrator_state):
+        """Execute plan[0] → tool invoked → result appended → step incremented."""
+        from unittest.mock import AsyncMock
+
+        from src.agents.orchestrator import execute_step
+
+        # Build a state with a single-step plan
+        state = {
+            **orchestrator_state,
+            "intent": "generate_exam",
+            "plan": ["generate_exam"],
+            "current_step": 0,
+            "iteration_count": 0,
+        }
+
+        # Mock TOOL_MAP with a fake async tool
+        mock_tool = AsyncMock()
+        mock_tool.name = "generate_exam"
+        mock_tool.ainvoke = AsyncMock(return_value={"exam": "ok"})
+
+        with patch.dict("src.agents.orchestrator.TOOL_MAP", {"generate_exam": mock_tool}):
+            result = await execute_step(state)
+
+        assert len(result["results"]) == 1
+        assert result["results"][0]["tool"] == "generate_exam"
+        assert result["results"][0]["step"] == 0
+        assert result["results"][0]["result"] == {"exam": "ok"}
+        assert result["current_step"] == 1
+        assert result["iteration_count"] == 1
+
+    async def test_execute_step_increments_counters(self, orchestrator_state):
+        """current_step and iteration_count increment by 1 on successful execution."""
+        from unittest.mock import AsyncMock
+
+        from src.agents.orchestrator import execute_step
+
+        state = {
+            **orchestrator_state,
+            "plan": ["ingest", "generate_exam"],
+            "current_step": 1,
+            "iteration_count": 5,
+        }
+
+        mock_tool = AsyncMock()
+        mock_tool.name = "generate_exam"
+        mock_tool.ainvoke = AsyncMock(return_value={"exam": "done"})
+
+        with patch.dict("src.agents.orchestrator.TOOL_MAP", {"generate_exam": mock_tool}):
+            result = await execute_step(state)
+
+        assert result["current_step"] == 2
+        assert result["iteration_count"] == 6
+
+    async def test_execute_step_uses_build_tool_args(self, orchestrator_state):
+        """_build_tool_args is called to construct tool arguments from state."""
+        from unittest.mock import AsyncMock
+
+        from src.agents.orchestrator import execute_step
+
+        state = {
+            **orchestrator_state,
+            "plan": ["query_profile"],
+            "current_step": 0,
+            "iteration_count": 0,
+            "session_id": "sess-abc",
+        }
+
+        mock_tool = AsyncMock()
+        mock_tool.name = "query_profile"
+        mock_tool.ainvoke = AsyncMock(return_value={"profile": "data"})
+
+        with patch.dict("src.agents.orchestrator.TOOL_MAP", {"query_profile": mock_tool}):
+            with patch(
+                "src.agents.orchestrator._build_tool_args",
+                return_value={"session_id": "sess-abc"},
+            ) as mock_build:
+                result = await execute_step(state)
+
+        mock_build.assert_called_once_with("query_profile", state)
+        mock_tool.ainvoke.assert_called_once_with({"session_id": "sess-abc"})
+        assert len(result["results"]) == 1
+
+
+# ==============================================================================
+# TASK-ORCH-006: execute_step retry and failure handling
+# ==============================================================================
+
+
+class TestExecuteStepRetry:
+    """REQ-ORCH-006: Failed tool calls retried ONCE; double-failure → partial."""
+
+    async def test_retry_succeeds_on_second_attempt(self, orchestrator_state):
+        """First call raises, retry succeeds → result stored normally."""
+        from unittest.mock import AsyncMock
+
+        from src.agents.orchestrator import execute_step
+
+        state = {
+            **orchestrator_state,
+            "plan": ["generate_exam"],
+            "current_step": 0,
+            "iteration_count": 0,
+        }
+
+        mock_tool = AsyncMock()
+        mock_tool.name = "generate_exam"
+        mock_tool.ainvoke = AsyncMock(side_effect=[RuntimeError("fail1"), {"exam": "retried"}])
+
+        with patch.dict("src.agents.orchestrator.TOOL_MAP", {"generate_exam": mock_tool}):
+            result = await execute_step(state)
+
+        assert len(result["results"]) == 1
+        assert result["results"][0]["result"] == {"exam": "retried"}
+        assert result["current_step"] == 1
+
+    async def test_retry_fails_returns_partial(self, orchestrator_state):
+        """Both attempts fail → error recorded, status=partial."""
+        from unittest.mock import AsyncMock
+
+        from src.agents.orchestrator import execute_step
+
+        state = {
+            **orchestrator_state,
+            "plan": ["generate_exam"],
+            "current_step": 0,
+            "iteration_count": 0,
+        }
+
+        mock_tool = AsyncMock()
+        mock_tool.name = "generate_exam"
+        mock_tool.ainvoke = AsyncMock(
+            side_effect=[RuntimeError("fail1"), RuntimeError("fail2")]
+        )
+
+        with patch.dict("src.agents.orchestrator.TOOL_MAP", {"generate_exam": mock_tool}):
+            result = await execute_step(state)
+
+        assert result.get("status") == "partial"
+        assert len(result["errors"]) == 1
+        assert result["errors"][0]["step"] == 0
+        assert result["errors"][0]["tool"] == "generate_exam"
+        assert "fail" in result["errors"][0]["error"].lower()
+        assert result["current_step"] == 1
+
+    async def test_tool_not_found_in_map(self, orchestrator_state):
+        """Tool name not in TOOL_MAP → error recorded, status=partial."""
+        from src.agents.orchestrator import execute_step
+
+        state = {
+            **orchestrator_state,
+            "plan": ["nonexistent_tool"],
+            "current_step": 0,
+            "iteration_count": 0,
+        }
+
+        result = await execute_step(state)
+
+        assert result.get("status") == "partial"
+        assert len(result["errors"]) == 1
+        assert "not found" in result["errors"][0]["error"].lower()
+
+
+# ==============================================================================
 # Helpers for fake LLM responses
 # ==============================================================================
 
