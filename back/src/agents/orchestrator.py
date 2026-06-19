@@ -242,9 +242,7 @@ async def _invoke_tool_with_retry(tool, args: dict, step: int) -> dict:
             return await tool.ainvoke(args)
         except Exception as second_err:
             logger.exception("Step %d failed after retry", step)
-            raise ValueError(
-                f"Tool '{tool.name}' failed after retry: {second_err}"
-            ) from second_err
+            raise ValueError(f"Tool '{tool.name}' failed after retry: {second_err}") from second_err
 
 
 async def execute_step(state: OrchestratorState) -> dict:
@@ -338,15 +336,14 @@ def synthesize_response(state: OrchestratorState) -> dict:
 
         if intent == "general_chat" and not results:
             prompt = (
-                f"El usuario preguntó: \"{message}\"\n"
-                "Respondé de forma clara y educativa en español."
+                f'El usuario preguntó: "{message}"\nRespondé de forma clara y educativa en español.'
             )
         else:
             results_str = json.dumps(results, ensure_ascii=False, indent=2)
             errors_str = json.dumps(errors, ensure_ascii=False, indent=2) if errors else "ninguno"
 
             prompt = (
-                f"Consulta original del usuario: \"{message}\"\n\n"
+                f'Consulta original del usuario: "{message}"\n\n'
                 f"Resultados de las herramientas ejecutadas:\n{results_str}\n\n"
                 f"Errores encontrados:\n{errors_str}\n\n"
             )
@@ -432,15 +429,19 @@ def build_orchestrator() -> StateGraph:
 # ── Singleton compilation ────────────────────────────────────────────────────
 
 _orchestrator_graph: object | None = None
+_orchestrator_db_conn: object | None = None
 
 
 async def get_orchestrator_graph():
     """Return the module-level compiled Orchestrator graph singleton.
 
     Compiled ONCE with AsyncSqliteSaver for session persistence.
-    Falls back to InMemorySaver if DB connection fails.
+    Falls back to InMemorySaver if DB connection fails due to missing
+    dependencies (ImportError), database errors (aiosqlite.Error), or
+    filesystem issues (OSError). Unexpected errors propagate.
     """
     global _orchestrator_graph
+    global _orchestrator_db_conn
     if _orchestrator_graph is None:
         from langgraph.checkpoint.memory import InMemorySaver
 
@@ -453,14 +454,36 @@ async def get_orchestrator_graph():
                 os.makedirs(db_dir, exist_ok=True)
             conn = await aiosqlite.connect(settings.sqlite_db_path)
             checkpointer = AsyncSqliteSaver(conn)
+            _orchestrator_db_conn = conn
             logger.info("Orchestrator using AsyncSqliteSaver at %s", settings.sqlite_db_path)
-        except Exception:
+        except (ImportError, aiosqlite.Error, OSError) as exc:
             logger.warning(
-                "AsyncSqliteSaver unavailable at %s, using InMemorySaver",
+                "AsyncSqliteSaver unavailable at %s: %s. Using InMemorySaver",
                 settings.sqlite_db_path,
+                exc,
             )
             checkpointer = InMemorySaver()
 
         _orchestrator_graph = build_orchestrator().compile(checkpointer=checkpointer)
 
     return _orchestrator_graph
+
+
+async def close_orchestrator_graph():
+    """Close the aiosqlite connection and reset the compiled graph singleton.
+
+    After calling this, the next ``get_orchestrator_graph()`` call creates a
+    fresh graph with a new database connection. Safe to call multiple times.
+    """
+    global _orchestrator_graph
+    global _orchestrator_db_conn
+
+    if _orchestrator_db_conn is not None:
+        try:
+            await _orchestrator_db_conn.close()
+            logger.info("Closed orchestrator DB connection")
+        except Exception:
+            logger.exception("Error closing orchestrator DB connection")
+
+    _orchestrator_graph = None
+    _orchestrator_db_conn = None

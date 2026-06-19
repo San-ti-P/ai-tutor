@@ -129,9 +129,7 @@ class TestClassifyIntent:
         """Strong signal → intent=generate_exam, plan pre-populated with tool name."""
         from src.agents.orchestrator import classify_intent
 
-        with patch(
-            "src.agents.orchestrator._get_llm", return_value=_FakeLLM()
-        ):
+        with patch("src.agents.orchestrator._get_llm", return_value=_FakeLLM()):
             result = classify_intent(orchestrator_state)
 
         assert result["intent"] == "generate_exam"
@@ -144,9 +142,8 @@ class TestClassifyIntent:
 
         # Mock LLM returns low-confidence result
         with patch(
-            "src.agents.orchestrator._get_llm", return_value=_FakeLLM(
-                intent="generate_exam", confidence=0.30
-            )
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeLLM(intent="generate_exam", confidence=0.30),
         ):
             result = classify_intent(orchestrator_state)
 
@@ -160,9 +157,8 @@ class TestClassifyIntent:
 
         state = {**orchestrator_state, "user_message": "Ingest notes then quiz me"}
         with patch(
-            "src.agents.orchestrator._get_llm", return_value=_FakeLLM(
-                intent="composite", confidence=0.85
-            )
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeLLM(intent="composite", confidence=0.85),
         ):
             result = classify_intent(state)
 
@@ -190,9 +186,8 @@ class TestClassifyIntent:
 
         for intent in ["ingest", "evaluate", "query_profile", "generate_exercise"]:
             with patch(
-                "src.agents.orchestrator._get_llm", return_value=_FakeLLM(
-                    intent=intent, confidence=0.90
-                )
+                "src.agents.orchestrator._get_llm",
+                return_value=_FakeLLM(intent=intent, confidence=0.90),
             ):
                 result = classify_intent(orchestrator_state)
             assert result["plan"] == [intent], f"Expected plan=[{intent}], got {result['plan']}"
@@ -248,13 +243,15 @@ class TestPlanComposite:
         """Valid composite plan with known tool names is returned."""
         from src.agents.orchestrator import plan_composite
 
-        state = {**orchestrator_state, "intent": "composite",
-                 "user_message": "Ingest notes then generate exam"}
+        state = {
+            **orchestrator_state,
+            "intent": "composite",
+            "user_message": "Ingest notes then generate exam",
+        }
 
         with patch(
-            "src.agents.orchestrator._get_llm", return_value=_FakeCompositeLLM(
-                steps=["ingest", "generate_exam"]
-            )
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeCompositeLLM(steps=["ingest", "generate_exam"]),
         ):
             result = plan_composite(state)
 
@@ -264,13 +261,15 @@ class TestPlanComposite:
         """Tool names not in TOOL_MAP are stripped from the plan."""
         from src.agents.orchestrator import plan_composite
 
-        state = {**orchestrator_state, "intent": "composite",
-                 "user_message": "Do something impossible"}
+        state = {
+            **orchestrator_state,
+            "intent": "composite",
+            "user_message": "Do something impossible",
+        }
 
         with patch(
-            "src.agents.orchestrator._get_llm", return_value=_FakeCompositeLLM(
-                steps=["nonexistent_tool", "ingest", "bad_tool"]
-            )
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeCompositeLLM(steps=["nonexistent_tool", "ingest", "bad_tool"]),
         ):
             result = plan_composite(state)
 
@@ -280,12 +279,9 @@ class TestPlanComposite:
         """Empty plan after stripping → returns empty list (treated as general_chat downstream)."""
         from src.agents.orchestrator import plan_composite
 
-        state = {**orchestrator_state, "intent": "composite",
-                 "user_message": "something"}
+        state = {**orchestrator_state, "intent": "composite", "user_message": "something"}
 
-        with patch(
-            "src.agents.orchestrator._get_llm", return_value=_FakeCompositeLLM(steps=[])
-        ):
+        with patch("src.agents.orchestrator._get_llm", return_value=_FakeCompositeLLM(steps=[])):
             result = plan_composite(state)
 
         assert result["plan"] == []
@@ -294,8 +290,7 @@ class TestPlanComposite:
         """Planner failure → returns empty plan (treated as general_chat downstream)."""
         from src.agents.orchestrator import plan_composite
 
-        state = {**orchestrator_state, "intent": "composite",
-                 "user_message": "Do stuff"}
+        state = {**orchestrator_state, "intent": "composite", "user_message": "Do stuff"}
 
         with patch(
             "src.agents.orchestrator._get_llm",
@@ -444,9 +439,7 @@ class TestExecuteStepRetry:
 
         mock_tool = AsyncMock()
         mock_tool.name = "generate_exam"
-        mock_tool.ainvoke = AsyncMock(
-            side_effect=[RuntimeError("fail1"), RuntimeError("fail2")]
-        )
+        mock_tool.ainvoke = AsyncMock(side_effect=[RuntimeError("fail1"), RuntimeError("fail2")])
 
         with patch.dict("src.agents.orchestrator.TOOL_MAP", {"generate_exam": mock_tool}):
             result = await execute_step(state)
@@ -565,9 +558,8 @@ class TestSynthesizeResponse:
         }
 
         with patch(
-            "src.agents.orchestrator._get_llm", return_value=_FakeDirectLLM(
-                "Un vector es un elemento de un espacio vectorial."
-            )
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeDirectLLM("Un vector es un elemento de un espacio vectorial."),
         ):
             result = synthesize_response(state)
 
@@ -591,9 +583,8 @@ class TestSynthesizeResponse:
         }
 
         with patch(
-            "src.agents.orchestrator._get_llm", return_value=_FakeDirectLLM(
-                "Completé la ingesta y generé el examen."
-            )
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeDirectLLM("Completé la ingesta y generé el examen."),
         ):
             result = synthesize_response(state)
 
@@ -613,9 +604,7 @@ class TestSynthesizeResponse:
         }
 
         with patch(
-            "src.agents.orchestrator._get_llm", return_value=_FakeDirectLLM(
-                "Acá está el resumen."
-            )
+            "src.agents.orchestrator._get_llm", return_value=_FakeDirectLLM("Acá está el resumen.")
         ):
             result = synthesize_response(state)
 
@@ -635,9 +624,8 @@ class TestSynthesizeResponse:
         }
 
         with patch(
-            "src.agents.orchestrator._get_llm", return_value=_FakeDirectLLM(
-                "Parcial completado. Error en paso b."
-            )
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeDirectLLM("Parcial completado. Error en paso b."),
         ):
             result = synthesize_response(state)
 
@@ -720,11 +708,12 @@ class TestBuildOrchestratorGraph:
         mock_tool.name = "generate_exam"
         mock_tool.ainvoke = AsyncMock(return_value={"exam": "generated"})
 
-        with patch(
-            "src.agents.orchestrator._get_llm",
-            return_value=_FakeLLM(intent="generate_exam", confidence=0.95),
-        ), patch.dict(
-            "src.agents.orchestrator.TOOL_MAP", {"generate_exam": mock_tool}
+        with (
+            patch(
+                "src.agents.orchestrator._get_llm",
+                return_value=_FakeLLM(intent="generate_exam", confidence=0.95),
+            ),
+            patch.dict("src.agents.orchestrator.TOOL_MAP", {"generate_exam": mock_tool}),
         ):
             config = {"configurable": {"thread_id": "test-thread-002"}}
             result = await graph.ainvoke(state, config=config)
@@ -762,12 +751,15 @@ class TestBuildOrchestratorGraph:
         fake_llm_plan = _FakeCompositeLLM(steps=["ingest", "generate_exam"])
         fake_llm_synth = _FakeDirectLLM("Completé la ingesta y generé el examen.")
 
-        with patch(
-            "src.agents.orchestrator._get_llm",
-            side_effect=[fake_llm_classify, fake_llm_plan, fake_llm_synth],
-        ), patch.dict(
-            "src.agents.orchestrator.TOOL_MAP",
-            {"ingest": mock_tool1, "generate_exam": mock_tool2},
+        with (
+            patch(
+                "src.agents.orchestrator._get_llm",
+                side_effect=[fake_llm_classify, fake_llm_plan, fake_llm_synth],
+            ),
+            patch.dict(
+                "src.agents.orchestrator.TOOL_MAP",
+                {"ingest": mock_tool1, "generate_exam": mock_tool2},
+            ),
         ):
             config = {"configurable": {"thread_id": "test-thread-003"}}
             result = await graph.ainvoke(state, config=config)
@@ -808,6 +800,67 @@ class TestSingletonCompilation:
 
         assert settings.sqlite_db_path
         assert isinstance(settings.sqlite_db_path, str)
+
+    async def test_close_orchestrator_graph_cleans_up(self):
+        """After close_orchestrator_graph(), next get_orchestrator_graph() is fresh."""
+        import src.agents.orchestrator as orch_mod
+
+        # Ensure singleton is initialized
+        graph1 = await orch_mod.get_orchestrator_graph()
+        assert graph1 is not None
+        assert orch_mod._orchestrator_graph is not None
+
+        await orch_mod.close_orchestrator_graph()
+
+        # After closing, state is reset
+        assert orch_mod._orchestrator_graph is None
+        assert orch_mod._orchestrator_db_conn is None
+
+        # Next call creates a fresh instance
+        graph2 = await orch_mod.get_orchestrator_graph()
+        try:
+            assert graph2 is not None
+            assert graph1 is not graph2
+        finally:
+            # Clean up to avoid ResourceWarning from this test
+            await orch_mod.close_orchestrator_graph()
+
+
+# ==============================================================================
+# TASK-ORCH-011: SqliteSaver exception narrowing
+# ==============================================================================
+
+
+class TestSqliteSaverExceptionHandling:
+    """REQ-ORCH-001: Narrow exception catch in get_orchestrator_graph()."""
+
+    async def test_broad_exception_not_swallowed(self):
+        """RuntimeError during DB connect propagates — not silently caught."""
+        import src.agents.orchestrator as orch_mod
+
+        # Reset singleton so get_orchestrator_graph() will try to connect
+        orch_mod._orchestrator_graph = None
+        orch_mod._orchestrator_db_conn = None
+
+        with patch("aiosqlite.connect", side_effect=RuntimeError("Boom!")):
+            with pytest.raises(RuntimeError, match="Boom!"):
+                await orch_mod.get_orchestrator_graph()
+
+    async def test_expected_exception_falls_back_with_warning(self):
+        """OSError during DB connect falls back to InMemorySaver with a warning."""
+        import src.agents.orchestrator as orch_mod
+
+        # Reset singleton so get_orchestrator_graph() will try to connect
+        orch_mod._orchestrator_graph = None
+        orch_mod._orchestrator_db_conn = None
+
+        with patch("aiosqlite.connect", side_effect=OSError("Permission denied")):
+            graph = await orch_mod.get_orchestrator_graph()
+
+        assert graph is not None
+        assert hasattr(graph, "ainvoke")
+        # InMemorySaver was used — no DB connection stored
+        assert orch_mod._orchestrator_db_conn is None
 
 
 # ==============================================================================
@@ -873,6 +926,7 @@ class _FakeStructured:
 
     def invoke(self, prompt):
         from src.agents.orchestrator import IntentClassification
+
         return IntentClassification(intent=self._intent, confidence=self._confidence)
 
 
@@ -892,6 +946,7 @@ class _FakeCompositeStructured:
 
     def invoke(self, prompt):
         from src.agents.orchestrator import CompositePlan
+
         return CompositePlan(steps=self._steps)
 
 
@@ -953,11 +1008,12 @@ class TestIntegrationPersistence:
         config = {"configurable": {"thread_id": "restore-session-int"}}
 
         # First invocation
-        with patch(
-            "src.agents.orchestrator._get_llm",
-            return_value=_FakeLLM(intent="query_profile", confidence=0.95),
-        ), patch.dict(
-            "src.agents.orchestrator.TOOL_MAP", {"query_profile": mock_tool}
+        with (
+            patch(
+                "src.agents.orchestrator._get_llm",
+                return_value=_FakeLLM(intent="query_profile", confidence=0.95),
+            ),
+            patch.dict("src.agents.orchestrator.TOOL_MAP", {"query_profile": mock_tool}),
         ):
             result1 = await graph.ainvoke(
                 {**orchestrator_state, "user_message": "Mi perfil"},
@@ -967,11 +1023,12 @@ class TestIntegrationPersistence:
         assert len(result1["results"]) >= 1
 
         # Second invocation — same thread_id
-        with patch(
-            "src.agents.orchestrator._get_llm",
-            return_value=_FakeLLM(intent="query_profile", confidence=0.95),
-        ), patch.dict(
-            "src.agents.orchestrator.TOOL_MAP", {"query_profile": mock_tool}
+        with (
+            patch(
+                "src.agents.orchestrator._get_llm",
+                return_value=_FakeLLM(intent="query_profile", confidence=0.95),
+            ),
+            patch.dict("src.agents.orchestrator.TOOL_MAP", {"query_profile": mock_tool}),
         ):
             result2 = await graph.ainvoke(
                 {**orchestrator_state, "user_message": "Mi perfil otra vez"},
@@ -1003,12 +1060,15 @@ class TestIntegrationPersistence:
         fake_llm_plan = _FakeCompositeLLM(steps=["ingest", "generate_exam"])
         fake_llm_synth = _FakeDirectLLM("Todo listo.")
 
-        with patch(
-            "src.agents.orchestrator._get_llm",
-            side_effect=[fake_llm_classify, fake_llm_plan, fake_llm_synth],
-        ), patch.dict(
-            "src.agents.orchestrator.TOOL_MAP",
-            {"ingest": tool1, "generate_exam": tool2},
+        with (
+            patch(
+                "src.agents.orchestrator._get_llm",
+                side_effect=[fake_llm_classify, fake_llm_plan, fake_llm_synth],
+            ),
+            patch.dict(
+                "src.agents.orchestrator.TOOL_MAP",
+                {"ingest": tool1, "generate_exam": tool2},
+            ),
         ):
             config = {"configurable": {"thread_id": "composite-int-001"}}
             state = {
@@ -1041,13 +1101,13 @@ class TestIntegrationPersistence:
         fake_llm_classify = _FakeLLM(intent="composite", confidence=0.9)
         fake_llm_plan = _FakeCompositeLLM(steps=["ingest", "ingest", "ingest", "ingest"])
 
-        with patch(
-            "src.agents.orchestrator._get_llm",
-            side_effect=[fake_llm_classify, fake_llm_plan, _FakeDirectLLM("parcial")],
-        ), patch.dict(
-            "src.agents.orchestrator.TOOL_MAP", {"ingest": tool}
-        ), patch(
-            "src.agents.orchestrator.settings.max_iterations_per_task", 2
+        with (
+            patch(
+                "src.agents.orchestrator._get_llm",
+                side_effect=[fake_llm_classify, fake_llm_plan, _FakeDirectLLM("parcial")],
+            ),
+            patch.dict("src.agents.orchestrator.TOOL_MAP", {"ingest": tool}),
+            patch("src.agents.orchestrator.settings.max_iterations_per_task", 2),
         ):
             config = {"configurable": {"thread_id": "cap-hit-int"}}
             state = {
@@ -1078,11 +1138,12 @@ class TestIntegrationPersistence:
         fake_llm_classify = _FakeLLM(intent="generate_exam", confidence=0.95)
         fake_llm_synth = _FakeDirectLLM("Error al generar el examen.")
 
-        with patch(
-            "src.agents.orchestrator._get_llm",
-            side_effect=[fake_llm_classify, fake_llm_synth],
-        ), patch.dict(
-            "src.agents.orchestrator.TOOL_MAP", {"generate_exam": tool}
+        with (
+            patch(
+                "src.agents.orchestrator._get_llm",
+                side_effect=[fake_llm_classify, fake_llm_synth],
+            ),
+            patch.dict("src.agents.orchestrator.TOOL_MAP", {"generate_exam": tool}),
         ):
             config = {"configurable": {"thread_id": "retry-fail-int"}}
             state = {
@@ -1106,7 +1167,8 @@ class TestSecurityAndPublicAPI:
         import src.agents.orchestrator as mod
 
         public_funcs = [
-            name for name, obj in inspect.getmembers(mod, inspect.isfunction)
+            name
+            for name, obj in inspect.getmembers(mod, inspect.isfunction)
             if not name.startswith("_")
         ]
         # Public API: build_orchestrator, get_orchestrator_graph
@@ -1125,15 +1187,16 @@ class TestSecurityAndPublicAPI:
 
         # Look for common API key patterns (in strings, not identifiers)
         key_patterns = [
-            r'sk-[a-zA-Z0-9]{20,}',         # OpenAI-style keys
-            r'gsk_[a-zA-Z0-9]{20,}',        # Groq keys
+            r"sk-[a-zA-Z0-9]{20,}",  # OpenAI-style keys
+            r"gsk_[a-zA-Z0-9]{20,}",  # Groq keys
         ]
 
         # Also scan for suspicious string literals that look like API keys
         # but exclude identifiers (underscore-separated words)
         suspicious = re.findall(r"'[a-zA-Z0-9_-]{32,}'|\"[a-zA-Z0-9_-]{32,}\"", source)
         real_matches = [
-            m for m in suspicious
+            m
+            for m in suspicious
             if not re.match(r"^[a-z_]+$", m.strip("\"'"))  # skip snake_case identifiers
         ]
 
