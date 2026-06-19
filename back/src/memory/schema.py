@@ -154,6 +154,47 @@ async def get_topic_scores(student_id: str) -> list[dict]:
         return [dict(row) for row in rows]
 
 
+async def upsert_topic_scores(student_id: str, scores: list[dict]) -> None:
+    """Upsert per-topic scores for a student.
+
+    Uses INSERT OR REPLACE so each (topic, student_id) row keeps only the
+    latest score.  ``scores`` is a list of dicts, each with ``topic``
+    (str) and ``score`` (float).
+    """
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        await db.executemany(
+            """
+            INSERT OR REPLACE INTO topic_scores (topic, student_id, score, evaluated_at)
+            VALUES (?, ?, ?, datetime('now'))
+            """,
+            [(s["topic"], student_id, s["score"]) for s in scores],
+        )
+        await db.commit()
+
+
+async def compute_weak_topics(
+    student_id: str, threshold: float = 6.0, limit: int = 3
+) -> list[str]:
+    """Return topic names whose latest score is below *threshold*.
+
+    Reads from ``topic_scores`` (fast, indexed lookup).  Results are
+    sorted by score ascending so the weakest topics appear first.
+    Only the first *limit* results are returned.
+    """
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT topic, score
+               FROM topic_scores
+               WHERE student_id = ? AND score < ?
+               ORDER BY score ASC
+               LIMIT ?""",
+            (student_id, threshold, limit),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r)["topic"] for r in rows]
+
+
 async def get_recent_sessions(student_id: str, limit: int = 10) -> list[dict]:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row

@@ -9,7 +9,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from src.agents.ingestor import IngestorState, build_ingestor
 from src.api.schemas import (
@@ -19,6 +19,7 @@ from src.api.schemas import (
     EvaluationRequest,
     EvaluationResult,
     Exam,
+    ExamPreferences,
     ExamRequest,
     HealthResponse,
     IngestResult,
@@ -214,6 +215,58 @@ async def get_profile(session_id: str) -> ApiResponse[StudentProfile]:
                 "excludeTopics": [],
             },
             session_count=0,
+        ),
+        error=None,
+    )
+
+
+@router.get("/students/{student_id}/dashboard", response_model=ApiResponse[StudentProfile])
+async def get_dashboard(student_id: str) -> ApiResponse[StudentProfile]:
+    """Return aggregated student progress for the dashboard UI (SUP-08).
+
+    Aggregates topic scores, weak topics, preferences, and session count
+    from local SQLite. Returns 404 for unknown student IDs.
+    p95 < 300ms via indexed student_id queries.
+    """
+    from src.memory.schema import (
+        compute_weak_topics,
+        get_student_profile,
+        get_topic_scores,
+    )
+
+    logger.info("Dashboard requested for student %s", student_id)
+
+    profile = await get_student_profile(student_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Student '{student_id}' not found")
+
+    topic_scores_list = await get_topic_scores(student_id)
+    weak_topics = await compute_weak_topics(student_id)
+
+    # Convert list[dict] to dict[str, list[float]] for StudentProfile
+    topic_scores_dict: dict[str, list[float]] = {}
+    for ts in topic_scores_list:
+        topic = ts["topic"]
+        score = ts["score"]
+        topic_scores_dict.setdefault(topic, []).append(score)
+
+    # Convert DB preferences dict to ExamPreferences
+    prefs = profile.get("preferences", {})
+    exam_prefs = ExamPreferences(
+        questionTypes=prefs.get("question_types", ["mcq"]),
+        difficulty=prefs.get("difficulty", "medium"),
+        questionCount=prefs.get("question_count", 5),
+        includeTopics=prefs.get("include_topics", []),
+        excludeTopics=prefs.get("exclude_topics", []),
+    )
+
+    return ApiResponse(
+        data=StudentProfile(
+            id=student_id,
+            topicScores=topic_scores_dict,
+            weakTopics=weak_topics,
+            preferences=exam_prefs,
+            sessionCount=profile.get("session_count", 0),
         ),
         error=None,
     )
