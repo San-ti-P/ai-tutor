@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import operator
+import os
 from typing import Annotated, Literal
 
 from langgraph.graph import END, START, StateGraph
@@ -412,3 +413,41 @@ def build_orchestrator() -> StateGraph:
     builder.add_edge("synthesize_response", END)
 
     return builder
+
+
+# ── Singleton compilation ────────────────────────────────────────────────────
+
+_orchestrator_graph: object | None = None
+
+
+async def get_orchestrator_graph():
+    """Return the module-level compiled Orchestrator graph singleton.
+
+    Compiled ONCE with AsyncSqliteSaver for session persistence.
+    Falls back to InMemorySaver if DB connection fails.
+    """
+    global _orchestrator_graph
+    if _orchestrator_graph is None:
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        try:
+            import aiosqlite
+
+            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+            db_dir = os.path.dirname(settings.sqlite_db_path)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
+            conn = await aiosqlite.connect(settings.sqlite_db_path)
+            checkpointer = AsyncSqliteSaver(conn)
+            logger.info("Orchestrator using AsyncSqliteSaver at %s", settings.sqlite_db_path)
+        except Exception:
+            logger.warning(
+                "AsyncSqliteSaver unavailable at %s, using InMemorySaver",
+                settings.sqlite_db_path,
+            )
+            checkpointer = InMemorySaver()
+
+        _orchestrator_graph = build_orchestrator().compile(checkpointer=checkpointer)
+
+    return _orchestrator_graph

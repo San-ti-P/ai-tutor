@@ -677,6 +677,190 @@ class _FakeDirectLLM:
 
 
 # ==============================================================================
+# TASK-ORCH-009: Full graph wiring (build_orchestrator end-to-end)
+# ==============================================================================
+
+
+class TestBuildOrchestratorGraph:
+    """End-to-end graph invoke with mocked LLM, tools, and checkpointer.
+
+    Patches _get_llm instead of node functions because LangGraph
+    captures node function references at add_node() time.
+    """
+
+    async def test_e2e_general_chat_invoke(self, orchestrator_state):
+        """Full graph: classify → route → synthesize → END for general_chat."""
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from src.agents.orchestrator import build_orchestrator
+
+        graph = build_orchestrator().compile(checkpointer=InMemorySaver())
+
+        with patch(
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeDirectLLM("Hola, soy tu tutor. ¿En qué te ayudo?"),
+        ):
+            config = {"configurable": {"thread_id": "test-thread-001"}}
+            result = await graph.ainvoke(
+                {**orchestrator_state, "user_message": "Hola"},
+                config=config,
+            )
+
+        assert result["response"] == "Hola, soy tu tutor. ¿En qué te ayudo?"
+        assert result["status"] == "complete"
+        assert result["intent"] == "general_chat"
+
+    async def test_e2e_single_tool_invoke(self, orchestrator_state):
+        """Full graph: classify → route → execute_step → synthesize → END."""
+        from unittest.mock import AsyncMock
+
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from src.agents.orchestrator import build_orchestrator
+
+        graph = build_orchestrator().compile(checkpointer=InMemorySaver())
+
+        state = {
+            **orchestrator_state,
+            "user_message": "Generame un examen de derivadas",
+        }
+
+        mock_tool = AsyncMock()
+        mock_tool.name = "generate_exam"
+        mock_tool.ainvoke = AsyncMock(return_value={"exam": "generated"})
+
+        with patch(
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeLLM(intent="generate_exam", confidence=0.95),
+        ), patch.dict(
+            "src.agents.orchestrator.TOOL_MAP", {"generate_exam": mock_tool}
+        ):
+            config = {"configurable": {"thread_id": "test-thread-002"}}
+            result = await graph.ainvoke(state, config=config)
+
+        # Should have executed generate_exam and received the result
+        assert result["intent"] == "generate_exam"
+        assert len(result["results"]) >= 1
+        assert result["results"][0]["tool"] == "generate_exam"
+
+    async def test_e2e_composite_loop(self, orchestrator_state):
+        """Composite: plan_composite → execute_step × 2 → synthesize → END."""
+        from unittest.mock import AsyncMock
+
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from src.agents.orchestrator import build_orchestrator
+
+        graph = build_orchestrator().compile(checkpointer=InMemorySaver())
+
+        state = {
+            **orchestrator_state,
+            "intent": "composite",
+            "user_message": "Ingest notes then quiz me",
+        }
+
+        mock_tool1 = AsyncMock()
+        mock_tool1.name = "ingest"
+        mock_tool1.ainvoke = AsyncMock(return_value={"status": "ok"})
+        mock_tool2 = AsyncMock()
+        mock_tool2.name = "generate_exam"
+        mock_tool2.ainvoke = AsyncMock(return_value={"exam": "ready"})
+
+        # classify returns composite; plan_composite already has plan
+        fake_llm_classify = _FakeLLM(intent="composite", confidence=0.9)
+        fake_llm_plan = _FakeCompositeLLM(steps=["ingest", "generate_exam"])
+        fake_llm_synth = _FakeDirectLLM("Completé la ingesta y generé el examen.")
+
+        with patch(
+            "src.agents.orchestrator._get_llm",
+            side_effect=[fake_llm_classify, fake_llm_plan, fake_llm_synth],
+        ), patch.dict(
+            "src.agents.orchestrator.TOOL_MAP",
+            {"ingest": mock_tool1, "generate_exam": mock_tool2},
+        ):
+            config = {"configurable": {"thread_id": "test-thread-003"}}
+            result = await graph.ainvoke(state, config=config)
+
+        assert len(result["results"]) == 2
+        assert result["results"][0]["tool"] == "ingest"
+        assert result["results"][1]["tool"] == "generate_exam"
+
+
+# ==============================================================================
+# TASK-ORCH-010: Singleton compilation + SqliteSaver
+# ==============================================================================
+
+
+class TestSingletonCompilation:
+    """REQ-ORCH-001: Module-level singleton, compiled once."""
+
+    async def test_get_orchestrator_graph_returns_compiled_graph(self):
+        """get_orchestrator_graph returns a compiled StateGraph."""
+        from src.agents.orchestrator import get_orchestrator_graph
+
+        graph = await get_orchestrator_graph()
+        assert graph is not None
+        # Should have the invoke method
+        assert hasattr(graph, "ainvoke")
+
+    async def test_get_orchestrator_graph_same_instance(self):
+        """Multiple calls return the same compiled graph instance."""
+        from src.agents.orchestrator import get_orchestrator_graph
+
+        graph1 = await get_orchestrator_graph()
+        graph2 = await get_orchestrator_graph()
+        assert graph1 is graph2
+
+    def test_sqlite_db_path_from_settings(self):
+        """Settings provides sqlite_db_path for SqliteSaver."""
+        from src.config import settings
+
+        assert settings.sqlite_db_path
+        assert isinstance(settings.sqlite_db_path, str)
+
+
+# ==============================================================================
+# TASK-ORCH-011: /chat endpoint integration
+# ==============================================================================
+
+
+class TestChatEndpoint:
+    """REQ-ORCH-001: /chat returns real Orchestrator responses (no placeholder)."""
+
+    def test_chat_endpoint_returns_real_response(self):
+        """POST /chat with a message → response from the Orchestrator graph."""
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from src.api.schemas import ChatRequest
+        from src.main import app
+
+        client = TestClient(app)
+
+        # Patch get_orchestrator_graph to return a dummy compiled graph
+        # and patch _get_llm for the classify_intent + synthesize nodes
+        with patch(
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeDirectLLM("¡Hola! Soy tu tutor académico."),
+        ):
+            response = client.post(
+                "/chat",
+                json={"session_id": "test-session-99", "message": "Hola"},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["error"] is None
+        assert "data" in data
+        assert data["data"]["response"] == "¡Hola! Soy tu tutor académico."
+        # Should NOT be the placeholder message
+        assert "aún no están implementados" not in data["data"]["response"]
+        assert data["data"]["intent"] == "general_chat"
+        assert data["data"]["trace_id"] is not None
+
+
+# ==============================================================================
 # Helpers for fake LLM responses
 # ==============================================================================
 

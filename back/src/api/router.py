@@ -40,13 +40,36 @@ async def health() -> HealthResponse:
 @router.post("/chat", response_model=ApiResponse[ChatResponse])
 async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
     logger.info("Chat request received for session %s", request.session_id)
+
+    from src.agents.orchestrator import (  # noqa: F811
+        OrchestratorState,
+        get_orchestrator_graph,
+    )
+
+    graph = await get_orchestrator_graph()
+
+    initial_state: OrchestratorState = {
+        "session_id": request.session_id,
+        "user_message": request.message,
+        "intent": "general_chat",
+        "confidence": 0.0,
+        "plan": [],
+        "current_step": 0,
+        "results": [],
+        "errors": [],
+        "response": "",
+        "status": "pending",
+        "iteration_count": 0,
+        "student_profile": None,
+    }
+
+    config = {"configurable": {"thread_id": request.session_id}}
+    final_state = await graph.ainvoke(initial_state, config=config)
+
     return ApiResponse(
         data=ChatResponse(
-            response=(
-                "Lo siento, los agentes del tutor aún no están implementados. "
-                "Esta es una respuesta de infraestructura placeholder."
-            ),
-            intent="general_chat",
+            response=final_state["response"],
+            intent=final_state["intent"],
             trace_id=str(uuid.uuid4()),
         ),
         error=None,
