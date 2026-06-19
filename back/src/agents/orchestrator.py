@@ -1,10 +1,18 @@
 """Orchestrator Agent — Plan-and-Execute with hub-and-spoke routing."""
 
+from __future__ import annotations
+
+import logging
 import operator
 from typing import Annotated, Literal
 
 from langgraph.graph import END, START, StateGraph
+from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
+
+from src.config import settings
+
+logger = logging.getLogger(__name__)
 
 Intent = Literal[
     "ingest",
@@ -16,21 +24,88 @@ Intent = Literal[
     "composite",
 ]
 
+_SINGLE_TOOL_INTENTS: set[str] = {
+    "ingest",
+    "generate_exam",
+    "generate_exercise",
+    "evaluate",
+    "query_profile",
+}
+
+
+class IntentClassification(BaseModel):
+    intent: Intent
+    confidence: float = Field(ge=0.0, le=1.0)
+
 
 class OrchestratorState(TypedDict):
     session_id: str
     user_message: str
     intent: Intent
+    confidence: float
     plan: list[str]
     current_step: int
     results: Annotated[list[dict], operator.add]
+    errors: Annotated[list[dict], operator.add]
     response: str
+    status: str  # "pending" | "complete" | "incomplete" | "partial"
     iteration_count: int
+    student_profile: dict | None
+
+
+def _get_llm():
+    """Return a configured LLM instance for the current provider."""
+    llm_cls, llm_kwargs = settings.llm_kwargs
+    return llm_cls(**llm_kwargs)
 
 
 def classify_intent(state: OrchestratorState) -> dict:
-    """Classify user message into one of 7 intents."""
-    raise NotImplementedError
+    """Classify user message into one of 7 intents with confidence score.
+
+    On low confidence (< settings.classification_confidence_threshold), forces
+    general_chat. On any exception, returns general_chat with confidence=0.0.
+    Single-tool intents pre-populate plan with the tool name.
+    """
+    message = state["user_message"]
+    profile = state.get("student_profile")
+
+    try:
+        llm = _get_llm()
+        structured = llm.with_structured_output(IntentClassification)
+
+        prompt = "Clasificá la siguiente consulta en una de estas categorías:\n"
+        prompt += "- ingest: subir/apuntes/documentos\n"
+        prompt += "- generate_exam: generar un examen\n"
+        prompt += "- generate_exercise: generar un ejercicio práctico\n"
+        prompt += "- evaluate: evaluar/corregir una respuesta\n"
+        prompt += "- query_profile: consultar perfil/progreso\n"
+        prompt += "- general_chat: charla general, saludo, pregunta no académica\n"
+        prompt += "- composite: múltiples tareas combinadas\n\n"
+        prompt += f"Consulta: {message}\n"
+        if profile:
+            weak = profile.get("weak_topics", [])
+            if weak:
+                prompt += f"Perfil del estudiante (temas débiles): {weak}\n"
+        prompt += "Respondé SOLO con la clasificación en formato JSON."
+
+        result = structured.invoke(prompt)
+        intent = result.intent
+        confidence = result.confidence
+
+        # Low-confidence fallback
+        if confidence < settings.classification_confidence_threshold:
+            intent = "general_chat"
+
+        # Pre-populate plan for single-tool intents
+        plan: list[str] = []
+        if intent in _SINGLE_TOOL_INTENTS:
+            plan = [intent]
+
+        return {"intent": intent, "confidence": confidence, "plan": plan}
+
+    except Exception:
+        logger.exception("classify_intent failed, falling back to general_chat")
+        return {"intent": "general_chat", "confidence": 0.0, "plan": []}
 
 
 def route_to_agent(state: OrchestratorState) -> str:
