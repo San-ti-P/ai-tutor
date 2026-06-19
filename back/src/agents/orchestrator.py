@@ -269,7 +269,13 @@ async def execute_step(state: OrchestratorState) -> dict:
     if tool is None:
         logger.warning("Tool '%s' not found in TOOL_MAP", tool_name)
         return {
-            "errors": [{"step": current, "tool": tool_name, "error": f"Tool '{tool_name}' not found"}],
+            "errors": [
+                {
+                    "step": current,
+                    "tool": tool_name,
+                    "error": f"Tool '{tool_name}' not found",
+                }
+            ],
             "status": "partial",
             "current_step": current + 1,
             "iteration_count": iteration + 1,
@@ -309,6 +315,14 @@ def synthesize_response(state: OrchestratorState) -> dict:
     results = state.get("results", [])
     errors = state.get("errors", [])
     status = state.get("status", "pending")
+
+    # Detect cap hit: iteration_count >= max but steps not all done
+    if (
+        status == "pending"
+        and state["iteration_count"] >= settings.max_iterations_per_task
+        and state["current_step"] < len(state.get("plan", []))
+    ):
+        status = "incomplete"
 
     # Prepend cap warning for incomplete
     prefix = ""
@@ -432,7 +446,6 @@ async def get_orchestrator_graph():
 
         try:
             import aiosqlite
-
             from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
             db_dir = os.path.dirname(settings.sqlite_db_path)

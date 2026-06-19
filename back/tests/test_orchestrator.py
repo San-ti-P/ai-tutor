@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from src.agents.orchestrator import OrchestratorState
 
 # ==============================================================================
@@ -499,7 +501,6 @@ class TestCheckIterationLimit:
     def test_cap_hit_terminate(self, orchestrator_state):
         """iteration_count >= max → terminate."""
         from src.agents.orchestrator import check_iteration_limit
-
         from src.config import settings
 
         state = {
@@ -666,7 +667,9 @@ class TestSynthesizeResponse:
         assert result["status"] == "complete"
 
 
-class _FakeDirectLLM:
+# ==============================================================================
+# Helpers for fake LLM responses
+# ==============================================================================
     """Fake LLM that returns a pre-programmed string for synthesize_response."""
 
     def __init__(self, response: str):
@@ -833,7 +836,6 @@ class TestChatEndpoint:
 
         from fastapi.testclient import TestClient
 
-        from src.api.schemas import ChatRequest
         from src.main import app
 
         client = TestClient(app)
@@ -903,3 +905,253 @@ class _FakeCompositeStructured:
     def invoke(self, prompt):
         from src.agents.orchestrator import CompositePlan
         return CompositePlan(steps=self._steps)
+
+
+class _FakeDirectLLM:
+    """Fake LLM that returns a pre-programmed string for synthesize_response."""
+
+    def __init__(self, response: str):
+        self._response = response
+
+    def invoke(self, prompt):
+        return type("FakeAIMessage", (), {"content": self._response})()
+
+
+# ==============================================================================
+# TASK-ORCH-012: Integration tests
+# ==============================================================================
+
+
+@pytest.mark.integration
+class TestIntegrationPersistence:
+    """End-to-end integration: graph wiring + checkpointer persistence.
+
+    Uses InMemorySaver for isolation. LLM mocked via _get_llm patch.
+    """
+
+    async def test_new_session_creates_checkpoint(self, orchestrator_state):
+        """A first /chat with a new session ID creates a checkpoint."""
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from src.agents.orchestrator import build_orchestrator
+
+        graph = build_orchestrator().compile(checkpointer=InMemorySaver())
+
+        with patch(
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeDirectLLM("Hola, ¿cómo estás?"),
+        ):
+            config = {"configurable": {"thread_id": "new-session-int-001"}}
+            state = {**orchestrator_state, "user_message": "Hola"}
+            result = await graph.ainvoke(state, config=config)
+
+        assert result["response"] == "Hola, ¿cómo estás?"
+        assert result["status"] == "complete"
+
+    async def test_restore_session_accumulates_results(self, orchestrator_state):
+        """Same thread_id twice → second run accumulates results via operator.add."""
+        from unittest.mock import AsyncMock
+
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from src.agents.orchestrator import build_orchestrator
+
+        graph = build_orchestrator().compile(checkpointer=InMemorySaver())
+
+        mock_tool = AsyncMock()
+        mock_tool.name = "query_profile"
+        mock_tool.ainvoke = AsyncMock(return_value={"profile": "data"})
+
+        config = {"configurable": {"thread_id": "restore-session-int"}}
+
+        # First invocation
+        with patch(
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeLLM(intent="query_profile", confidence=0.95),
+        ), patch.dict(
+            "src.agents.orchestrator.TOOL_MAP", {"query_profile": mock_tool}
+        ):
+            result1 = await graph.ainvoke(
+                {**orchestrator_state, "user_message": "Mi perfil"},
+                config=config,
+            )
+
+        assert len(result1["results"]) >= 1
+
+        # Second invocation — same thread_id
+        with patch(
+            "src.agents.orchestrator._get_llm",
+            return_value=_FakeLLM(intent="query_profile", confidence=0.95),
+        ), patch.dict(
+            "src.agents.orchestrator.TOOL_MAP", {"query_profile": mock_tool}
+        ):
+            result2 = await graph.ainvoke(
+                {**orchestrator_state, "user_message": "Mi perfil otra vez"},
+                config=config,
+            )
+
+        # Results should accumulate (operator.add reducer)
+        assert len(result2["results"]) >= 2
+        assert len(result2["results"]) > len(result1["results"])
+
+    async def test_composite_multi_step_executes_all(self, orchestrator_state):
+        """Composite with 2-step plan → both steps executed in order."""
+        from unittest.mock import AsyncMock
+
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from src.agents.orchestrator import build_orchestrator
+
+        graph = build_orchestrator().compile(checkpointer=InMemorySaver())
+
+        tool1 = AsyncMock()
+        tool1.name = "ingest"
+        tool1.ainvoke = AsyncMock(return_value={"status": "ok"})
+        tool2 = AsyncMock()
+        tool2.name = "generate_exam"
+        tool2.ainvoke = AsyncMock(return_value={"exam": "ready"})
+
+        fake_llm_classify = _FakeLLM(intent="composite", confidence=0.9)
+        fake_llm_plan = _FakeCompositeLLM(steps=["ingest", "generate_exam"])
+        fake_llm_synth = _FakeDirectLLM("Todo listo.")
+
+        with patch(
+            "src.agents.orchestrator._get_llm",
+            side_effect=[fake_llm_classify, fake_llm_plan, fake_llm_synth],
+        ), patch.dict(
+            "src.agents.orchestrator.TOOL_MAP",
+            {"ingest": tool1, "generate_exam": tool2},
+        ):
+            config = {"configurable": {"thread_id": "composite-int-001"}}
+            state = {
+                **orchestrator_state,
+                "intent": "composite",
+                "user_message": "Ingest notes then quiz me",
+            }
+            result = await graph.ainvoke(state, config=config)
+
+        assert len(result["results"]) == 2
+        assert result["results"][0]["tool"] == "ingest"
+        assert result["results"][1]["tool"] == "generate_exam"
+        assert result["status"] == "complete"
+
+    async def test_cap_hit_incomplete_status(self, orchestrator_state):
+        """When iteration cap is hit, status becomes incomplete."""
+        from unittest.mock import AsyncMock
+
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from src.agents.orchestrator import build_orchestrator
+
+        graph = build_orchestrator().compile(checkpointer=InMemorySaver())
+
+        # Create a long plan but set max_iterations very low
+        tool = AsyncMock()
+        tool.name = "ingest"
+        tool.ainvoke = AsyncMock(return_value={"status": "ok"})
+
+        fake_llm_classify = _FakeLLM(intent="composite", confidence=0.9)
+        fake_llm_plan = _FakeCompositeLLM(steps=["ingest", "ingest", "ingest", "ingest"])
+
+        with patch(
+            "src.agents.orchestrator._get_llm",
+            side_effect=[fake_llm_classify, fake_llm_plan, _FakeDirectLLM("parcial")],
+        ), patch.dict(
+            "src.agents.orchestrator.TOOL_MAP", {"ingest": tool}
+        ), patch(
+            "src.agents.orchestrator.settings.max_iterations_per_task", 2
+        ):
+            config = {"configurable": {"thread_id": "cap-hit-int"}}
+            state = {
+                **orchestrator_state,
+                "intent": "composite",
+                "user_message": "Do lots of stuff",
+            }
+            result = await graph.ainvoke(state, config=config)
+
+        # After 2 iterations, the graph should stop and synthesize
+        assert result["status"] == "incomplete"
+        assert "límite" in result["response"].lower() or "limite" in result["response"].lower()
+
+    async def test_retry_failure_partial_result(self, orchestrator_state):
+        """Double failure → partial result with error in response."""
+        from unittest.mock import AsyncMock
+
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from src.agents.orchestrator import build_orchestrator
+
+        graph = build_orchestrator().compile(checkpointer=InMemorySaver())
+
+        tool = AsyncMock()
+        tool.name = "generate_exam"
+        tool.ainvoke = AsyncMock(side_effect=[RuntimeError("fail1"), RuntimeError("fail2")])
+
+        fake_llm_classify = _FakeLLM(intent="generate_exam", confidence=0.95)
+        fake_llm_synth = _FakeDirectLLM("Error al generar el examen.")
+
+        with patch(
+            "src.agents.orchestrator._get_llm",
+            side_effect=[fake_llm_classify, fake_llm_synth],
+        ), patch.dict(
+            "src.agents.orchestrator.TOOL_MAP", {"generate_exam": tool}
+        ):
+            config = {"configurable": {"thread_id": "retry-fail-int"}}
+            state = {
+                **orchestrator_state,
+                "user_message": "Generame un examen",
+            }
+            result = await graph.ainvoke(state, config=config)
+
+        assert result["status"] == "partial"
+        assert len(result["errors"]) >= 1
+
+
+@pytest.mark.integration
+class TestSecurityAndPublicAPI:
+    """REQ-ORCH-007: Single public entry point, no hardcoded secrets."""
+
+    def test_build_orchestrator_public_entry(self):
+        """build_orchestrator and get_orchestrator_graph are the only public builders."""
+        import inspect
+
+        import src.agents.orchestrator as mod
+
+        public_funcs = [
+            name for name, obj in inspect.getmembers(mod, inspect.isfunction)
+            if not name.startswith("_")
+        ]
+        # Public API: build_orchestrator, get_orchestrator_graph
+        assert "build_orchestrator" in public_funcs
+        assert "get_orchestrator_graph" in public_funcs
+
+    def test_no_hardcoded_secrets(self):
+        """Source code scan: no API keys or raw credentials hardcoded."""
+        import re
+        from pathlib import Path
+
+        orchestrator_path = (
+            Path(__file__).resolve().parent.parent / "src" / "agents" / "orchestrator.py"
+        )
+        source = orchestrator_path.read_text()
+
+        # Look for common API key patterns (in strings, not identifiers)
+        key_patterns = [
+            r'sk-[a-zA-Z0-9]{20,}',         # OpenAI-style keys
+            r'gsk_[a-zA-Z0-9]{20,}',        # Groq keys
+        ]
+
+        # Also scan for suspicious string literals that look like API keys
+        # but exclude identifiers (underscore-separated words)
+        suspicious = re.findall(r"'[a-zA-Z0-9_-]{32,}'|\"[a-zA-Z0-9_-]{32,}\"", source)
+        real_matches = [
+            m for m in suspicious
+            if not re.match(r"^[a-z_]+$", m.strip("\"'"))  # skip snake_case identifiers
+        ]
+
+        # Check key patterns
+        for pattern in key_patterns:
+            matches = re.findall(pattern, source)
+            assert len(matches) == 0, f"Found potential API key: {matches}"
+
+        assert len(real_matches) == 0, f"Found potential secret: {real_matches}"
