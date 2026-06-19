@@ -197,6 +197,44 @@ class TestClassifyIntent:
 
 
 # ==============================================================================
+# TASK-ORCH-003: route_to_agent
+# ==============================================================================
+
+
+class TestRouteToAgent:
+    """REQ-ORCH-003: Conditional edge maps intent to correct node name."""
+
+    def test_route_composite_to_plan_composite(self):
+        """composite → plan_composite node."""
+        from src.agents.orchestrator import route_to_agent
+
+        result = route_to_agent({"intent": "composite"})
+        assert result == "plan_composite"
+
+    def test_route_general_chat_to_synthesize_response(self):
+        """general_chat → synthesize_response node (answered inline)."""
+        from src.agents.orchestrator import route_to_agent
+
+        result = route_to_agent({"intent": "general_chat"})
+        assert result == "synthesize_response"
+
+    def test_route_single_tool_intents_to_execute_step(self):
+        """All single-tool intents → execute_step node."""
+        from src.agents.orchestrator import route_to_agent
+
+        single_intents = [
+            "ingest",
+            "generate_exam",
+            "generate_exercise",
+            "evaluate",
+            "query_profile",
+        ]
+        for intent in single_intents:
+            result = route_to_agent({"intent": intent})
+            assert result == "execute_step", f"{intent} should route to execute_step, got {result}"
+
+
+# ==============================================================================
 # Helpers for fake LLM responses
 # ==============================================================================
 

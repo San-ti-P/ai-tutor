@@ -109,8 +109,18 @@ def classify_intent(state: OrchestratorState) -> dict:
 
 
 def route_to_agent(state: OrchestratorState) -> str:
-    """Route classified intent to the matching agent node."""
-    raise NotImplementedError
+    """Route classified intent to the matching agent node.
+
+    composite → plan_composite
+    general_chat → synthesize_response
+    Any single-tool intent → execute_step
+    """
+    intent = state["intent"]
+    if intent == "composite":
+        return "plan_composite"
+    if intent == "general_chat":
+        return "synthesize_response"
+    return "execute_step"
 
 
 def plan_composite(state: OrchestratorState) -> dict:
