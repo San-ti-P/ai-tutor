@@ -57,7 +57,7 @@ This epic owns the RAG module (ChromaDB collection, chunking strategy, embedding
 
 - File-to-Markdown: markitdown (source PRD §4.5).
 - Vector store: ChromaDB + LangChain.
-- Topic extraction: LLM via ChatGroq with structured output (Pydantic schema).
+- Topic extraction: LLM via Ollama (ChatOllama) with structured output (Pydantic schema).
 - RAG infrastructure: per §4.3.
 - Episodic memory: ChromaDB vector store is the source of truth for ingested material (source PRD §4.4).
 - OCR math *(deferred)*: Mathpix API as primary, pix2tex (local) as fallback.
