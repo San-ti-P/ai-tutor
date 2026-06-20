@@ -165,10 +165,8 @@ def extract_topics(
             content = p.read_text(encoding="utf-8")
         elif suffix == ".pdf":
             try:
-                import markitdown
-
-                md = markitdown.MarkItDown()
-                content = md.convert(str(p)).text_content
+                from src.utils.text import parse_file_to_text
+                content = parse_file_to_text(str(p))
             except Exception as exc:
                 return {"error": f"Failed to parse PDF: {exc}"}
         else:
@@ -183,11 +181,9 @@ def extract_topics(
     content_preview = content[:5000]
 
     try:
-        from src.config import settings
+        from src.llm import get_structured_llm
 
-        llm_cls, llm_kwargs = settings.llm_kwargs
-        llm = llm_cls(**llm_kwargs)
-        structured_llm = llm.with_structured_output(TopicExtraction)
+        structured_llm = get_structured_llm(TopicExtraction)
 
         prompt = (
             "Analizá el siguiente texto académico y extraé:\n"

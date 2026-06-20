@@ -45,11 +45,14 @@ def parse_document(state: IngestorState) -> dict:
 
     Accepted: PDF, TXT.
     Rejected: images (PNG/JPG — OCR deferred), unsupported formats.
+
+    Uses ``src.utils.text.parse_file_to_text`` — the single source of truth
+    for markitdown-based parsing.
     """
     try:
         from pathlib import Path
 
-        import markitdown
+        from src.utils.text import parse_file_to_text
 
         file_path = Path(state["file_path"])
         if not file_path.exists():
@@ -74,9 +77,7 @@ def parse_document(state: IngestorState) -> dict:
                 "status": "rejected",
             }
 
-        md = markitdown.MarkItDown()
-        result = md.convert(str(file_path))
-        raw_text = result.text_content
+        raw_text = parse_file_to_text(str(file_path))
 
         return {
             "raw_text": raw_text,
@@ -109,9 +110,9 @@ def classify_document(state: IngestorState) -> dict:
                 "status": "rejected",
             }
 
-        llm_cls, llm_kwargs = settings.llm_kwargs
-        llm = llm_cls(**llm_kwargs)
-        structured_llm = llm.with_structured_output(Classification)
+        from src.llm import get_structured_llm
+
+        structured_llm = get_structured_llm(Classification)
 
         prompt = f"""Analizá el siguiente texto académico y clasificalo.
 Clases posibles: apunte_teorico, examen_previo, ejercicio_resuelto, no_academico.

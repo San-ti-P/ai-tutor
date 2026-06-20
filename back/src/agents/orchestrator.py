@@ -85,12 +85,7 @@ class OrchestratorState(TypedDict):
     status: str  # "pending" | "complete" | "incomplete" | "partial"
     iteration_count: int
     student_profile: dict | None
-
-
-def _get_llm():
-    """Return a configured LLM instance for the current provider."""
-    llm_cls, llm_kwargs = settings.llm_kwargs
-    return llm_cls(**llm_kwargs)
+from src.llm import get_llm as _get_llm
 
 
 def classify_intent(state: OrchestratorState) -> dict:

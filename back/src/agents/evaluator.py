@@ -316,7 +316,7 @@ def evaluate_answer(state: EvaluatorState) -> dict:
 
     Decorated with ``@observe()`` for Langfuse tracing.
     """
-    from src.config import settings
+    from src.llm import get_structured_llm
 
     answers: list[dict] = state.get("answers", [])
     idx: int = state.get("current_index", 0)
@@ -374,9 +374,7 @@ INSTRUCCIONES:
    establecé is_evaluable=false.
 {reference_rule}"""
 
-        llm_cls, llm_kwargs = settings.llm_kwargs
-        llm = llm_cls(**llm_kwargs)
-        structured_llm = llm.with_structured_output(SingleEvaluation)
+        structured_llm = get_structured_llm(SingleEvaluation)
 
         result: SingleEvaluation = structured_llm.invoke(prompt)
 
@@ -432,19 +430,16 @@ def validate_feedback(state: EvaluatorState) -> dict:
     Algorithm:
     1. Extract sentence-level claims from ``justification`` + ``suggestions``
        via ``src.utils.text.split_into_claims``
-    2. Batch-embed claims and chunks with SentenceTransformer
-    3. Compute cosine similarity matrix via ``sentence_transformers.util.cos_sim``
-    4. Flag claims whose best-match similarity is below ``anti_hallucination_threshold``
-    5. If any claim flagged → ``requires_review=True``
-    6. Randomly sample for LLM-as-judge (default 10% rate)
+    2. Delegate to ``validate_claim_grounding`` (flag_only mode) for
+       batch embedding and cosine similarity
+    3. Flag claims whose best-match similarity is below threshold
+    4. If any claim flagged → ``requires_review=True``
+    5. Randomly sample for LLM-as-judge (default 10% rate)
 
     Does NOT retry — only flags. NO retry.
     """
-    import torch
-    from sentence_transformers.util import cos_sim
-
     from src.config import settings
-    from src.rag import get_embedding_model
+    from src.tools.validate_claim_grounding import validate_claim_grounding
     from src.utils.text import split_into_claims
 
     evaluation: dict | None = state.get("evaluation")
@@ -472,38 +467,21 @@ def validate_feedback(state: EvaluatorState) -> dict:
         }
 
     try:
-        model = get_embedding_model()
+        # Delegate to anti-hallucination tool (flag_only — no retry)
+        result = validate_claim_grounding.invoke({
+            "claims": claims,
+            "chunks": chunks,
+            "mode": "flag_only",
+        })
 
-        # Batch encode claims and chunks as tensors
-        claim_embeddings = model.encode(claims, convert_to_tensor=True)
-        chunk_texts = [c.get("text", "") for c in chunks]
-        chunk_embeddings = model.encode(chunk_texts, convert_to_tensor=True)
-
-        # Pre-flight dimension assertion (replaces old length guard)
-        assert claim_embeddings.shape[1] == chunk_embeddings.shape[1], (
-            f"Embedding dimension mismatch: claims={claim_embeddings.shape[1]}, "
-            f"chunks={chunk_embeddings.shape[1]}"
-        )
-
-        threshold = settings.anti_hallucination_threshold
         validation_warnings: list[dict] = []
-
-        # Single matrix cosine similarity
-        sim_matrix = cos_sim(claim_embeddings, chunk_embeddings)
-        best_scores, best_indices = sim_matrix.max(dim=1)
-        best_scores = torch.nan_to_num(best_scores, nan=0.0)
-
-        for ci, claim in enumerate(claims):
-            best_score = best_scores[ci].item()
-            best_chunk_idx = int(best_indices[ci].item())
-            best_chunk_id = chunks[best_chunk_idx].get("chunk_id", "")
-
-            if best_score < threshold:
+        for cr in result.get("claim_results", []):
+            if not cr["matched"]:
                 validation_warnings.append(
                     {
-                        "claim": claim,
-                        "best_match_chunk": best_chunk_id,
-                        "similarity": round(best_score, 4),
+                        "claim": cr["claim_text"],
+                        "best_match_chunk": cr["best_chunk_id"],
+                        "similarity": cr["similarity_score"],
                     }
                 )
 
@@ -545,7 +523,7 @@ def llm_judge(state: EvaluatorState) -> dict:
 
     No retry — disagreement is a flag, not a correction.
     """
-    from src.config import settings
+    from src.llm import get_structured_llm
 
     evaluation: dict | None = state.get("evaluation")
     if not evaluation or not evaluation.get("is_evaluable"):
@@ -591,9 +569,7 @@ INSTRUCCIONES:
 3. Si hay discrepancia significativa, explicala.
 4. Si sugerís un puntaje diferente, incluilo en suggested_score."""
 
-        llm_cls, llm_kwargs = settings.llm_kwargs
-        llm = llm_cls(**llm_kwargs)
-        structured_llm = llm.with_structured_output(JudgeVerdict)
+        structured_llm = get_structured_llm(JudgeVerdict)
 
         judge: JudgeVerdict = structured_llm.invoke(prompt)
 
@@ -689,7 +665,6 @@ def sync_scores(state: EvaluatorState) -> dict:
     ``topic_scores`` table via the memory module. Also returns
     scores dict for optional Support Agent routing.
     """
-    import asyncio
     import uuid as _uuid
 
     from src.memory.schema import save_evaluation, upsert_topic_scores
@@ -715,16 +690,8 @@ def sync_scores(state: EvaluatorState) -> dict:
             }
 
             # Run async DB write synchronously (acceptable for graph node)
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # We're inside an async context — create task
-                    asyncio.ensure_future(save_evaluation(eval_record))
-                else:
-                    loop.run_until_complete(save_evaluation(eval_record))
-            except RuntimeError:
-                # No event loop — create one
-                asyncio.run(save_evaluation(eval_record))
+            from src.utils.async_ import run_async_in_sync
+            run_async_in_sync(save_evaluation(eval_record))
 
             # Collect topic/score for profile update (SUP-03)
             topic = result.get("topic", "")
@@ -746,14 +713,8 @@ def sync_scores(state: EvaluatorState) -> dict:
                 deduped[pair["topic"]] = pair["score"]
             deduped_list = [{"topic": t, "score": s} for t, s in deduped.items()]
 
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.ensure_future(upsert_topic_scores(student_id, deduped_list))
-                else:
-                    loop.run_until_complete(upsert_topic_scores(student_id, deduped_list))
-            except RuntimeError:
-                asyncio.run(upsert_topic_scores(student_id, deduped_list))
+            from src.utils.async_ import run_async_in_sync
+            run_async_in_sync(upsert_topic_scores(student_id, deduped_list))
         except Exception as exc:
             logger.warning("Failed to upsert topic scores for %s: %s", student_id, exc)
             errors.append(f"Topic score upsert failed: {exc}")

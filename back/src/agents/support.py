@@ -59,7 +59,7 @@ def fetch_student_profile(state: SupportState) -> dict:
     Returns partial state with ``profile_data``, ``topic_scores``,
     ``preferences``, and ``status``.
     """
-    import asyncio
+    from src.utils.async_ import run_async_in_sync
 
     from src.memory.schema import get_student_profile, get_topic_scores
 
@@ -72,17 +72,7 @@ def fetch_student_profile(state: SupportState) -> dict:
             scores = await get_topic_scores(student_id)
             return profile, scores
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, _fetch())
-                    profile, scores = future.result()
-            else:
-                profile, scores = loop.run_until_complete(_fetch())
-        except RuntimeError:
-            profile, scores = asyncio.run(_fetch())
+        profile, scores = run_async_in_sync(_fetch())
 
         if profile is None:
             logger.warning("Student %s not found in DB", student_id)
@@ -135,7 +125,7 @@ def fetch_session_history(state: SupportState) -> dict:
     Only called in the ``query`` flow. Returns partial state with
     ``session_history`` populated.
     """
-    import asyncio
+    from src.utils.async_ import run_async_in_sync
 
     from src.memory.schema import get_recent_sessions
 
@@ -145,17 +135,7 @@ def fetch_session_history(state: SupportState) -> dict:
         async def _fetch():
             return await get_recent_sessions(student_id)
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, _fetch())
-                    history = future.result()
-            else:
-                history = loop.run_until_complete(_fetch())
-        except RuntimeError:
-            history = asyncio.run(_fetch())
+        history = run_async_in_sync(_fetch())
 
         return {"session_history": history}
 
@@ -176,7 +156,7 @@ def compute_progress_summary(state: SupportState) -> dict:
     memory module. Also computes an average score across all topics.
     Returns partial state with ``weak_topics`` populated.
     """
-    import asyncio
+    from src.utils.async_ import run_async_in_sync
 
     from src.memory.schema import compute_weak_topics
 
@@ -187,17 +167,7 @@ def compute_progress_summary(state: SupportState) -> dict:
         async def _compute():
             return await compute_weak_topics(student_id)
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, _compute())
-                    weak = future.result()
-            else:
-                weak = loop.run_until_complete(_compute())
-        except RuntimeError:
-            weak = asyncio.run(_compute())
+        weak = run_async_in_sync(_compute())
 
         return {"weak_topics": weak}
 
@@ -221,6 +191,12 @@ def generate_response(state: SupportState) -> dict:
 
     On ``query`` type: reports weak topics, session count, and recommendations.
     On ``update`` type: confirms profile update and reports new weak topics.
+
+    Design decision (US-10.8): Templates are kept instead of LLM.
+    The Support Agent handles structured, data-driven summaries — profile stats,
+    topic scores, and weak topic lists. Templates provide deterministic, fast,
+    and predictable responses without the latency, cost, or hallucination risk
+    of an LLM call. No conversational nuance is required for these queries.
     """
     query_type: str = state.get("query_type", "query")
     profile: dict | None = state.get("profile_data")

@@ -11,7 +11,6 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from src.agents.ingestor import IngestorState, build_ingestor
 from src.api.schemas import (
     ApiResponse,
     ChatRequest,
@@ -41,14 +40,11 @@ async def health() -> HealthResponse:
 async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
     logger.info("Chat request received for session %s", request.session_id)
 
-    from src.agents.orchestrator import (  # noqa: F811
-        OrchestratorState,
-        get_orchestrator_graph,
-    )
+    from src.agents.orchestrator import get_orchestrator_graph  # noqa: F811
 
     graph = await get_orchestrator_graph()
 
-    initial_state: OrchestratorState = {
+    initial_state: dict = {
         "session_id": request.session_id,
         "user_message": request.message,
         "intent": "general_chat",
@@ -82,8 +78,8 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
     results: list[IngestResult] = []
     request_session_id = str(uuid.uuid4())
 
-    # Compile once — the compiled graph is stateless and safe to reuse
-    graph = build_ingestor().compile()
+    # Use the tools layer — ingest_document wraps the full ingestion graph
+    from src.tools import ingest_document as _ingest_tool
 
     for file in files:
         # Save uploaded file to temp location
@@ -95,22 +91,10 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
         try:
             session_id = request_session_id
 
-            initial_state: IngestorState = {
-                "session_id": session_id,
-                "file_path": tmp_path,
-                "file_type": "",
-                "raw_text": "",
-                "classification": "",
-                "classification_confidence": 0.0,
-                "topics": [],
-                "chunks_created": 0,
-                "errors": [],
-                "status": "pending",
-                "document_id": "",
-                "chunk_ids": [],
-            }
-
-            result = await graph.ainvoke(initial_state)
+            result = await asyncio.to_thread(
+                _ingest_tool.invoke,
+                {"file_path": tmp_path, "session_id": session_id},
+            )
 
             results.append(
                 IngestResult(

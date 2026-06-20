@@ -206,7 +206,7 @@ def generate_questions(state: ExamGeneratorState) -> dict:
     """
     import logging
 
-    from src.config import settings
+    from src.llm import get_structured_llm
 
     logger = logging.getLogger(__name__)
 
@@ -289,9 +289,7 @@ REQUISITOS:
 - Cada pregunta debe tener los campos: topic y difficulty.
 """
 
-        llm_cls, llm_kwargs = settings.llm_kwargs
-        llm = llm_cls(**llm_kwargs)
-        structured_llm = llm.with_structured_output(ExamGeneration)
+        structured_llm = get_structured_llm(ExamGeneration)
         result: ExamGeneration = structured_llm.invoke(prompt)
 
         # Convert Pydantic models to dicts
@@ -338,18 +336,14 @@ def validate_questions(state: ExamGeneratorState) -> dict:
     """Validate every question by checking claims against source chunks.
 
     Extracts atomic claims from each question (stem + options for MCQ,
-    base_answer + key_points for open-answer). Batch-encodes all claims
-    and chunks, then uses ``sentence_transformers.util.cos_sim`` for a
-    single GPU-accelerated matrix similarity operation. Claims below the
-    anti_hallucination_threshold are flagged as errors.
+    base_answer + key_points for open-answer). Delegates to
+    ``validate_claim_grounding`` (retry_trigger mode) for batch
+    embedding and cosine similarity via ``cos_sim``.
+    Claims below the anti_hallucination_threshold are flagged as errors.
     """
     import logging
 
-    import torch
-    from sentence_transformers.util import cos_sim
-
-    from src.config import settings
-    from src.rag import get_embedding_model
+    from src.tools.validate_claim_grounding import validate_claim_grounding
     from src.utils.text import split_into_claims
 
     logger = logging.getLogger(__name__)
@@ -357,8 +351,6 @@ def validate_questions(state: ExamGeneratorState) -> dict:
     try:
         chunks: list[dict] = state.get("retrieved_chunks", [])
         questions: list[dict] = state.get("generated_questions", [])
-        threshold: float = settings.anti_hallucination_threshold
-        model = get_embedding_model()
 
         if not questions:
             return {
@@ -366,14 +358,6 @@ def validate_questions(state: ExamGeneratorState) -> dict:
                 "validation_errors": [],
                 "invalid_question_indices": [],
             }
-
-        # Pre-embed all chunk texts (batch, as tensor)
-        chunk_texts = [c.get("text", "") for c in chunks]
-        chunk_embeddings = (
-            model.encode(chunk_texts, convert_to_tensor=True)
-            if chunk_texts
-            else torch.empty(0)
-        )
 
         # ── Extract claims per question, tracking ownership ──
         all_claims: list[str] = []
@@ -410,7 +394,7 @@ def validate_questions(state: ExamGeneratorState) -> dict:
                 all_claims.append(claim)
                 claim_to_question.append(qi)
 
-        # ── Batch encode all claims ──
+        # ── All empty: pass validation ──
         if not all_claims:
             return {
                 "validation_results": [
@@ -427,25 +411,15 @@ def validate_questions(state: ExamGeneratorState) -> dict:
                 "invalid_question_indices": [],
             }
 
-        all_claim_embeddings = model.encode(all_claims, convert_to_tensor=True)
+        # ── Delegate to anti-hallucination tool ──
+        result = validate_claim_grounding.invoke({
+            "claims": all_claims,
+            "chunks": chunks,
+            "mode": "retry_trigger",
+        })
 
-        # Pre-flight dimension assertion (replaces evaluator's length guard)
-        if chunk_embeddings.shape[0] == 0:
-            # No chunks to compare — all claims unmatched
-            best_scores = torch.zeros(len(all_claims))
-            best_indices = torch.zeros(len(all_claims), dtype=torch.long)
-        else:
-            assert all_claim_embeddings.shape[1] == chunk_embeddings.shape[1], (
-                f"Embedding dimension mismatch: claims={all_claim_embeddings.shape[1]}, "
-                f"chunks={chunk_embeddings.shape[1]}"
-            )
-
-            # ── Single matrix cosine similarity ──
-            sim_matrix = cos_sim(all_claim_embeddings, chunk_embeddings)
-            best_scores, best_indices = sim_matrix.max(dim=1)
-            best_scores = torch.nan_to_num(best_scores, nan=0.0)
-
-        # ── Organize results per question ──
+        # ── Organize tool results per question ──
+        claim_results = result.get("claim_results", [])
         per_question: dict[int, dict] = {}
         for qi in range(len(questions)):
             per_question[qi] = {
@@ -455,22 +429,11 @@ def validate_questions(state: ExamGeneratorState) -> dict:
                 "all_matched": True,
             }
 
-        for ci in range(len(all_claims)):
-            qi = claim_to_question[ci]
-            claim_text = all_claims[ci]
-            best_score = best_scores[ci].item()
-            best_chunk_idx = (
-                int(best_indices[ci].item())
-                if chunk_embeddings.shape[0] > 0
-                else -1
-            )
-
-            matched = best_score >= threshold
-            best_chunk_id = (
-                chunks[best_chunk_idx].get("chunk_id", "")
-                if 0 <= best_chunk_idx < len(chunks)
-                else ""
-            )
+        for ci, cr in enumerate(claim_results):
+            qi = claim_to_question[ci] if ci < len(claim_to_question) else 0
+            claim_text = cr["claim_text"]
+            matched = cr["matched"]
+            best_chunk_id = cr["best_chunk_id"]
 
             pq = per_question[qi]
             if not matched:
@@ -482,9 +445,9 @@ def validate_questions(state: ExamGeneratorState) -> dict:
 
             pq["claim_checks"].append(
                 {
-                    "claim_text": claim_text[:200],
+                    "claim_text": claim_text,
                     "best_chunk_id": best_chunk_id,
-                    "similarity_score": round(best_score, 4),
+                    "similarity_score": cr["similarity_score"],
                     "matched": matched,
                 }
             )

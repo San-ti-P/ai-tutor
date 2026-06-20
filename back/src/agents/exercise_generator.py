@@ -178,7 +178,7 @@ def generate_exercise(state: ExerciseGeneratorState) -> dict:
     """
     import logging
 
-    from src.config import settings
+    from src.llm import get_structured_llm
 
     logger = logging.getLogger(__name__)
 
@@ -234,9 +234,7 @@ REQUISITOS:
 - El ejercicio debe tener campos: topic, difficulty.
 """
 
-        llm_cls, llm_kwargs = settings.llm_kwargs
-        llm = llm_cls(**llm_kwargs)
-        structured_llm = llm.with_structured_output(ExerciseGeneration)
+        structured_llm = get_structured_llm(ExerciseGeneration)
         result: ExerciseGeneration = structured_llm.invoke(prompt)
 
         # Extract first PracticalExercise
@@ -295,17 +293,13 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
       (a) statement + given_data + question split on sentence boundaries >=20 chars
       (b) model_solution.steps[].description + result + final_answer
 
-    Batch-encodes all claims and chunks, then uses
-    ``sentence_transformers.util.cos_sim`` for a single matrix operation.
+    Delegates to ``validate_claim_grounding`` (retry_trigger mode) for
+    batch embedding and cosine similarity via ``cos_sim``.
     Claims below anti_hallucination_threshold are flagged as errors.
     """
     import logging
 
-    import torch
-    from sentence_transformers.util import cos_sim
-
-    from src.config import settings
-    from src.rag import get_embedding_model
+    from src.tools.validate_claim_grounding import validate_claim_grounding
     from src.utils.text import split_into_claims
 
     logger = logging.getLogger(__name__)
@@ -313,22 +307,12 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
     try:
         chunks: list[dict] = state.get("retrieved_chunks", [])
         exercise: dict = state.get("generated_exercise", {})
-        threshold: float = settings.anti_hallucination_threshold
-        model = get_embedding_model()
 
         if not exercise:
             return {
                 "validation_passed": False,
                 "validation_errors": ["No exercise to validate"],
             }
-
-        # Pre-embed all chunk texts (batch, as tensor)
-        chunk_texts = [c.get("text", "") for c in chunks]
-        chunk_embeddings = (
-            model.encode(chunk_texts, convert_to_tensor=True)
-            if chunk_texts
-            else torch.empty(0)
-        )
 
         # ── Extract claims from exercise text ──
         claims: list[str] = []
@@ -358,44 +342,28 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
             if len(fallback) >= 10:
                 claims = [fallback]
 
-        # ── Batch encode all claims ──
         if not claims:
             return {"validation_passed": True, "validation_errors": []}
 
-        claim_embeddings = model.encode(claims, convert_to_tensor=True)
-
-        if chunk_embeddings.shape[0] == 0:
-            # No chunks — all claims unmatched
-            return {
-                "validation_passed": False,
-                "validation_errors": [
-                    f"Claim {ci} ('{c[:80]}') cannot be validated: no source chunks"
-                    for ci, c in enumerate(claims)
-                ],
-            }
-
-        assert claim_embeddings.shape[1] == chunk_embeddings.shape[1], (
-            f"Embedding dimension mismatch: claims={claim_embeddings.shape[1]}, "
-            f"chunks={chunk_embeddings.shape[1]}"
-        )
-
-        # ── Single matrix cosine similarity ──
-        sim_matrix = cos_sim(claim_embeddings, chunk_embeddings)
-        best_scores, _ = sim_matrix.max(dim=1)
-        best_scores = torch.nan_to_num(best_scores, nan=0.0)
+        # ── Delegate to anti-hallucination tool ──
+        result = validate_claim_grounding.invoke({
+            "claims": claims,
+            "chunks": chunks,
+            "mode": "retry_trigger",
+        })
 
         # ── Flag claims below threshold ──
         all_errors: list[str] = []
-        all_matched = True
+        all_matched = result.get("all_matched", True)
 
-        for ci, claim in enumerate(claims):
-            score = best_scores[ci].item()
-            if score < threshold:
-                all_matched = False
-                all_errors.append(
-                    f"Claim {ci} ('{claim[:80]}') similarity {score:.4f} "
-                    f"below threshold {threshold} — not grounded in source chunks"
-                )
+        if not all_matched:
+            for cr in result.get("claim_results", []):
+                if not cr["matched"]:
+                    all_errors.append(
+                        f"Claim '{cr['claim_text'][:80]}' similarity "
+                        f"{cr['similarity_score']:.4f} below threshold — "
+                        f"not grounded in source chunks"
+                    )
 
         return {
             "validation_passed": all_matched,
