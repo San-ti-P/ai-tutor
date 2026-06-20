@@ -387,16 +387,16 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
 def should_retry(state: ExerciseGeneratorState) -> str:
     """Return 'retry' if validation errors exist AND retry_count < 3, else 'done'.
 
-    Does NOT retry on terminal statuses (error, no_material).
+    Delegates to ``src.utils.retry.should_retry`` — the single source of truth
+    for retry-decision logic across all agents.
     """
-    errors = state.get("validation_errors", [])
-    retry_count = state.get("retry_count", 0)
-    status = state.get("status", "")
-    if status in ("error", "no_material"):
-        return "done"
-    if errors and retry_count < 3:
-        return "retry"
-    return "done"
+    from src.utils.retry import should_retry as _should_retry
+
+    return _should_retry(
+        validation_errors=state.get("validation_errors", []),
+        retry_count=state.get("retry_count", 0),
+        status=state.get("status", ""),
+    )
 
 
 def format_exercise(state: ExerciseGeneratorState) -> dict:
