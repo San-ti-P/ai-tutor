@@ -13,6 +13,7 @@ from langchain_core.tools import tool
 from src.rag import retrieve as _rag_retrieve
 from src.tools.get_student_summary import get_student_summary  # noqa: F401
 from src.tools.update_student_profile import update_student_profile  # noqa: F401
+from src.tools.validate_claim_grounding import validate_claim_grounding  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
