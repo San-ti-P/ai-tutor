@@ -153,22 +153,24 @@ def ingestor_state(sample_txt):
 
 @pytest.fixture
 def mock_embedding_model():
-    """Mock embedding model that returns deterministic embeddings."""
+    """Mock embedding model that returns deterministic embeddings as tensors."""
+    import torch
+
     with patch("src.rag.get_embedding_model") as mock_get:
         mock_model = MagicMock()
-        # Return deterministic 384-dim embeddings scaled by hash of input
-        mock_model.encode.return_value.tolist.return_value = [
-            [0.1 * (i + 1 + (hash(chunk) % 10) * 0.01) for i in range(384)] for chunk in []
-        ]
         mock_model.get_sentence_embedding_dimension.return_value = 384
 
-        # Make encode return proper numpy-like list for each call
-        def _fake_encode(texts):
-            return [[0.1 * (i + 1 + (hash(t) % 10) * 0.01) for i in range(384)] for t in texts]
+        # Make encode return real torch tensors for cos_sim/batch compatibility
+        def _fake_encode(texts, **kwargs):
+            return torch.tensor(
+                [
+                    [0.1 * (i + 1 + (hash(t) % 10) * 0.01) for i in range(384)]
+                    for t in texts
+                ],
+                dtype=torch.float32,
+            )
 
-        mock_model.encode.side_effect = lambda texts: type(
-            "FakeArray", (), {"tolist": lambda self: _fake_encode(texts)}
-        )()
+        mock_model.encode.side_effect = _fake_encode
         mock_get.return_value = mock_model
         yield mock_get
 

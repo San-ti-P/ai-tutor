@@ -7,7 +7,6 @@ LLM call → claim-level embedding validation → 3-retry loop → format.
 
 from __future__ import annotations
 
-import math
 import operator
 from datetime import UTC
 from typing import Annotated
@@ -50,16 +49,6 @@ class ExamGeneration(BaseModel):
         default_factory=dict,
         description="{topics_covered: [...], total_source_chunks: N}",
     )
-
-
-
-
-def _cosine_sim(a: list[float], b: list[float]) -> float:
-    """Cosine similarity between two vectors. Returns 0.0 if either has zero norm."""
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b))
-    return dot / (norm_a * norm_b) if norm_a > 0 and norm_b > 0 else 0.0
 
 
 # ── State schema ─────────────────────────────────────────────────────────────
@@ -215,7 +204,7 @@ def generate_questions(state: ExamGeneratorState) -> dict:
     """
     import logging
 
-    from src.config import settings
+    from src.llm import get_structured_llm
 
     logger = logging.getLogger(__name__)
 
@@ -298,9 +287,7 @@ REQUISITOS:
 - Cada pregunta debe tener los campos: topic y difficulty.
 """
 
-        llm_cls, llm_kwargs = settings.llm_kwargs
-        llm = llm_cls(**llm_kwargs)
-        structured_llm = llm.with_structured_output(ExamGeneration)
+        structured_llm = get_structured_llm(ExamGeneration)
         result: ExamGeneration = structured_llm.invoke(prompt)
 
         # Convert Pydantic models to dicts
@@ -347,23 +334,21 @@ def validate_questions(state: ExamGeneratorState) -> dict:
     """Validate every question by checking claims against source chunks.
 
     Extracts atomic claims from each question (stem + options for MCQ,
-    base_answer + key_points for open-answer). Embeds claims and compares
-    cosine similarity against chunk embeddings. Claims below the
-    anti_hallucination_threshold are flagged as errors.
+    base_answer + key_points for open-answer). Delegates to
+    ``validate_claim_grounding`` (retry_trigger mode) for batch
+    embedding and cosine similarity via ``cos_sim``.
+    Claims below the anti_hallucination_threshold are flagged as errors.
     """
     import logging
-    import re
 
-    from src.config import settings
-    from src.rag import get_embedding_model
+    from src.tools.validate_claim_grounding import validate_claim_grounding
+    from src.utils.text import split_into_claims
 
     logger = logging.getLogger(__name__)
 
     try:
         chunks: list[dict] = state.get("retrieved_chunks", [])
         questions: list[dict] = state.get("generated_questions", [])
-        threshold: float = settings.anti_hallucination_threshold
-        model = get_embedding_model()
 
         if not questions:
             return {
@@ -372,94 +357,122 @@ def validate_questions(state: ExamGeneratorState) -> dict:
                 "invalid_question_indices": [],
             }
 
-        # Pre-embed all chunk texts (batch)
-        chunk_texts = [c.get("text", "") for c in chunks]
-        chunk_embeddings = model.encode(chunk_texts).tolist() if chunk_texts else []
+        # ── Extract claims per question, tracking ownership ──
+        all_claims: list[str] = []
+        claim_to_question: list[int] = []
 
+        for qi, question in enumerate(questions):
+            qtype = question.get("type", "")
+            q_claims: list[str] = []
+
+            if qtype == "mcq":
+                stem = question.get("stem", "")
+                q_claims.extend(split_into_claims(stem, min_length=20))
+                for opt in question.get("options", []):
+                    opt_clean = opt.strip()
+                    if len(opt_clean) >= 20:
+                        q_claims.append(opt_clean)
+            else:  # open_answer
+                base = question.get("base_answer", "")
+                q_claims.extend(split_into_claims(base, min_length=20))
+                for kp in question.get("key_points", []):
+                    kp_clean = kp.strip()
+                    if len(kp_clean) >= 10:
+                        q_claims.append(kp_clean)
+
+            # Fallback: if no claims, use full stem/base_answer
+            if not q_claims:
+                if qtype == "mcq":
+                    fallback = [question.get("stem", "")]
+                else:
+                    fallback = [question.get("base_answer", "")]
+                q_claims = [c for c in fallback if len(c.strip()) >= 10]
+
+            for claim in q_claims:
+                all_claims.append(claim)
+                claim_to_question.append(qi)
+
+        # ── All empty: pass validation ──
+        if not all_claims:
+            return {
+                "validation_results": [
+                    {
+                        "question_index": qi,
+                        "valid": True,
+                        "claims_checked": [],
+                        "missing_claims": [],
+                        "matched_chunk_ids": [],
+                    }
+                    for qi in range(len(questions))
+                ],
+                "validation_errors": [],
+                "invalid_question_indices": [],
+            }
+
+        # ── Delegate to anti-hallucination tool ──
+        result = validate_claim_grounding.invoke(
+            {
+                "claims": all_claims,
+                "chunks": chunks,
+                "mode": "retry_trigger",
+            }
+        )
+
+        # ── Organize tool results per question ──
+        claim_results = result.get("claim_results", [])
+        per_question: dict[int, dict] = {}
+        for qi in range(len(questions)):
+            per_question[qi] = {
+                "claim_checks": [],
+                "missing_claims": [],
+                "matched_chunk_ids": [],
+                "all_matched": True,
+            }
+
+        for ci, cr in enumerate(claim_results):
+            qi = claim_to_question[ci] if ci < len(claim_to_question) else 0
+            claim_text = cr["claim_text"]
+            matched = cr["matched"]
+            best_chunk_id = cr["best_chunk_id"]
+
+            pq = per_question[qi]
+            if not matched:
+                pq["all_matched"] = False
+                pq["missing_claims"].append(claim_text[:80])
+
+            if best_chunk_id and best_chunk_id not in pq["matched_chunk_ids"]:
+                pq["matched_chunk_ids"].append(best_chunk_id)
+
+            pq["claim_checks"].append(
+                {
+                    "claim_text": claim_text,
+                    "best_chunk_id": best_chunk_id,
+                    "similarity_score": cr["similarity_score"],
+                    "matched": matched,
+                }
+            )
+
+        # ── Build final output ──
         validation_results: list[dict] = []
         all_errors: list[str] = []
         invalid_indices: list[int] = []
 
-        # Regex to split on sentence boundaries
-        sentence_split_re = re.compile(r"(?<=[.!?])\s+")
-
-        for qi, question in enumerate(questions):
-            qtype = question.get("type", "")
-            claims: list[str] = []
-
-            if qtype == "mcq":
-                stem = question.get("stem", "")
-                claims.extend(
-                    c.strip() for c in sentence_split_re.split(stem) if len(c.strip()) >= 20
-                )
-                for opt in question.get("options", []):
-                    opt_clean = opt.strip()
-                    if len(opt_clean) >= 20:
-                        claims.append(opt_clean)
-            else:  # open_answer
-                base = question.get("base_answer", "")
-                claims.extend(
-                    c.strip() for c in sentence_split_re.split(base) if len(c.strip()) >= 20
-                )
-                for kp in question.get("key_points", []):
-                    kp_clean = kp.strip()
-                    if len(kp_clean) >= 10:
-                        claims.append(kp_clean)
-
-            # If no claims extracted, try using the full stem/base_answer
-            if not claims:
-                if qtype == "mcq":
-                    claims = [question.get("stem", "")]
-                else:
-                    claims = [question.get("base_answer", "")]
-                claims = [c for c in claims if len(c.strip()) >= 10]
-
-            claim_checks: list[dict] = []
-            missing: list[str] = []
-            matched_chunk_ids: list[str] = []
-            all_matched = True
-
-            for claim in claims:
-                claim_embedding = model.encode([claim]).tolist()[0]
-
-                best_score = 0.0
-                best_chunk_id = None
-                for ci, chunk_emb in enumerate(chunk_embeddings):
-                    sim = _cosine_sim(claim_embedding, chunk_emb)
-                    if sim > best_score:
-                        best_score = sim
-                        best_chunk_id = chunks[ci].get("chunk_id", "")
-
-                matched = best_score >= threshold
-                if not matched:
-                    all_matched = False
-                    missing.append(claim[:80])
-
-                if best_chunk_id and best_chunk_id not in matched_chunk_ids:
-                    matched_chunk_ids.append(best_chunk_id)
-
-                claim_checks.append(
-                    {
-                        "claim_text": claim[:200],
-                        "best_chunk_id": best_chunk_id,
-                        "similarity_score": round(best_score, 4),
-                        "matched": matched,
-                    }
-                )
-
-            vr = {
-                "question_index": qi,
-                "valid": all_matched,
-                "claims_checked": claim_checks,
-                "missing_claims": missing,
-                "matched_chunk_ids": matched_chunk_ids,
-            }
-            validation_results.append(vr)
-
-            if not all_matched:
+        for qi in range(len(questions)):
+            pq = per_question[qi]
+            validation_results.append(
+                {
+                    "question_index": qi,
+                    "valid": pq["all_matched"],
+                    "claims_checked": pq["claim_checks"],
+                    "missing_claims": pq["missing_claims"],
+                    "matched_chunk_ids": pq["matched_chunk_ids"],
+                }
+            )
+            if not pq["all_matched"]:
                 invalid_indices.append(qi)
                 all_errors.append(
-                    f"Question {qi}: {len(missing)} claim(s) not found in source chunks"
+                    f"Question {qi}: {len(pq['missing_claims'])} "
+                    "claim(s) not found in source chunks"
                 )
 
         return {
@@ -478,17 +491,16 @@ def validate_questions(state: ExamGeneratorState) -> dict:
 def should_retry(state: ExamGeneratorState) -> str:
     """Return 'retry' if validation errors exist AND retry_count < 3, else 'done'.
 
-    Does NOT retry on retrieval errors (status='error' or 'no_material') —
-    those are terminal for this invocation.
+    Delegates to ``src.utils.retry.should_retry`` — the single source of truth
+    for retry-decision logic across all agents.
     """
-    errors = state.get("validation_errors", [])
-    retry_count = state.get("retry_count", 0)
-    status = state.get("status", "")
-    if status in ("error", "no_material"):
-        return "done"
-    if errors and retry_count < 3:
-        return "retry"
-    return "done"
+    from src.utils.retry import should_retry as _should_retry
+
+    return _should_retry(
+        validation_errors=state.get("validation_errors", []),
+        retry_count=state.get("retry_count", 0),
+        status=state.get("status", ""),
+    )
 
 
 def format_exam(state: ExamGeneratorState) -> dict:

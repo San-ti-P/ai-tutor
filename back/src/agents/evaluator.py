@@ -13,7 +13,6 @@ configurable rate (default 10%) for quality assurance.
 from __future__ import annotations
 
 import logging
-import math
 import operator
 import random
 from typing import Annotated
@@ -21,10 +20,13 @@ from typing import Annotated
 try:
     from langfuse import observe
 except ImportError:
+
     def observe(name: str | None = None):  # noqa: D103
         def decorator(fn):  # noqa: D103
             return fn
+
         return decorator
+
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
@@ -40,9 +42,7 @@ class SingleEvaluation(BaseModel):
     """LLM structured output for a single answer evaluation."""
 
     score: float = Field(ge=0, le=10, description="Numerical score from 0 to 10")
-    justification: str = Field(
-        description="Detailed justification referencing specific concepts"
-    )
+    justification: str = Field(description="Detailed justification referencing specific concepts")
     conceptual_errors: list[str] = Field(
         default_factory=list,
         description="List of conceptual mistakes found in the answer",
@@ -123,23 +123,6 @@ class EvaluatorState(TypedDict):
     scores_synced: bool
     errors: Annotated[list[str], operator.add]
     status: str
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Helper: cosine similarity
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def _cosine_sim(a: list[float], b: list[float]) -> float:
-    """Compute cosine similarity between two vectors."""
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b))
-    if norm_a == 0.0 or norm_b == 0.0:
-        return 0.0
-    return dot / (norm_a * norm_b)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -334,7 +317,7 @@ def evaluate_answer(state: EvaluatorState) -> dict:
 
     Decorated with ``@observe()`` for Langfuse tracing.
     """
-    from src.config import settings
+    from src.llm import get_structured_llm
 
     answers: list[dict] = state.get("answers", [])
     idx: int = state.get("current_index", 0)
@@ -392,9 +375,7 @@ INSTRUCCIONES:
    establecé is_evaluable=false.
 {reference_rule}"""
 
-        llm_cls, llm_kwargs = settings.llm_kwargs
-        llm = llm_cls(**llm_kwargs)
-        structured_llm = llm.with_structured_output(SingleEvaluation)
+        structured_llm = get_structured_llm(SingleEvaluation)
 
         result: SingleEvaluation = structured_llm.invoke(prompt)
 
@@ -444,42 +425,23 @@ INSTRUCCIONES:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _split_claims(text: str) -> list[str]:
-    """Split text into sentence-level claims for embedding comparison."""
-    import re
-
-    if not text or not text.strip():
-        return []
-
-    # Split on sentence boundaries: . ! ? followed by space or end
-    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
-    # Also try semicolon and newline splits for more granular claims
-    result: list[str] = []
-    for s in sentences:
-        s = s.strip()
-        if not s:
-            continue
-        # Further split long sentences on semicolons
-        parts = [p.strip() for p in s.split(";") if p.strip()]
-        result.extend(parts)
-    return [c for c in result if len(c) > 10]  # Skip very short fragments
-
-
 def validate_feedback(state: EvaluatorState) -> dict:
     """Anti-hallucination: cross-reference evaluation claims against RAG chunks.
 
     Algorithm:
     1. Extract sentence-level claims from ``justification`` + ``suggestions``
-    2. Embed claims with SentenceTransformer
-    3. Compute cosine similarity against each chunk in ``retrieved_chunks``
-    4. Flag claims whose best-match similarity is below ``anti_hallucination_threshold``
-    5. If any claim flagged → ``requires_review=True``
-    6. Randomly sample for LLM-as-judge (default 10% rate)
+       via ``src.utils.text.split_into_claims``
+    2. Delegate to ``validate_claim_grounding`` (flag_only mode) for
+       batch embedding and cosine similarity
+    3. Flag claims whose best-match similarity is below threshold
+    4. If any claim flagged → ``requires_review=True``
+    5. Randomly sample for LLM-as-judge (default 10% rate)
 
     Does NOT retry — only flags. NO retry.
     """
     from src.config import settings
-    from src.rag import get_embedding_model
+    from src.tools.validate_claim_grounding import validate_claim_grounding
+    from src.utils.text import split_into_claims
 
     evaluation: dict | None = state.get("evaluation")
     chunks: list[dict] = state.get("retrieved_chunks", [])
@@ -492,7 +454,7 @@ def validate_feedback(state: EvaluatorState) -> dict:
 
     # Combine all evaluator-generated text
     all_text = justification + " " + " ".join(suggestions_list)
-    claims = _split_claims(all_text)
+    claims = split_into_claims(all_text)
 
     # Determine judge sampling (default 10%)
     sample_rate = settings.judge_sample_rate
@@ -506,30 +468,23 @@ def validate_feedback(state: EvaluatorState) -> dict:
         }
 
     try:
-        model = get_embedding_model()
+        # Delegate to anti-hallucination tool (flag_only — no retry)
+        result = validate_claim_grounding.invoke(
+            {
+                "claims": claims,
+                "chunks": chunks,
+                "mode": "flag_only",
+            }
+        )
 
-        claim_embeddings = model.encode(claims).tolist()
-        chunk_texts = [c.get("text", "") for c in chunks]
-        chunk_embeddings = model.encode(chunk_texts).tolist()
-
-        threshold = settings.anti_hallucination_threshold
         validation_warnings: list[dict] = []
-
-        for i, claim in enumerate(claims):
-            best_sim = 0.0
-            best_chunk_id = ""
-            for j, chunk_vec in enumerate(chunk_embeddings):
-                sim = _cosine_sim(claim_embeddings[i], chunk_vec)
-                if sim > best_sim:
-                    best_sim = sim
-                    best_chunk_id = chunks[j].get("chunk_id", "")
-
-            if best_sim < threshold:
+        for cr in result.get("claim_results", []):
+            if not cr["matched"]:
                 validation_warnings.append(
                     {
-                        "claim": claim,
-                        "best_match_chunk": best_chunk_id,
-                        "similarity": round(best_sim, 4),
+                        "claim": cr["claim_text"],
+                        "best_match_chunk": cr["best_chunk_id"],
+                        "similarity": cr["similarity_score"],
                     }
                 )
 
@@ -571,7 +526,7 @@ def llm_judge(state: EvaluatorState) -> dict:
 
     No retry — disagreement is a flag, not a correction.
     """
-    from src.config import settings
+    from src.llm import get_structured_llm
 
     evaluation: dict | None = state.get("evaluation")
     if not evaluation or not evaluation.get("is_evaluable"):
@@ -597,19 +552,19 @@ def llm_judge(state: EvaluatorState) -> dict:
         prompt = f"""Actuá como juez de segunda instancia. Re-evaluá la siguiente respuesta.
 
 PREGUNTA:
-{current.get('question', '')}
+{current.get("question", "")}
 
 RESPUESTA ESPERADA:
-{current.get('base_answer', '')}
+{current.get("base_answer", "")}
 
 RESPUESTA DEL ESTUDIANTE:
-{current.get('student_answer', '')}
+{current.get("student_answer", "")}
 
 MATERIAL DE REFERENCIA:
 {chunk_context}
 
-EVALUACIÓN PRIMARIA (puntaje: {evaluation.get('score', 0)}):
-{evaluation.get('justification', '')}
+EVALUACIÓN PRIMARIA (puntaje: {evaluation.get("score", 0)}):
+{evaluation.get("justification", "")}
 
 INSTRUCCIONES:
 1. Asigná tu propio puntaje independiente de 0 a 10.
@@ -617,9 +572,7 @@ INSTRUCCIONES:
 3. Si hay discrepancia significativa, explicala.
 4. Si sugerís un puntaje diferente, incluilo en suggested_score."""
 
-        llm_cls, llm_kwargs = settings.llm_kwargs
-        llm = llm_cls(**llm_kwargs)
-        structured_llm = llm.with_structured_output(JudgeVerdict)
+        structured_llm = get_structured_llm(JudgeVerdict)
 
         judge: JudgeVerdict = structured_llm.invoke(prompt)
 
@@ -715,7 +668,6 @@ def sync_scores(state: EvaluatorState) -> dict:
     ``topic_scores`` table via the memory module. Also returns
     scores dict for optional Support Agent routing.
     """
-    import asyncio
     import uuid as _uuid
 
     from src.memory.schema import save_evaluation, upsert_topic_scores
@@ -741,16 +693,9 @@ def sync_scores(state: EvaluatorState) -> dict:
             }
 
             # Run async DB write synchronously (acceptable for graph node)
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # We're inside an async context — create task
-                    asyncio.ensure_future(save_evaluation(eval_record))
-                else:
-                    loop.run_until_complete(save_evaluation(eval_record))
-            except RuntimeError:
-                # No event loop — create one
-                asyncio.run(save_evaluation(eval_record))
+            from src.utils.async_ import run_async_in_sync
+
+            run_async_in_sync(save_evaluation(eval_record))
 
             # Collect topic/score for profile update (SUP-03)
             topic = result.get("topic", "")
@@ -772,14 +717,9 @@ def sync_scores(state: EvaluatorState) -> dict:
                 deduped[pair["topic"]] = pair["score"]
             deduped_list = [{"topic": t, "score": s} for t, s in deduped.items()]
 
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.ensure_future(upsert_topic_scores(student_id, deduped_list))
-                else:
-                    loop.run_until_complete(upsert_topic_scores(student_id, deduped_list))
-            except RuntimeError:
-                asyncio.run(upsert_topic_scores(student_id, deduped_list))
+            from src.utils.async_ import run_async_in_sync
+
+            run_async_in_sync(upsert_topic_scores(student_id, deduped_list))
         except Exception as exc:
             logger.warning("Failed to upsert topic scores for %s: %s", student_id, exc)
             errors.append(f"Topic score upsert failed: {exc}")

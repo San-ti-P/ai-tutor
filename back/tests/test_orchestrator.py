@@ -871,9 +871,9 @@ class TestSqliteSaverExceptionHandling:
 class TestChatEndpoint:
     """REQ-ORCH-001: /chat returns real Orchestrator responses (no placeholder)."""
 
-    def test_chat_endpoint_returns_real_response(self):
-        """POST /chat with a message → response from the Orchestrator graph."""
-        from unittest.mock import patch
+    def test_chat_endpoint_uses_orchestrate_chat_tool(self):
+        """POST /chat calls orchestrate_chat tool instead of importing agent internals."""
+        from unittest.mock import AsyncMock, patch
 
         from fastapi.testclient import TestClient
 
@@ -881,12 +881,20 @@ class TestChatEndpoint:
 
         client = TestClient(app)
 
-        # Patch get_orchestrator_graph to return a dummy compiled graph
-        # and patch _get_llm for the classify_intent + synthesize nodes
-        with patch(
-            "src.agents.orchestrator._get_llm",
-            return_value=_FakeDirectLLM("¡Hola! Soy tu tutor académico."),
-        ):
+        # Replace the orchestrate_chat tool in src.tools with a simple mock
+        # that has the .ainvoke() method. StructuredTool (Pydantic) doesn't
+        # allow patching individual methods, so we swap the whole object.
+        mock_tool = AsyncMock()
+        mock_tool.ainvoke = AsyncMock(
+            return_value={
+                "response": "¡Hola! Soy tu tutor académico.",
+                "intent": "general_chat",
+                "status": "complete",
+                "trace_id": "fake-trace-abc123",
+            }
+        )
+
+        with patch("src.tools.orchestrate_chat", mock_tool):
             response = client.post(
                 "/chat",
                 json={"session_id": "test-session-99", "message": "Hola"},
@@ -901,6 +909,116 @@ class TestChatEndpoint:
         assert "aún no están implementados" not in data["data"]["response"]
         assert data["data"]["intent"] == "general_chat"
         assert data["data"]["trace_id"] is not None
+
+
+# ==============================================================================
+# TASK-ORCH-011b: orchestrate_chat tool boundary
+# ==============================================================================
+
+
+class TestOrchestrateChatTool:
+    """REF-07: orchestrate_chat wraps get_orchestrator_graph behind the tools boundary."""
+
+    async def test_tool_extracts_last_user_message(self):
+        """The tool extracts the last user message from a messages list."""
+        from unittest.mock import AsyncMock, patch
+
+        from src.tools.orchestrate_chat import orchestrate_chat
+
+        fake_graph = AsyncMock()
+        fake_graph.ainvoke = AsyncMock(
+            return_value={
+                "response": "Soy el tutor.",
+                "intent": "general_chat",
+                "status": "complete",
+            }
+        )
+
+        with patch(
+            "src.agents.orchestrator.get_orchestrator_graph",
+            return_value=fake_graph,
+        ):
+            result = await orchestrate_chat.ainvoke(
+                {
+                    "messages": [
+                        {"role": "system", "content": "Eres un tutor."},
+                        {"role": "user", "content": "¿Qué es un escalar?"},
+                    ],
+                    "thread_id": "th-001",
+                }
+            )
+
+        assert result["response"] == "Soy el tutor."
+        assert result["intent"] == "general_chat"
+        assert result["status"] == "complete"
+        assert "trace_id" in result
+        # Verify the graph received the correct user_message in initial_state
+        call_args = fake_graph.ainvoke.call_args
+        initial_state = call_args[0][0]
+        assert initial_state["user_message"] == "¿Qué es un escalar?"
+        assert initial_state["session_id"] == "th-001"
+
+    async def test_tool_generates_thread_id_when_none(self):
+        """When thread_id is None, the tool generates a UUID4 session ID."""
+        from unittest.mock import AsyncMock, patch
+
+        from src.tools.orchestrate_chat import orchestrate_chat
+
+        fake_graph = AsyncMock()
+        fake_graph.ainvoke = AsyncMock(
+            return_value={
+                "response": "Hola.",
+                "intent": "general_chat",
+                "status": "complete",
+            }
+        )
+
+        with patch(
+            "src.agents.orchestrator.get_orchestrator_graph",
+            return_value=fake_graph,
+        ):
+            result = await orchestrate_chat.ainvoke(
+                {
+                    "messages": [{"role": "user", "content": "Hola"}],
+                }
+            )
+
+        # A UUID4 session_id was generated (36 chars with dashes)
+        call_args = fake_graph.ainvoke.call_args
+        session_id = call_args[0][0]["session_id"]
+        assert len(session_id) == 36
+        assert session_id.count("-") == 4
+        assert result["response"] == "Hola."
+
+    async def test_tool_handles_empty_messages(self):
+        """Empty messages list → user_message defaults to empty string."""
+        from unittest.mock import AsyncMock, patch
+
+        from src.tools.orchestrate_chat import orchestrate_chat
+
+        fake_graph = AsyncMock()
+        fake_graph.ainvoke = AsyncMock(
+            return_value={
+                "response": "No entendí tu mensaje.",
+                "intent": "general_chat",
+                "status": "complete",
+            }
+        )
+
+        with patch(
+            "src.agents.orchestrator.get_orchestrator_graph",
+            return_value=fake_graph,
+        ):
+            result = await orchestrate_chat.ainvoke(
+                {
+                    "messages": [],
+                    "thread_id": "t-empty",
+                }
+            )
+
+        call_args = fake_graph.ainvoke.call_args
+        assert call_args[0][0]["user_message"] == ""
+        assert result["response"] == "No entendí tu mensaje."
 
 
 # ==============================================================================

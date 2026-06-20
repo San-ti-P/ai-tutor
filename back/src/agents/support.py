@@ -17,10 +17,13 @@ from typing import Literal
 try:
     from langfuse import observe
 except ImportError:
+
     def observe(name: str | None = None):  # noqa: D103
         def decorator(fn):  # noqa: D103
             return fn
+
         return decorator
+
 
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
@@ -59,9 +62,8 @@ def fetch_student_profile(state: SupportState) -> dict:
     Returns partial state with ``profile_data``, ``topic_scores``,
     ``preferences``, and ``status``.
     """
-    import asyncio
-
     from src.memory.schema import get_student_profile, get_topic_scores
+    from src.utils.async_ import run_async_in_sync
 
     student_id: str = state.get("student_id", "")
 
@@ -72,17 +74,7 @@ def fetch_student_profile(state: SupportState) -> dict:
             scores = await get_topic_scores(student_id)
             return profile, scores
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, _fetch())
-                    profile, scores = future.result()
-            else:
-                profile, scores = loop.run_until_complete(_fetch())
-        except RuntimeError:
-            profile, scores = asyncio.run(_fetch())
+        profile, scores = run_async_in_sync(_fetch())
 
         if profile is None:
             logger.warning("Student %s not found in DB", student_id)
@@ -90,17 +82,18 @@ def fetch_student_profile(state: SupportState) -> dict:
             from src.memory.schema import upsert_student_profile
 
             async def _create():
-                await upsert_student_profile(student_id, {
-                    "difficulty": "medium",
-                    "question_types": ["mcq"],
-                    "question_count": 5,
-                    "include_topics": [],
-                    "exclude_topics": [],
-                })
-            try:
-                asyncio.run(_create())
-            except RuntimeError:
-                pass
+                await upsert_student_profile(
+                    student_id,
+                    {
+                        "difficulty": "medium",
+                        "question_types": ["mcq"],
+                        "question_count": 5,
+                        "include_topics": [],
+                        "exclude_topics": [],
+                    },
+                )
+
+            run_async_in_sync(_create())
             profile = {"id": student_id, "preferences": {}, "session_count": 0}
             scores = []
 
@@ -135,27 +128,17 @@ def fetch_session_history(state: SupportState) -> dict:
     Only called in the ``query`` flow. Returns partial state with
     ``session_history`` populated.
     """
-    import asyncio
-
     from src.memory.schema import get_recent_sessions
+    from src.utils.async_ import run_async_in_sync
 
     student_id: str = state.get("student_id", "")
 
     try:
+
         async def _fetch():
             return await get_recent_sessions(student_id)
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, _fetch())
-                    history = future.result()
-            else:
-                history = loop.run_until_complete(_fetch())
-        except RuntimeError:
-            history = asyncio.run(_fetch())
+        history = run_async_in_sync(_fetch())
 
         return {"session_history": history}
 
@@ -176,28 +159,18 @@ def compute_progress_summary(state: SupportState) -> dict:
     memory module. Also computes an average score across all topics.
     Returns partial state with ``weak_topics`` populated.
     """
-    import asyncio
-
     from src.memory.schema import compute_weak_topics
+    from src.utils.async_ import run_async_in_sync
 
     student_id: str = state.get("student_id", "")
     topic_scores: list[dict] = state.get("topic_scores", [])
 
     try:
+
         async def _compute():
             return await compute_weak_topics(student_id)
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, _compute())
-                    weak = future.result()
-            else:
-                weak = loop.run_until_complete(_compute())
-        except RuntimeError:
-            weak = asyncio.run(_compute())
+        weak = run_async_in_sync(_compute())
 
         return {"weak_topics": weak}
 
@@ -221,6 +194,12 @@ def generate_response(state: SupportState) -> dict:
 
     On ``query`` type: reports weak topics, session count, and recommendations.
     On ``update`` type: confirms profile update and reports new weak topics.
+
+    Design decision (US-10.8): Templates are kept instead of LLM.
+    The Support Agent handles structured, data-driven summaries — profile stats,
+    topic scores, and weak topic lists. Templates provide deterministic, fast,
+    and predictable responses without the latency, cost, or hallucination risk
+    of an LLM call. No conversational nuance is required for these queries.
     """
     query_type: str = state.get("query_type", "query")
     profile: dict | None = state.get("profile_data")
@@ -236,10 +215,7 @@ def generate_response(state: SupportState) -> dict:
     if query_type == "update":
         # Confirmation message for profile update
         diff = prefs.get("difficulty", "medium") if prefs else "medium"
-        response = (
-            f"Perfil actualizado correctamente. "
-            f"Preferencias guardadas: dificultad {diff}. "
-        )
+        response = f"Perfil actualizado correctamente. Preferencias guardadas: dificultad {diff}. "
         if weak_topics:
             response += (
                 f"Temas débiles detectados: {', '.join(weak_topics)}. "
@@ -274,13 +250,8 @@ def generate_response(state: SupportState) -> dict:
             parts.append(f"  • {ts['topic']}: {ts['score']:.1f}/10")
 
     if weak_topics:
-        parts.append(
-            f"- Temas que necesitan refuerzo: {', '.join(weak_topics)}"
-        )
-        parts.append(
-            "Recomendación: enfocar el estudio en estos temas antes "
-            "del próximo examen."
-        )
+        parts.append(f"- Temas que necesitan refuerzo: {', '.join(weak_topics)}")
+        parts.append("Recomendación: enfocar el estudio en estos temas antes del próximo examen.")
     else:
         parts.append("- Todos los temas están por encima del umbral. ¡Buen trabajo!")
 

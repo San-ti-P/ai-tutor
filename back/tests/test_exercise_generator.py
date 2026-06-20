@@ -173,21 +173,24 @@ class TestValidateExercise:
         with patch("src.rag.get_embedding_model") as mock_embed:
             import hashlib
 
+            import torch
+
             model = MagicMock()
             model.get_sentence_embedding_dimension.return_value = 384
 
-            def _fake_encode(texts):
-                return [
+            def _fake_encode(texts, **kwargs):
+                return torch.tensor(
                     [
-                        float(int(hashlib.md5(t.encode()).hexdigest()[:8], 16) % 1000) / 1000.0
-                        for _ in range(384)
-                    ]
-                    for t in texts
-                ]
+                        [
+                            float(int(hashlib.md5(t.encode()).hexdigest()[:8], 16) % 1000) / 1000.0
+                            for _ in range(384)
+                        ]
+                        for t in texts
+                    ],
+                    dtype=torch.float32,
+                )
 
-            model.encode.side_effect = lambda texts: type(
-                "FakeArray", (), {"tolist": lambda self: _fake_encode(texts)}
-            )()
+            model.encode.side_effect = _fake_encode
             mock_embed.return_value = model
 
             result = validate_exercise(state)
@@ -230,6 +233,8 @@ class TestValidateExercise:
         }
 
         with patch("src.rag.get_embedding_model") as mock_embed:
+            import torch
+
             model = MagicMock()
             model.get_sentence_embedding_dimension.return_value = 384
 
@@ -238,17 +243,13 @@ class TestValidateExercise:
             zero_vec = [[0.0] * 384]
             call_counter = [0]
 
-            def _discriminating_encode(texts):
+            def _discriminating_encode(texts, **kwargs):
                 call_counter[0] += 1
                 if call_counter[0] == 1:  # first call: chunk texts
-                    return [list(chunk_vec[0]) for _ in texts]
-                return [list(zero_vec[0]) for _ in texts]  # second call: claims
+                    return torch.tensor([list(chunk_vec[0]) for _ in texts], dtype=torch.float32)
+                return torch.tensor([list(zero_vec[0]) for _ in texts], dtype=torch.float32)
 
-            model.encode.side_effect = lambda texts: type(
-                "FakeArray",
-                (),
-                {"tolist": lambda self: _discriminating_encode(texts)},
-            )()
+            model.encode.side_effect = _discriminating_encode
             mock_embed.return_value = model
 
             result = validate_exercise(state)
@@ -498,6 +499,8 @@ class TestPRDIntegration:
         }
 
         with patch("src.rag.get_embedding_model") as mock_embed:
+            import torch
+
             model = MagicMock()
             model.get_sentence_embedding_dimension.return_value = 384
 
@@ -505,17 +508,13 @@ class TestPRDIntegration:
             zero_vec = [[0.0] * 384]
             call_counter = [0]
 
-            def _discriminating_encode(texts):
+            def _discriminating_encode(texts, **kwargs):
                 call_counter[0] += 1
                 if call_counter[0] == 1:
-                    return [list(chunk_vec[0]) for _ in texts]
-                return [list(zero_vec[0]) for _ in texts]
+                    return torch.tensor([list(chunk_vec[0]) for _ in texts], dtype=torch.float32)
+                return torch.tensor([list(zero_vec[0]) for _ in texts], dtype=torch.float32)
 
-            model.encode.side_effect = lambda texts: type(
-                "FakeArray",
-                (),
-                {"tolist": lambda self: _discriminating_encode(texts)},
-            )()
+            model.encode.side_effect = _discriminating_encode
             mock_embed.return_value = model
 
             graph = build_exercise_generator().compile()

@@ -9,7 +9,6 @@ in source chunks. Anti-hallucination claim-level embedding validation with
 
 from __future__ import annotations
 
-import math
 import operator
 from typing import Annotated
 
@@ -58,14 +57,6 @@ class ExerciseGeneration(BaseModel):
         default_factory=dict,
         description="{topics_covered, total_source_chunks}",
     )
-
-
-def _cosine_sim(a: list[float], b: list[float]) -> float:
-    """Cosine similarity between two vectors. Returns 0.0 if either has zero norm."""
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b))
-    return dot / (norm_a * norm_b) if norm_a > 0 and norm_b > 0 else 0.0
 
 
 # ── State schema ─────────────────────────────────────────────────────────────
@@ -187,7 +178,7 @@ def generate_exercise(state: ExerciseGeneratorState) -> dict:
     """
     import logging
 
-    from src.config import settings
+    from src.llm import get_structured_llm
 
     logger = logging.getLogger(__name__)
 
@@ -227,25 +218,29 @@ def generate_exercise(state: ExerciseGeneratorState) -> dict:
                 f"un chunk etiquetado con [CHUNK:...].\n"
             )
 
-        prompt = f"""Generá un ejercicio práctico académico basado EXCLUSIVAMENTE en los siguientes chunks de material de estudio.
+        prompt = (
+            "Generá un ejercicio práctico académico basado "
+            "EXCLUSIVAMENTE en los siguientes chunks de "
+            "material de estudio.\n\n"
+            f"{chunk_context}\n\n"
+            "PREFERENCIAS:\n"
+            f"{chr(10).join(prefs_lines)}{retry_instructions}\n\n"
+            "REQUISITOS:\n"
+            "- El ejercicio debe incluir: enunciado (statement), "
+            "datos proporcionados (given_data), y una pregunta que "
+            "requiera aplicación multi-paso.\n"
+            "- Proporcioná una solución modelo (model_solution) con "
+            "3-6 pasos detallados.\n"
+            "- Cada paso debe incluir: step_number, description, "
+            "result, y source_chunk_ids.\n"
+            "- Incluí final_answer y 3-5 key_concepts.\n"
+            "- Cada hecho DEBE provenir de los chunks fuente. "
+            "Incluí source_chunk_ids (los IDs entre corchetes "
+            "[CHUNK:xxx]).\n"
+            "- El ejercicio debe tener campos: topic, difficulty.\n"
+        )
 
-{chunk_context}
-
-PREFERENCIAS:
-{chr(10).join(prefs_lines)}{retry_instructions}
-
-REQUISITOS:
-- El ejercicio debe incluir: enunciado (statement), datos proporcionados (given_data), y una pregunta que requiera aplicación multi-paso.
-- Proporcioná una solución modelo (model_solution) con 3-6 pasos detallados.
-- Cada paso debe incluir: step_number, description, result, y source_chunk_ids.
-- Incluí final_answer y 3-5 key_concepts.
-- Cada hecho DEBE provenir de los chunks fuente. Incluí source_chunk_ids (los IDs entre corchetes [CHUNK:xxx]).
-- El ejercicio debe tener campos: topic, difficulty.
-"""
-
-        llm_cls, llm_kwargs = settings.llm_kwargs
-        llm = llm_cls(**llm_kwargs)
-        structured_llm = llm.with_structured_output(ExerciseGeneration)
+        structured_llm = get_structured_llm(ExerciseGeneration)
         result: ExerciseGeneration = structured_llm.invoke(prompt)
 
         # Extract first PracticalExercise
@@ -301,25 +296,23 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
     """Validate exercise claims against source chunks via embedding similarity.
 
     Dual claim extraction from:
-      (a) statement + given_data + question split on sentence boundaries ≥20 chars
+      (a) statement + given_data + question split on sentence boundaries >=20 chars
       (b) model_solution.steps[].description + result + final_answer
 
-    Embeds claims and compares cosine similarity against chunk embeddings.
+    Delegates to ``validate_claim_grounding`` (retry_trigger mode) for
+    batch embedding and cosine similarity via ``cos_sim``.
     Claims below anti_hallucination_threshold are flagged as errors.
     """
     import logging
-    import re
 
-    from src.config import settings
-    from src.rag import get_embedding_model
+    from src.tools.validate_claim_grounding import validate_claim_grounding
+    from src.utils.text import split_into_claims
 
     logger = logging.getLogger(__name__)
 
     try:
         chunks: list[dict] = state.get("retrieved_chunks", [])
         exercise: dict = state.get("generated_exercise", {})
-        threshold: float = settings.anti_hallucination_threshold
-        model = get_embedding_model()
 
         if not exercise:
             return {
@@ -327,20 +320,13 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
                 "validation_errors": ["No exercise to validate"],
             }
 
-        # Pre-embed all chunk texts (batch)
-        chunk_texts = [c.get("text", "") for c in chunks]
-        chunk_embeddings = model.encode(chunk_texts).tolist() if chunk_texts else []
-
-        # Regex to split on sentence boundaries
-        sentence_split_re = re.compile(r"(?<=[.!?])\s+")
-
-        # Extract claims from exercise text
+        # ── Extract claims from exercise text ──
         claims: list[str] = []
         for field in ("statement", "given_data", "question"):
             text = exercise.get(field, "")
-            claims.extend(c.strip() for c in sentence_split_re.split(text) if len(c.strip()) >= 20)
+            claims.extend(split_into_claims(text, min_length=20))
 
-        # Extract claims from model solution steps
+        # ── Extract claims from model solution steps ──
         solution = exercise.get("model_solution", {})
         for step in solution.get("steps", []):
             desc = step.get("description", "")
@@ -354,30 +340,36 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
         if len(final_answer.strip()) >= 10:
             claims.append(final_answer.strip())
 
-        # If no claims extracted, use full statement and question as fallback
+        # Fallback: if no claims, use full statement + question
         if not claims:
-            fallback = f"{exercise.get('statement', '')} {exercise.get('question', '')}".strip()
+            fallback = (f"{exercise.get('statement', '')} {exercise.get('question', '')}").strip()
             if len(fallback) >= 10:
                 claims = [fallback]
 
+        if not claims:
+            return {"validation_passed": True, "validation_errors": []}
+
+        # ── Delegate to anti-hallucination tool ──
+        result = validate_claim_grounding.invoke(
+            {
+                "claims": claims,
+                "chunks": chunks,
+                "mode": "retry_trigger",
+            }
+        )
+
+        # ── Flag claims below threshold ──
         all_errors: list[str] = []
-        all_matched = True
+        all_matched = result.get("all_matched", True)
 
-        for ci, claim in enumerate(claims):
-            claim_embedding = model.encode([claim]).tolist()[0]
-
-            best_score = 0.0
-            for chi, chunk_emb in enumerate(chunk_embeddings):
-                sim = _cosine_sim(claim_embedding, chunk_emb)
-                if sim > best_score:
-                    best_score = sim
-
-            if best_score < threshold:
-                all_matched = False
-                all_errors.append(
-                    f"Claim {ci} ('{claim[:80]}') similarity {best_score:.4f} "
-                    f"below threshold {threshold} — not grounded in source chunks"
-                )
+        if not all_matched:
+            for cr in result.get("claim_results", []):
+                if not cr["matched"]:
+                    all_errors.append(
+                        f"Claim '{cr['claim_text'][:80]}' similarity "
+                        f"{cr['similarity_score']:.4f} below threshold — "
+                        f"not grounded in source chunks"
+                    )
 
         return {
             "validation_passed": all_matched,
@@ -395,16 +387,16 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
 def should_retry(state: ExerciseGeneratorState) -> str:
     """Return 'retry' if validation errors exist AND retry_count < 3, else 'done'.
 
-    Does NOT retry on terminal statuses (error, no_material).
+    Delegates to ``src.utils.retry.should_retry`` — the single source of truth
+    for retry-decision logic across all agents.
     """
-    errors = state.get("validation_errors", [])
-    retry_count = state.get("retry_count", 0)
-    status = state.get("status", "")
-    if status in ("error", "no_material"):
-        return "done"
-    if errors and retry_count < 3:
-        return "retry"
-    return "done"
+    from src.utils.retry import should_retry as _should_retry
+
+    return _should_retry(
+        validation_errors=state.get("validation_errors", []),
+        retry_count=state.get("retry_count", 0),
+        status=state.get("status", ""),
+    )
 
 
 def format_exercise(state: ExerciseGeneratorState) -> dict:

@@ -302,8 +302,9 @@ class TestUpdateStudentProfileTool:
     @pytest.mark.asyncio
     async def test_update_student_profile_no_preferences_uses_defaults(self, populated_db):
         """GIVEN no preferences → THEN tool stores defaults in DB."""
-        import aiosqlite
         import json
+
+        import aiosqlite
 
         from src.tools.update_student_profile import update_student_profile
 
