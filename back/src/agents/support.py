@@ -59,9 +59,8 @@ def fetch_student_profile(state: SupportState) -> dict:
     Returns partial state with ``profile_data``, ``topic_scores``,
     ``preferences``, and ``status``.
     """
-    from src.utils.async_ import run_async_in_sync
-
     from src.memory.schema import get_student_profile, get_topic_scores
+    from src.utils.async_ import run_async_in_sync
 
     student_id: str = state.get("student_id", "")
 
@@ -87,10 +86,7 @@ def fetch_student_profile(state: SupportState) -> dict:
                     "include_topics": [],
                     "exclude_topics": [],
                 })
-            try:
-                asyncio.run(_create())
-            except RuntimeError:
-                pass
+            run_async_in_sync(_create())
             profile = {"id": student_id, "preferences": {}, "session_count": 0}
             scores = []
 
@@ -125,9 +121,8 @@ def fetch_session_history(state: SupportState) -> dict:
     Only called in the ``query`` flow. Returns partial state with
     ``session_history`` populated.
     """
-    from src.utils.async_ import run_async_in_sync
-
     from src.memory.schema import get_recent_sessions
+    from src.utils.async_ import run_async_in_sync
 
     student_id: str = state.get("student_id", "")
 
@@ -156,9 +151,8 @@ def compute_progress_summary(state: SupportState) -> dict:
     memory module. Also computes an average score across all topics.
     Returns partial state with ``weak_topics`` populated.
     """
-    from src.utils.async_ import run_async_in_sync
-
     from src.memory.schema import compute_weak_topics
+    from src.utils.async_ import run_async_in_sync
 
     student_id: str = state.get("student_id", "")
     topic_scores: list[dict] = state.get("topic_scores", [])

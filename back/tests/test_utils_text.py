@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 from src.utils.text import parse_file_to_text, split_into_claims, split_sentences

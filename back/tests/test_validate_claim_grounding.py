@@ -9,7 +9,6 @@ import torch
 
 from src.config import settings
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 

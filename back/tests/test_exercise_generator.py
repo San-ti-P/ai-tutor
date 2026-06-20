@@ -172,6 +172,7 @@ class TestValidateExercise:
 
         with patch("src.rag.get_embedding_model") as mock_embed:
             import hashlib
+
             import torch
 
             model = MagicMock()

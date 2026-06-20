@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from src.config import settings
+from src.llm import get_llm as _get_llm
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,6 @@ class OrchestratorState(TypedDict):
     status: str  # "pending" | "complete" | "incomplete" | "partial"
     iteration_count: int
     student_profile: dict | None
-from src.llm import get_llm as _get_llm
 
 
 def classify_intent(state: OrchestratorState) -> dict:
