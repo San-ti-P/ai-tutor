@@ -40,33 +40,20 @@ async def health() -> HealthResponse:
 async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
     logger.info("Chat request received for session %s", request.session_id)
 
-    from src.agents.orchestrator import get_orchestrator_graph  # noqa: F811
+    from src.tools import orchestrate_chat
 
-    graph = await get_orchestrator_graph()
-
-    initial_state: dict = {
-        "session_id": request.session_id,
-        "user_message": request.message,
-        "intent": "general_chat",
-        "confidence": 0.0,
-        "plan": [],
-        "current_step": 0,
-        "results": [],
-        "errors": [],
-        "response": "",
-        "status": "pending",
-        "iteration_count": 0,
-        "student_profile": None,
-    }
-
-    config = {"configurable": {"thread_id": request.session_id}}
-    final_state = await graph.ainvoke(initial_state, config=config)
+    result = await orchestrate_chat.ainvoke(
+        {
+            "messages": [{"role": "user", "content": request.message}],
+            "thread_id": request.session_id,
+        }
+    )
 
     return ApiResponse(
         data=ChatResponse(
-            response=final_state["response"],
-            intent=final_state["intent"],
-            trace_id=str(uuid.uuid4()),
+            response=result["response"],
+            intent=result["intent"],
+            trace_id=result["trace_id"],
         ),
         error=None,
     )
