@@ -15,6 +15,7 @@ import uuid
 import chromadb
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langfuse import observe
 from sentence_transformers import SentenceTransformer
 
 from src.config import settings
@@ -102,6 +103,7 @@ def chunk_text(text: str, metadata: dict | None = None) -> list[Document]:
 # ---------------------------------------------------------------------------
 
 
+@observe(name="rag_embed_store")
 def embed_and_store(
     chunks: list[str],
     metadatas: list[dict] | None,
@@ -154,6 +156,7 @@ def embed_and_store(
 # ---------------------------------------------------------------------------
 
 
+@observe(name="rag_retrieve")
 def retrieve(
     query: str,
     collection_name: str,

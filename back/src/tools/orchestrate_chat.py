@@ -7,9 +7,12 @@ API → tools → agents.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from langchain_core.tools import tool
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -62,8 +65,23 @@ async def orchestrate_chat(
         "student_profile": None,
     }
 
+    # ── Observability wiring ────────────────────────────────────────────────
+    from src.observability import get_tracer, flush_traces
+
+    tracer = get_tracer()
+    langfuse_handler = tracer.get_callback_handler(
+        session_id=session_id,
+        user_id=None,  # user_id extracted from profile if available
+    )
+
     config = {"configurable": {"thread_id": session_id}}
-    final_state = await graph.ainvoke(initial_state, config=config)
+    if langfuse_handler:
+        config.setdefault("callbacks", []).append(langfuse_handler)
+
+    try:
+        final_state = await graph.ainvoke(initial_state, config=config)
+    finally:
+        flush_traces()
 
     return {
         "response": final_state["response"],

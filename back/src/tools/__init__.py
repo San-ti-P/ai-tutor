@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from langchain_core.tools import tool
+from langfuse import observe
 
 from src.rag import retrieve as _rag_retrieve
 from src.tools.get_student_summary import get_student_summary  # noqa: F401
@@ -60,6 +61,7 @@ def retrieve_chunks(
 
 
 @tool
+@observe(name="ingest_document")
 def ingest_document(
     file_path: str,
     session_id: str,
@@ -207,6 +209,7 @@ def extract_topics(
 
 
 @tool
+@observe(name="generate_exercise")
 def generate_exercise(
     session_id: str,
     topic: str,
@@ -266,6 +269,7 @@ def generate_exercise(
 
 
 @tool
+@observe(name="evaluate_answer")
 def evaluate_answer(
     session_id: str,
     exam_id: str,
@@ -325,6 +329,7 @@ def evaluate_answer(
 
 
 @tool
+@observe(name="generate_exam")
 def generate_exam(
     session_id: str,
     topics: list[str],

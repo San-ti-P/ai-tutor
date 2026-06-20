@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -708,3 +709,185 @@ def ingested_collection_name(real_pdf_path: Path, temp_dir: Path) -> str:
     )
 
     return collection_name
+
+
+# ── Observability fixtures ───────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="session")
+def test_run_id() -> str:
+    """Unique identifier for grouping all traces from one test run.
+
+    Used by the Langfuse metadata injection to tag every trace with the
+    same ``test_run_id``, enabling filtering in the Langfuse dashboard.
+    """
+    return str(uuid.uuid4())
+
+
+@pytest.fixture(scope="session")
+def langfuse_observe_tests() -> bool:
+    """Return True when ``LANGFUSE_OBSERVE_TESTS=true`` in environment.
+
+    When True, ``mock_langfuse`` becomes a no-op and the real Langfuse
+    client is used.  Integration tests can inspect this fixture to skip
+    when tracing is not requested.
+    """
+    return os.environ.get("LANGFUSE_OBSERVE_TESTS", "").lower() == "true"
+
+
+@pytest.fixture(autouse=True)
+def _inject_test_metadata_for_integration(
+    request: pytest.FixtureRequest,
+    langfuse_observe_tests: bool,
+    test_run_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Autouse: inject test metadata into create_trace for integration tests.
+
+    Only activates when ``LANGFUSE_OBSERVE_TESTS=true`` AND the current
+    test carries the ``@pytest.mark.integration`` marker.
+
+    Monkeypatches ``ObservabilityManager.create_trace`` at the *class*
+    level so every instance (including the ``get_tracer()`` singleton)
+    benefits from the injection.  The patch wraps the method that was
+    active at fixture-setup time, so other fixtures (like ``obs_manager``)
+    can add their own metadata layers without conflict.
+    """
+    if not langfuse_observe_tests:
+        return
+
+    marker = request.node.get_closest_marker("integration")
+    if marker is None:
+        return
+
+    # Skip if the test already uses obs_manager — obs_manager does its own patch
+    if "obs_manager" in getattr(request.node, "fixturenames", set()):
+        return
+
+    from src.observability import ObservabilityManager
+
+    _current = ObservabilityManager.create_trace
+
+    def _patched_create_trace(
+        self: ObservabilityManager,
+        *,
+        name: str,
+        session_id: str,
+        user_id: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> Any:
+        meta = {**(metadata or {})}
+        meta.setdefault("environment", "test")
+        meta.setdefault("test_run_id", test_run_id)
+        meta.setdefault("source", "pytest-integration")
+        meta.setdefault("test_name", request.node.name)
+        return _current(self, name=name, session_id=session_id, user_id=user_id, metadata=meta)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(ObservabilityManager, "create_trace", _patched_create_trace)
+
+
+@pytest.fixture
+def mock_langfuse(langfuse_observe_tests: bool) -> Any:
+    """Patch langfuse.Langfuse for unit tests; no-op when real tracing requested.
+
+    When ``langfuse_observe_tests`` is True this fixture yields ``None``
+    and performs no patching — the real Langfuse client (configured via
+    ``.env`` keys) is allowed through.
+
+    All Langfuse client interactions become no-op mocks so unit tests
+    never touch the network.  The mock client returns a MagicMock from
+    ``.trace()`` that supports chained ``.generation()`` / ``.span()`` /
+    ``.score()`` / ``.end()`` methods.
+
+    Also temporarily injects dummy keys into settings so the singleton
+    client path is exercised even when the test ``.env`` is empty.
+    """
+    if langfuse_observe_tests:
+        yield None
+        return
+
+    from src.config import settings as _settings
+
+    with (
+        patch.object(_settings, "langfuse_public_key", "pk-test-dummy", create=False),
+        patch.object(_settings, "langfuse_secret_key", "sk-test-dummy", create=False),
+        patch.object(_settings, "langfuse_host", "http://localhost:3000", create=False),
+        patch("langfuse.Langfuse") as mock_client_cls,
+    ):
+        mock_client = MagicMock()
+        mock_trace = MagicMock()
+        mock_generation = MagicMock()
+        mock_span = MagicMock()
+
+        # v2 API (legacy, for backward compat in tests)
+        mock_client.trace.return_value = mock_trace
+        # v4 API (current)
+        mock_client.start_observation.return_value = mock_trace
+        mock_trace.generation.return_value = mock_generation
+        mock_trace.span.return_value = mock_span
+
+        mock_client_cls.return_value = mock_client
+        yield mock_client_cls
+
+
+@pytest.fixture
+def mock_observe():
+    """Patch langfuse.observe to a transparent pass-through.
+
+    The decorated function executes normally — no tracing intent is
+    altered, but the real Langfuse decorator is never invoked.
+    """
+    with patch("langfuse.observe", lambda **kw: (lambda fn: fn)):
+        yield
+
+
+@pytest.fixture
+def obs_manager(
+    mock_langfuse: Any,
+    langfuse_observe_tests: bool,
+    test_run_id: str,
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Any:
+    """Return an ObservabilityManager wired to the active Langfuse client.
+
+    When ``langfuse_observe_tests`` is False (default): the client is
+    mocked via ``mock_langfuse`` and no metadata injection occurs.
+
+    When ``langfuse_observe_tests`` is True: the real Langfuse client
+    (configured via ``.env``) is used AND ``create_trace`` is monkeypatched
+    at the *class* level to inject the four test metadata tags:
+    ``environment``, ``test_run_id``, ``source``, ``test_name``.
+
+    The class-level patch means even ``get_tracer().create_trace()``
+    (used by production code paths) receives the injected metadata.
+    """
+    from src.observability import ObservabilityManager
+    from src.observability._client import _reset_langfuse_client
+
+    _reset_langfuse_client()
+    mgr = ObservabilityManager()
+    mgr._ensure_init()
+
+    if langfuse_observe_tests and mgr.enabled:
+        # Inject test metadata into ALL create_trace calls (class-level patch)
+        _original = ObservabilityManager.create_trace
+
+        def _patched_create_trace(
+            self: ObservabilityManager,
+            *,
+            name: str,
+            session_id: str,
+            user_id: str | None = None,
+            metadata: dict[str, object] | None = None,
+        ) -> Any:
+            meta = {**(metadata or {})}
+            meta.setdefault("environment", "test")
+            meta.setdefault("test_run_id", test_run_id)
+            meta.setdefault("source", "pytest-integration")
+            meta.setdefault("test_name", request.node.name)
+            return _original(self, name=name, session_id=session_id, user_id=user_id, metadata=meta)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(ObservabilityManager, "create_trace", _patched_create_trace)
+
+    yield mgr

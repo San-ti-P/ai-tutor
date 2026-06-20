@@ -14,16 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-try:
-    from langfuse import observe
-except ImportError:
-
-    def observe(name: str | None = None):  # noqa: D103
-        def decorator(fn):  # noqa: D103
-            return fn
-
-        return decorator
-
+from langfuse import observe
 
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict

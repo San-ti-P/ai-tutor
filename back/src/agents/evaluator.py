@@ -17,16 +17,7 @@ import operator
 import random
 from typing import Annotated
 
-try:
-    from langfuse import observe
-except ImportError:
-
-    def observe(name: str | None = None):  # noqa: D103
-        def decorator(fn):  # noqa: D103
-            return fn
-
-        return decorator
-
+from langfuse import observe
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field

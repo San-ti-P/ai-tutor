@@ -12,8 +12,12 @@ from src.memory.schema import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    from src.observability import get_tracer, flush_traces
+
     await init_db()
+    get_tracer()  # eager init — triggers lazy Langfuse client creation
     yield
+    flush_traces()
     from src.agents.orchestrator import close_orchestrator_graph
 
     await close_orchestrator_graph()
