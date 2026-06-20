@@ -218,21 +218,27 @@ def generate_exercise(state: ExerciseGeneratorState) -> dict:
                 f"un chunk etiquetado con [CHUNK:...].\n"
             )
 
-        prompt = f"""Generá un ejercicio práctico académico basado EXCLUSIVAMENTE en los siguientes chunks de material de estudio.
-
-{chunk_context}
-
-PREFERENCIAS:
-{chr(10).join(prefs_lines)}{retry_instructions}
-
-REQUISITOS:
-- El ejercicio debe incluir: enunciado (statement), datos proporcionados (given_data), y una pregunta que requiera aplicación multi-paso.
-- Proporcioná una solución modelo (model_solution) con 3-6 pasos detallados.
-- Cada paso debe incluir: step_number, description, result, y source_chunk_ids.
-- Incluí final_answer y 3-5 key_concepts.
-- Cada hecho DEBE provenir de los chunks fuente. Incluí source_chunk_ids (los IDs entre corchetes [CHUNK:xxx]).
-- El ejercicio debe tener campos: topic, difficulty.
-"""
+        prompt = (
+            "Generá un ejercicio práctico académico basado "
+            "EXCLUSIVAMENTE en los siguientes chunks de "
+            "material de estudio.\n\n"
+            f"{chunk_context}\n\n"
+            "PREFERENCIAS:\n"
+            f"{chr(10).join(prefs_lines)}{retry_instructions}\n\n"
+            "REQUISITOS:\n"
+            "- El ejercicio debe incluir: enunciado (statement), "
+            "datos proporcionados (given_data), y una pregunta que "
+            "requiera aplicación multi-paso.\n"
+            "- Proporcioná una solución modelo (model_solution) con "
+            "3-6 pasos detallados.\n"
+            "- Cada paso debe incluir: step_number, description, "
+            "result, y source_chunk_ids.\n"
+            "- Incluí final_answer y 3-5 key_concepts.\n"
+            "- Cada hecho DEBE provenir de los chunks fuente. "
+            "Incluí source_chunk_ids (los IDs entre corchetes "
+            "[CHUNK:xxx]).\n"
+            "- El ejercicio debe tener campos: topic, difficulty.\n"
+        )
 
         structured_llm = get_structured_llm(ExerciseGeneration)
         result: ExerciseGeneration = structured_llm.invoke(prompt)
@@ -336,9 +342,7 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
 
         # Fallback: if no claims, use full statement + question
         if not claims:
-            fallback = (
-                f"{exercise.get('statement', '')} {exercise.get('question', '')}"
-            ).strip()
+            fallback = (f"{exercise.get('statement', '')} {exercise.get('question', '')}").strip()
             if len(fallback) >= 10:
                 claims = [fallback]
 
@@ -346,11 +350,13 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
             return {"validation_passed": True, "validation_errors": []}
 
         # ── Delegate to anti-hallucination tool ──
-        result = validate_claim_grounding.invoke({
-            "claims": claims,
-            "chunks": chunks,
-            "mode": "retry_trigger",
-        })
+        result = validate_claim_grounding.invoke(
+            {
+                "claims": claims,
+                "chunks": chunks,
+                "mode": "retry_trigger",
+            }
+        )
 
         # ── Flag claims below threshold ──
         all_errors: list[str] = []

@@ -107,9 +107,7 @@ def validate_claim_grounding(
         matched = score >= threshold
         if not matched:
             all_matched = False
-            missing_claims.append(
-                {"claim": claim[:200], "best_score": round(score, 4)}
-            )
+            missing_claims.append({"claim": claim[:200], "best_score": round(score, 4)})
 
         claim_results.append(
             {

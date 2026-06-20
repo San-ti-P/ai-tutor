@@ -20,10 +20,13 @@ from typing import Annotated
 try:
     from langfuse import observe
 except ImportError:
+
     def observe(name: str | None = None):  # noqa: D103
         def decorator(fn):  # noqa: D103
             return fn
+
         return decorator
+
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
@@ -39,9 +42,7 @@ class SingleEvaluation(BaseModel):
     """LLM structured output for a single answer evaluation."""
 
     score: float = Field(ge=0, le=10, description="Numerical score from 0 to 10")
-    justification: str = Field(
-        description="Detailed justification referencing specific concepts"
-    )
+    justification: str = Field(description="Detailed justification referencing specific concepts")
     conceptual_errors: list[str] = Field(
         default_factory=list,
         description="List of conceptual mistakes found in the answer",
@@ -468,11 +469,13 @@ def validate_feedback(state: EvaluatorState) -> dict:
 
     try:
         # Delegate to anti-hallucination tool (flag_only — no retry)
-        result = validate_claim_grounding.invoke({
-            "claims": claims,
-            "chunks": chunks,
-            "mode": "flag_only",
-        })
+        result = validate_claim_grounding.invoke(
+            {
+                "claims": claims,
+                "chunks": chunks,
+                "mode": "flag_only",
+            }
+        )
 
         validation_warnings: list[dict] = []
         for cr in result.get("claim_results", []):
@@ -549,19 +552,19 @@ def llm_judge(state: EvaluatorState) -> dict:
         prompt = f"""Actuá como juez de segunda instancia. Re-evaluá la siguiente respuesta.
 
 PREGUNTA:
-{current.get('question', '')}
+{current.get("question", "")}
 
 RESPUESTA ESPERADA:
-{current.get('base_answer', '')}
+{current.get("base_answer", "")}
 
 RESPUESTA DEL ESTUDIANTE:
-{current.get('student_answer', '')}
+{current.get("student_answer", "")}
 
 MATERIAL DE REFERENCIA:
 {chunk_context}
 
-EVALUACIÓN PRIMARIA (puntaje: {evaluation.get('score', 0)}):
-{evaluation.get('justification', '')}
+EVALUACIÓN PRIMARIA (puntaje: {evaluation.get("score", 0)}):
+{evaluation.get("justification", "")}
 
 INSTRUCCIONES:
 1. Asigná tu propio puntaje independiente de 0 a 10.
@@ -691,6 +694,7 @@ def sync_scores(state: EvaluatorState) -> dict:
 
             # Run async DB write synchronously (acceptable for graph node)
             from src.utils.async_ import run_async_in_sync
+
             run_async_in_sync(save_evaluation(eval_record))
 
             # Collect topic/score for profile update (SUP-03)
@@ -714,6 +718,7 @@ def sync_scores(state: EvaluatorState) -> dict:
             deduped_list = [{"topic": t, "score": s} for t, s in deduped.items()]
 
             from src.utils.async_ import run_async_in_sync
+
             run_async_in_sync(upsert_topic_scores(student_id, deduped_list))
         except Exception as exc:
             logger.warning("Failed to upsert topic scores for %s: %s", student_id, exc)

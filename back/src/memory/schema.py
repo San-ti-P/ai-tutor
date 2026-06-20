@@ -172,9 +172,7 @@ async def upsert_topic_scores(student_id: str, scores: list[dict]) -> None:
         await db.commit()
 
 
-async def compute_weak_topics(
-    student_id: str, threshold: float = 6.0, limit: int = 3
-) -> list[str]:
+async def compute_weak_topics(student_id: str, threshold: float = 6.0, limit: int = 3) -> list[str]:
     """Return topic names whose latest score is below *threshold*.
 
     Reads from ``topic_scores`` (fast, indexed lookup).  Results are

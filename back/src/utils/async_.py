@@ -10,12 +10,10 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 from collections.abc import Coroutine
-from typing import Any, TypeVar
-
-T = TypeVar("T")
+from typing import Any
 
 
-def run_async_in_sync(coro: Coroutine[Any, Any, T]) -> T:
+def run_async_in_sync[T](coro: Coroutine[Any, Any, T]) -> T:
     """Run an async coroutine synchronously, handling all event-loop states.
 
     Three branches:

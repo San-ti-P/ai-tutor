@@ -51,8 +51,6 @@ class ExamGeneration(BaseModel):
     )
 
 
-
-
 # ── State schema ─────────────────────────────────────────────────────────────
 
 
@@ -412,11 +410,13 @@ def validate_questions(state: ExamGeneratorState) -> dict:
             }
 
         # ── Delegate to anti-hallucination tool ──
-        result = validate_claim_grounding.invoke({
-            "claims": all_claims,
-            "chunks": chunks,
-            "mode": "retry_trigger",
-        })
+        result = validate_claim_grounding.invoke(
+            {
+                "claims": all_claims,
+                "chunks": chunks,
+                "mode": "retry_trigger",
+            }
+        )
 
         # ── Organize tool results per question ──
         claim_results = result.get("claim_results", [])
@@ -471,7 +471,8 @@ def validate_questions(state: ExamGeneratorState) -> dict:
             if not pq["all_matched"]:
                 invalid_indices.append(qi)
                 all_errors.append(
-                    f"Question {qi}: {len(pq['missing_claims'])} claim(s) not found in source chunks"
+                    f"Question {qi}: {len(pq['missing_claims'])} "
+                    "claim(s) not found in source chunks"
                 )
 
         return {

@@ -44,10 +44,7 @@ async def update_student_profile(
         errors.append(f"Failed to upsert preferences: {exc}")
 
     # Convert dict[str, float] to list[dict] for upsert_topic_scores
-    scores_list = [
-        {"topic": topic, "score": score}
-        for topic, score in topic_scores.items()
-    ]
+    scores_list = [{"topic": topic, "score": score} for topic, score in topic_scores.items()]
 
     try:
         await upsert_topic_scores(student_id, scores_list)

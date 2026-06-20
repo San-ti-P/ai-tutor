@@ -166,6 +166,7 @@ def extract_topics(
         elif suffix == ".pdf":
             try:
                 from src.utils.text import parse_file_to_text
+
                 content = parse_file_to_text(str(p))
             except Exception as exc:
                 return {"error": f"Failed to parse PDF: {exc}"}

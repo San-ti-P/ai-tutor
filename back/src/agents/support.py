@@ -17,10 +17,13 @@ from typing import Literal
 try:
     from langfuse import observe
 except ImportError:
+
     def observe(name: str | None = None):  # noqa: D103
         def decorator(fn):  # noqa: D103
             return fn
+
         return decorator
+
 
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
@@ -79,13 +82,17 @@ def fetch_student_profile(state: SupportState) -> dict:
             from src.memory.schema import upsert_student_profile
 
             async def _create():
-                await upsert_student_profile(student_id, {
-                    "difficulty": "medium",
-                    "question_types": ["mcq"],
-                    "question_count": 5,
-                    "include_topics": [],
-                    "exclude_topics": [],
-                })
+                await upsert_student_profile(
+                    student_id,
+                    {
+                        "difficulty": "medium",
+                        "question_types": ["mcq"],
+                        "question_count": 5,
+                        "include_topics": [],
+                        "exclude_topics": [],
+                    },
+                )
+
             run_async_in_sync(_create())
             profile = {"id": student_id, "preferences": {}, "session_count": 0}
             scores = []
@@ -127,6 +134,7 @@ def fetch_session_history(state: SupportState) -> dict:
     student_id: str = state.get("student_id", "")
 
     try:
+
         async def _fetch():
             return await get_recent_sessions(student_id)
 
@@ -158,6 +166,7 @@ def compute_progress_summary(state: SupportState) -> dict:
     topic_scores: list[dict] = state.get("topic_scores", [])
 
     try:
+
         async def _compute():
             return await compute_weak_topics(student_id)
 
@@ -206,10 +215,7 @@ def generate_response(state: SupportState) -> dict:
     if query_type == "update":
         # Confirmation message for profile update
         diff = prefs.get("difficulty", "medium") if prefs else "medium"
-        response = (
-            f"Perfil actualizado correctamente. "
-            f"Preferencias guardadas: dificultad {diff}. "
-        )
+        response = f"Perfil actualizado correctamente. Preferencias guardadas: dificultad {diff}. "
         if weak_topics:
             response += (
                 f"Temas débiles detectados: {', '.join(weak_topics)}. "
@@ -244,13 +250,8 @@ def generate_response(state: SupportState) -> dict:
             parts.append(f"  • {ts['topic']}: {ts['score']:.1f}/10")
 
     if weak_topics:
-        parts.append(
-            f"- Temas que necesitan refuerzo: {', '.join(weak_topics)}"
-        )
-        parts.append(
-            "Recomendación: enfocar el estudio en estos temas antes "
-            "del próximo examen."
-        )
+        parts.append(f"- Temas que necesitan refuerzo: {', '.join(weak_topics)}")
+        parts.append("Recomendación: enfocar el estudio en estos temas antes del próximo examen.")
     else:
         parts.append("- Todos los temas están por encima del umbral. ¡Buen trabajo!")
 
