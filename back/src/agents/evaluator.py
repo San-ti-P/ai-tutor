@@ -13,7 +13,6 @@ configurable rate (default 10%) for quality assurance.
 from __future__ import annotations
 
 import logging
-import math
 import operator
 import random
 from typing import Annotated
@@ -123,23 +122,6 @@ class EvaluatorState(TypedDict):
     scores_synced: bool
     errors: Annotated[list[str], operator.add]
     status: str
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Helper: cosine similarity
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def _cosine_sim(a: list[float], b: list[float]) -> float:
-    """Compute cosine similarity between two vectors."""
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b))
-    if norm_a == 0.0 or norm_b == 0.0:
-        return 0.0
-    return dot / (norm_a * norm_b)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -444,42 +426,26 @@ INSTRUCCIONES:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _split_claims(text: str) -> list[str]:
-    """Split text into sentence-level claims for embedding comparison."""
-    import re
-
-    if not text or not text.strip():
-        return []
-
-    # Split on sentence boundaries: . ! ? followed by space or end
-    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
-    # Also try semicolon and newline splits for more granular claims
-    result: list[str] = []
-    for s in sentences:
-        s = s.strip()
-        if not s:
-            continue
-        # Further split long sentences on semicolons
-        parts = [p.strip() for p in s.split(";") if p.strip()]
-        result.extend(parts)
-    return [c for c in result if len(c) > 10]  # Skip very short fragments
-
-
 def validate_feedback(state: EvaluatorState) -> dict:
     """Anti-hallucination: cross-reference evaluation claims against RAG chunks.
 
     Algorithm:
     1. Extract sentence-level claims from ``justification`` + ``suggestions``
-    2. Embed claims with SentenceTransformer
-    3. Compute cosine similarity against each chunk in ``retrieved_chunks``
+       via ``src.utils.text.split_into_claims``
+    2. Batch-embed claims and chunks with SentenceTransformer
+    3. Compute cosine similarity matrix via ``sentence_transformers.util.cos_sim``
     4. Flag claims whose best-match similarity is below ``anti_hallucination_threshold``
     5. If any claim flagged → ``requires_review=True``
     6. Randomly sample for LLM-as-judge (default 10% rate)
 
     Does NOT retry — only flags. NO retry.
     """
+    import torch
+    from sentence_transformers.util import cos_sim
+
     from src.config import settings
     from src.rag import get_embedding_model
+    from src.utils.text import split_into_claims
 
     evaluation: dict | None = state.get("evaluation")
     chunks: list[dict] = state.get("retrieved_chunks", [])
@@ -492,7 +458,7 @@ def validate_feedback(state: EvaluatorState) -> dict:
 
     # Combine all evaluator-generated text
     all_text = justification + " " + " ".join(suggestions_list)
-    claims = _split_claims(all_text)
+    claims = split_into_claims(all_text)
 
     # Determine judge sampling (default 10%)
     sample_rate = settings.judge_sample_rate
@@ -508,28 +474,36 @@ def validate_feedback(state: EvaluatorState) -> dict:
     try:
         model = get_embedding_model()
 
-        claim_embeddings = model.encode(claims).tolist()
+        # Batch encode claims and chunks as tensors
+        claim_embeddings = model.encode(claims, convert_to_tensor=True)
         chunk_texts = [c.get("text", "") for c in chunks]
-        chunk_embeddings = model.encode(chunk_texts).tolist()
+        chunk_embeddings = model.encode(chunk_texts, convert_to_tensor=True)
+
+        # Pre-flight dimension assertion (replaces old length guard)
+        assert claim_embeddings.shape[1] == chunk_embeddings.shape[1], (
+            f"Embedding dimension mismatch: claims={claim_embeddings.shape[1]}, "
+            f"chunks={chunk_embeddings.shape[1]}"
+        )
 
         threshold = settings.anti_hallucination_threshold
         validation_warnings: list[dict] = []
 
-        for i, claim in enumerate(claims):
-            best_sim = 0.0
-            best_chunk_id = ""
-            for j, chunk_vec in enumerate(chunk_embeddings):
-                sim = _cosine_sim(claim_embeddings[i], chunk_vec)
-                if sim > best_sim:
-                    best_sim = sim
-                    best_chunk_id = chunks[j].get("chunk_id", "")
+        # Single matrix cosine similarity
+        sim_matrix = cos_sim(claim_embeddings, chunk_embeddings)
+        best_scores, best_indices = sim_matrix.max(dim=1)
+        best_scores = torch.nan_to_num(best_scores, nan=0.0)
 
-            if best_sim < threshold:
+        for ci, claim in enumerate(claims):
+            best_score = best_scores[ci].item()
+            best_chunk_idx = int(best_indices[ci].item())
+            best_chunk_id = chunks[best_chunk_idx].get("chunk_id", "")
+
+            if best_score < threshold:
                 validation_warnings.append(
                     {
                         "claim": claim,
                         "best_match_chunk": best_chunk_id,
-                        "similarity": round(best_sim, 4),
+                        "similarity": round(best_score, 4),
                     }
                 )
 

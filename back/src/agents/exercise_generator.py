@@ -9,7 +9,6 @@ in source chunks. Anti-hallucination claim-level embedding validation with
 
 from __future__ import annotations
 
-import math
 import operator
 from typing import Annotated
 
@@ -58,14 +57,6 @@ class ExerciseGeneration(BaseModel):
         default_factory=dict,
         description="{topics_covered, total_source_chunks}",
     )
-
-
-def _cosine_sim(a: list[float], b: list[float]) -> float:
-    """Cosine similarity between two vectors. Returns 0.0 if either has zero norm."""
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b))
-    return dot / (norm_a * norm_b) if norm_a > 0 and norm_b > 0 else 0.0
 
 
 # ── State schema ─────────────────────────────────────────────────────────────
@@ -301,17 +292,21 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
     """Validate exercise claims against source chunks via embedding similarity.
 
     Dual claim extraction from:
-      (a) statement + given_data + question split on sentence boundaries ≥20 chars
+      (a) statement + given_data + question split on sentence boundaries >=20 chars
       (b) model_solution.steps[].description + result + final_answer
 
-    Embeds claims and compares cosine similarity against chunk embeddings.
+    Batch-encodes all claims and chunks, then uses
+    ``sentence_transformers.util.cos_sim`` for a single matrix operation.
     Claims below anti_hallucination_threshold are flagged as errors.
     """
     import logging
-    import re
+
+    import torch
+    from sentence_transformers.util import cos_sim
 
     from src.config import settings
     from src.rag import get_embedding_model
+    from src.utils.text import split_into_claims
 
     logger = logging.getLogger(__name__)
 
@@ -326,6 +321,93 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
                 "validation_passed": False,
                 "validation_errors": ["No exercise to validate"],
             }
+
+        # Pre-embed all chunk texts (batch, as tensor)
+        chunk_texts = [c.get("text", "") for c in chunks]
+        chunk_embeddings = (
+            model.encode(chunk_texts, convert_to_tensor=True)
+            if chunk_texts
+            else torch.empty(0)
+        )
+
+        # ── Extract claims from exercise text ──
+        claims: list[str] = []
+        for field in ("statement", "given_data", "question"):
+            text = exercise.get(field, "")
+            claims.extend(split_into_claims(text, min_length=20))
+
+        # ── Extract claims from model solution steps ──
+        solution = exercise.get("model_solution", {})
+        for step in solution.get("steps", []):
+            desc = step.get("description", "")
+            result = step.get("result", "")
+            if len(desc.strip()) >= 20:
+                claims.append(desc.strip())
+            if len(result.strip()) >= 10:
+                claims.append(result.strip())
+
+        final_answer = solution.get("final_answer", "")
+        if len(final_answer.strip()) >= 10:
+            claims.append(final_answer.strip())
+
+        # Fallback: if no claims, use full statement + question
+        if not claims:
+            fallback = (
+                f"{exercise.get('statement', '')} {exercise.get('question', '')}"
+            ).strip()
+            if len(fallback) >= 10:
+                claims = [fallback]
+
+        # ── Batch encode all claims ──
+        if not claims:
+            return {"validation_passed": True, "validation_errors": []}
+
+        claim_embeddings = model.encode(claims, convert_to_tensor=True)
+
+        if chunk_embeddings.shape[0] == 0:
+            # No chunks — all claims unmatched
+            return {
+                "validation_passed": False,
+                "validation_errors": [
+                    f"Claim {ci} ('{c[:80]}') cannot be validated: no source chunks"
+                    for ci, c in enumerate(claims)
+                ],
+            }
+
+        assert claim_embeddings.shape[1] == chunk_embeddings.shape[1], (
+            f"Embedding dimension mismatch: claims={claim_embeddings.shape[1]}, "
+            f"chunks={chunk_embeddings.shape[1]}"
+        )
+
+        # ── Single matrix cosine similarity ──
+        sim_matrix = cos_sim(claim_embeddings, chunk_embeddings)
+        best_scores, _ = sim_matrix.max(dim=1)
+        best_scores = torch.nan_to_num(best_scores, nan=0.0)
+
+        # ── Flag claims below threshold ──
+        all_errors: list[str] = []
+        all_matched = True
+
+        for ci, claim in enumerate(claims):
+            score = best_scores[ci].item()
+            if score < threshold:
+                all_matched = False
+                all_errors.append(
+                    f"Claim {ci} ('{claim[:80]}') similarity {score:.4f} "
+                    f"below threshold {threshold} — not grounded in source chunks"
+                )
+
+        return {
+            "validation_passed": all_matched,
+            "validation_errors": all_errors,
+        }
+
+    except Exception as exc:
+        logger.exception("validate_exercise failed")
+        return {
+            "validation_errors": [f"Validation error: {exc}"],
+            "validation_passed": False,
+        }
 
         # Pre-embed all chunk texts (batch)
         chunk_texts = [c.get("text", "") for c in chunks]

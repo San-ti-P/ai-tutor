@@ -7,7 +7,6 @@ LLM call → claim-level embedding validation → 3-retry loop → format.
 
 from __future__ import annotations
 
-import math
 import operator
 from datetime import UTC
 from typing import Annotated
@@ -52,14 +51,6 @@ class ExamGeneration(BaseModel):
     )
 
 
-
-
-def _cosine_sim(a: list[float], b: list[float]) -> float:
-    """Cosine similarity between two vectors. Returns 0.0 if either has zero norm."""
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b))
-    return dot / (norm_a * norm_b) if norm_a > 0 and norm_b > 0 else 0.0
 
 
 # ── State schema ─────────────────────────────────────────────────────────────
@@ -347,15 +338,19 @@ def validate_questions(state: ExamGeneratorState) -> dict:
     """Validate every question by checking claims against source chunks.
 
     Extracts atomic claims from each question (stem + options for MCQ,
-    base_answer + key_points for open-answer). Embeds claims and compares
-    cosine similarity against chunk embeddings. Claims below the
+    base_answer + key_points for open-answer). Batch-encodes all claims
+    and chunks, then uses ``sentence_transformers.util.cos_sim`` for a
+    single GPU-accelerated matrix similarity operation. Claims below the
     anti_hallucination_threshold are flagged as errors.
     """
     import logging
-    import re
+
+    import torch
+    from sentence_transformers.util import cos_sim
 
     from src.config import settings
     from src.rag import get_embedding_model
+    from src.utils.text import split_into_claims
 
     logger = logging.getLogger(__name__)
 
@@ -372,94 +367,148 @@ def validate_questions(state: ExamGeneratorState) -> dict:
                 "invalid_question_indices": [],
             }
 
-        # Pre-embed all chunk texts (batch)
+        # Pre-embed all chunk texts (batch, as tensor)
         chunk_texts = [c.get("text", "") for c in chunks]
-        chunk_embeddings = model.encode(chunk_texts).tolist() if chunk_texts else []
+        chunk_embeddings = (
+            model.encode(chunk_texts, convert_to_tensor=True)
+            if chunk_texts
+            else torch.empty(0)
+        )
 
+        # ── Extract claims per question, tracking ownership ──
+        all_claims: list[str] = []
+        claim_to_question: list[int] = []
+
+        for qi, question in enumerate(questions):
+            qtype = question.get("type", "")
+            q_claims: list[str] = []
+
+            if qtype == "mcq":
+                stem = question.get("stem", "")
+                q_claims.extend(split_into_claims(stem, min_length=20))
+                for opt in question.get("options", []):
+                    opt_clean = opt.strip()
+                    if len(opt_clean) >= 20:
+                        q_claims.append(opt_clean)
+            else:  # open_answer
+                base = question.get("base_answer", "")
+                q_claims.extend(split_into_claims(base, min_length=20))
+                for kp in question.get("key_points", []):
+                    kp_clean = kp.strip()
+                    if len(kp_clean) >= 10:
+                        q_claims.append(kp_clean)
+
+            # Fallback: if no claims, use full stem/base_answer
+            if not q_claims:
+                if qtype == "mcq":
+                    fallback = [question.get("stem", "")]
+                else:
+                    fallback = [question.get("base_answer", "")]
+                q_claims = [c for c in fallback if len(c.strip()) >= 10]
+
+            for claim in q_claims:
+                all_claims.append(claim)
+                claim_to_question.append(qi)
+
+        # ── Batch encode all claims ──
+        if not all_claims:
+            return {
+                "validation_results": [
+                    {
+                        "question_index": qi,
+                        "valid": True,
+                        "claims_checked": [],
+                        "missing_claims": [],
+                        "matched_chunk_ids": [],
+                    }
+                    for qi in range(len(questions))
+                ],
+                "validation_errors": [],
+                "invalid_question_indices": [],
+            }
+
+        all_claim_embeddings = model.encode(all_claims, convert_to_tensor=True)
+
+        # Pre-flight dimension assertion (replaces evaluator's length guard)
+        if chunk_embeddings.shape[0] == 0:
+            # No chunks to compare — all claims unmatched
+            best_scores = torch.zeros(len(all_claims))
+            best_indices = torch.zeros(len(all_claims), dtype=torch.long)
+        else:
+            assert all_claim_embeddings.shape[1] == chunk_embeddings.shape[1], (
+                f"Embedding dimension mismatch: claims={all_claim_embeddings.shape[1]}, "
+                f"chunks={chunk_embeddings.shape[1]}"
+            )
+
+            # ── Single matrix cosine similarity ──
+            sim_matrix = cos_sim(all_claim_embeddings, chunk_embeddings)
+            best_scores, best_indices = sim_matrix.max(dim=1)
+            best_scores = torch.nan_to_num(best_scores, nan=0.0)
+
+        # ── Organize results per question ──
+        per_question: dict[int, dict] = {}
+        for qi in range(len(questions)):
+            per_question[qi] = {
+                "claim_checks": [],
+                "missing_claims": [],
+                "matched_chunk_ids": [],
+                "all_matched": True,
+            }
+
+        for ci in range(len(all_claims)):
+            qi = claim_to_question[ci]
+            claim_text = all_claims[ci]
+            best_score = best_scores[ci].item()
+            best_chunk_idx = (
+                int(best_indices[ci].item())
+                if chunk_embeddings.shape[0] > 0
+                else -1
+            )
+
+            matched = best_score >= threshold
+            best_chunk_id = (
+                chunks[best_chunk_idx].get("chunk_id", "")
+                if 0 <= best_chunk_idx < len(chunks)
+                else ""
+            )
+
+            pq = per_question[qi]
+            if not matched:
+                pq["all_matched"] = False
+                pq["missing_claims"].append(claim_text[:80])
+
+            if best_chunk_id and best_chunk_id not in pq["matched_chunk_ids"]:
+                pq["matched_chunk_ids"].append(best_chunk_id)
+
+            pq["claim_checks"].append(
+                {
+                    "claim_text": claim_text[:200],
+                    "best_chunk_id": best_chunk_id,
+                    "similarity_score": round(best_score, 4),
+                    "matched": matched,
+                }
+            )
+
+        # ── Build final output ──
         validation_results: list[dict] = []
         all_errors: list[str] = []
         invalid_indices: list[int] = []
 
-        # Regex to split on sentence boundaries
-        sentence_split_re = re.compile(r"(?<=[.!?])\s+")
-
-        for qi, question in enumerate(questions):
-            qtype = question.get("type", "")
-            claims: list[str] = []
-
-            if qtype == "mcq":
-                stem = question.get("stem", "")
-                claims.extend(
-                    c.strip() for c in sentence_split_re.split(stem) if len(c.strip()) >= 20
-                )
-                for opt in question.get("options", []):
-                    opt_clean = opt.strip()
-                    if len(opt_clean) >= 20:
-                        claims.append(opt_clean)
-            else:  # open_answer
-                base = question.get("base_answer", "")
-                claims.extend(
-                    c.strip() for c in sentence_split_re.split(base) if len(c.strip()) >= 20
-                )
-                for kp in question.get("key_points", []):
-                    kp_clean = kp.strip()
-                    if len(kp_clean) >= 10:
-                        claims.append(kp_clean)
-
-            # If no claims extracted, try using the full stem/base_answer
-            if not claims:
-                if qtype == "mcq":
-                    claims = [question.get("stem", "")]
-                else:
-                    claims = [question.get("base_answer", "")]
-                claims = [c for c in claims if len(c.strip()) >= 10]
-
-            claim_checks: list[dict] = []
-            missing: list[str] = []
-            matched_chunk_ids: list[str] = []
-            all_matched = True
-
-            for claim in claims:
-                claim_embedding = model.encode([claim]).tolist()[0]
-
-                best_score = 0.0
-                best_chunk_id = None
-                for ci, chunk_emb in enumerate(chunk_embeddings):
-                    sim = _cosine_sim(claim_embedding, chunk_emb)
-                    if sim > best_score:
-                        best_score = sim
-                        best_chunk_id = chunks[ci].get("chunk_id", "")
-
-                matched = best_score >= threshold
-                if not matched:
-                    all_matched = False
-                    missing.append(claim[:80])
-
-                if best_chunk_id and best_chunk_id not in matched_chunk_ids:
-                    matched_chunk_ids.append(best_chunk_id)
-
-                claim_checks.append(
-                    {
-                        "claim_text": claim[:200],
-                        "best_chunk_id": best_chunk_id,
-                        "similarity_score": round(best_score, 4),
-                        "matched": matched,
-                    }
-                )
-
-            vr = {
-                "question_index": qi,
-                "valid": all_matched,
-                "claims_checked": claim_checks,
-                "missing_claims": missing,
-                "matched_chunk_ids": matched_chunk_ids,
-            }
-            validation_results.append(vr)
-
-            if not all_matched:
+        for qi in range(len(questions)):
+            pq = per_question[qi]
+            validation_results.append(
+                {
+                    "question_index": qi,
+                    "valid": pq["all_matched"],
+                    "claims_checked": pq["claim_checks"],
+                    "missing_claims": pq["missing_claims"],
+                    "matched_chunk_ids": pq["matched_chunk_ids"],
+                }
+            )
+            if not pq["all_matched"]:
                 invalid_indices.append(qi)
                 all_errors.append(
-                    f"Question {qi}: {len(missing)} claim(s) not found in source chunks"
+                    f"Question {qi}: {len(pq['missing_claims'])} claim(s) not found in source chunks"
                 )
 
         return {
