@@ -14,6 +14,9 @@ from src.memory.schema import init_db
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     yield
+    from src.agents.orchestrator import close_orchestrator_graph
+
+    await close_orchestrator_graph()
 
 
 app = FastAPI(title="AI Tutor API", version="0.1.0", lifespan=lifespan)

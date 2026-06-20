@@ -520,6 +520,28 @@ def mock_exercise_llm():
         yield mock_groq
 
 
+# ── Orchestrator fixtures ───────────────────────────────────────────────────
+
+
+@pytest.fixture
+def orchestrator_state() -> dict:
+    """Base OrchestratorState dict for agent tests."""
+    return {
+        "session_id": "test-session-001",
+        "user_message": "Generame un examen de derivadas",
+        "intent": "general_chat",
+        "confidence": 0.0,
+        "plan": [],
+        "current_step": 0,
+        "results": [],
+        "errors": [],
+        "response": "",
+        "status": "pending",
+        "iteration_count": 0,
+        "student_profile": None,
+    }
+
+
 # ── Evaluator fixtures ──────────────────────────────────────────────────────
 
 
