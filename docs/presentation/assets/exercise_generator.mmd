@@ -1,0 +1,21 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	retrieve_relevant_chunks(retrieve_relevant_chunks)
+	generate_exercise(generate_exercise)
+	validate_exercise(validate_exercise)
+	format_exercise(format_exercise)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> retrieve_relevant_chunks;
+	generate_exercise --> validate_exercise;
+	retrieve_relevant_chunks --> generate_exercise;
+	validate_exercise -. &nbsp;done&nbsp; .-> format_exercise;
+	validate_exercise -. &nbsp;retry&nbsp; .-> generate_exercise;
+	format_exercise --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
