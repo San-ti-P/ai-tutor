@@ -103,7 +103,7 @@ def chunk_text(text: str, metadata: dict | None = None) -> list[Document]:
 # ---------------------------------------------------------------------------
 
 
-@observe(name="rag_embed_store")
+@observe(name="rag_embed_store", as_type="embedding")
 def embed_and_store(
     chunks: list[str],
     metadatas: list[dict] | None,
@@ -156,7 +156,7 @@ def embed_and_store(
 # ---------------------------------------------------------------------------
 
 
-@observe(name="rag_retrieve")
+@observe(name="rag_retrieve", as_type="retriever")
 def retrieve(
     query: str,
     collection_name: str,

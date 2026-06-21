@@ -12,6 +12,7 @@ from __future__ import annotations
 import operator
 from typing import Annotated
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
@@ -168,7 +169,7 @@ def retrieve_relevant_chunks(state: ExerciseGeneratorState) -> dict:
         }
 
 
-def generate_exercise(state: ExerciseGeneratorState) -> dict:
+def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = None) -> dict:
     """Generate a practice exercise via a single structured LLM call.
 
     Builds a prompt from retrieved chunks, topic, difficulty, and type.
@@ -241,7 +242,8 @@ def generate_exercise(state: ExerciseGeneratorState) -> dict:
         )
 
         structured_llm = get_structured_llm(ExerciseGeneration)
-        result: ExerciseGeneration = structured_llm.invoke(prompt)
+        invoke_kwargs = {"config": config} if config is not None else {}
+        result: ExerciseGeneration = structured_llm.invoke(prompt, **invoke_kwargs)
 
         # Extract first PracticalExercise
         exercises = result.exercises

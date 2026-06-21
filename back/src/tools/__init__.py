@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 from langchain_core.tools import tool
-from langfuse import observe
+from langfuse import observe, propagate_attributes
 
 from src.rag import retrieve as _rag_retrieve
 from src.tools.get_student_summary import get_student_summary  # noqa: F401
@@ -35,6 +35,7 @@ def _get_or_compile(name: str, builder_path: str):
 
 
 @tool
+@observe(name="retrieve_chunks", as_type="tool")
 def retrieve_chunks(
     query: str,
     top_k: int = 5,
@@ -61,7 +62,7 @@ def retrieve_chunks(
 
 
 @tool
-@observe(name="ingest_document")
+@observe(name="ingest_document", as_type="tool")
 def ingest_document(
     file_path: str,
     session_id: str,
@@ -104,7 +105,23 @@ def ingest_document(
         "chunk_ids": [],
     }
 
-    result = graph.invoke(initial_state)
+    from src.observability import flush_traces, get_tracer
+
+    tracer = get_tracer()
+    config: dict = {}
+
+    try:
+        # Per Langfuse docs: CallbackHandler created INSIDE propagate_attributes
+        # inherits trace-level session/user context.
+        with propagate_attributes(session_id=session_id):
+            handler = tracer.get_callback_handler(session_id=session_id, user_id=None)
+            if handler:
+                config["callbacks"] = [handler]
+                config["metadata"] = {"langfuse_session_id": session_id}
+            result = graph.invoke(initial_state, config=config)
+    finally:
+        flush_traces()
+
     return {
         "file_path": file_path,
         "classification": result.get("classification", ""),
@@ -209,7 +226,7 @@ def extract_topics(
 
 
 @tool
-@observe(name="generate_exercise")
+@observe(name="generate_exercise", as_type="tool")
 def generate_exercise(
     session_id: str,
     topic: str,
@@ -264,12 +281,28 @@ def generate_exercise(
         "status": "pending",
     }
 
-    result = graph.invoke(initial_state)
+    from src.observability import flush_traces, get_tracer
+
+    tracer = get_tracer()
+    config: dict = {}
+
+    try:
+        # Per Langfuse docs: CallbackHandler created INSIDE propagate_attributes
+        # inherits trace-level session/user context.
+        with propagate_attributes(session_id=session_id):
+            handler = tracer.get_callback_handler(session_id=session_id, user_id=None)
+            if handler:
+                config["callbacks"] = [handler]
+                config["metadata"] = {"langfuse_session_id": session_id}
+            result = graph.invoke(initial_state, config=config)
+    finally:
+        flush_traces()
+
     return result.get("exercise", {})
 
 
 @tool
-@observe(name="evaluate_answer")
+@observe(name="evaluate_answer", as_type="tool")
 def evaluate_answer(
     session_id: str,
     exam_id: str,
@@ -324,12 +357,28 @@ def evaluate_answer(
         "status": "pending",
     }
 
-    result = graph.invoke(initial_state)
+    from src.observability import flush_traces, get_tracer
+
+    tracer = get_tracer()
+    config: dict = {}
+
+    try:
+        # Per Langfuse docs: CallbackHandler created INSIDE propagate_attributes
+        # inherits trace-level session/user context.
+        with propagate_attributes(session_id=session_id):
+            handler = tracer.get_callback_handler(session_id=session_id, user_id=None)
+            if handler:
+                config["callbacks"] = [handler]
+                config["metadata"] = {"langfuse_session_id": session_id}
+            result = graph.invoke(initial_state, config=config)
+    finally:
+        flush_traces()
+
     return result.get("evaluation_results", [])
 
 
 @tool
-@observe(name="generate_exam")
+@observe(name="generate_exam", as_type="tool")
 def generate_exam(
     session_id: str,
     topics: list[str],
@@ -384,5 +433,21 @@ def generate_exam(
         "status": "pending",
     }
 
-    result = graph.invoke(initial_state)
+    from src.observability import flush_traces, get_tracer
+
+    tracer = get_tracer()
+    config: dict = {}
+
+    try:
+        # Per Langfuse docs: CallbackHandler created INSIDE propagate_attributes
+        # inherits trace-level session/user context.
+        with propagate_attributes(session_id=session_id):
+            handler = tracer.get_callback_handler(session_id=session_id, user_id=None)
+            if handler:
+                config["callbacks"] = [handler]
+                config["metadata"] = {"langfuse_session_id": session_id}
+            result = graph.invoke(initial_state, config=config)
+    finally:
+        flush_traces()
+
     return result.get("exam", {})

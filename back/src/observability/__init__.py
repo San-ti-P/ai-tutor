@@ -14,8 +14,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.config import settings
-
 logger = logging.getLogger(__name__)
 
 _manager: ObservabilityManager | None = None
@@ -62,34 +60,37 @@ class ObservabilityManager:
         span serves as the root for an entire execution.
 
         Uses the Langfuse v4 API (``start_observation``) which implicitly
-        creates a trace when the first span is started.
+        creates a trace when the first span is started.  Trace-level
+        attributes (session_id, user_id, trace_name) are set via
+        ``propagate_attributes()`` so child spans and the CallbackHandler
+        inherit them.
         """
         self._ensure_init()
         if self._client is None:
             return None
         try:
+            from langfuse import propagate_attributes
+
             meta = dict(metadata or {})
-            # Session / user attached as metadata so they survive the v4 transition
             meta.setdefault("session_id", session_id)
             if user_id:
                 meta.setdefault("user_id", user_id)
 
-            trace = self._client.start_observation(  # type: ignore[union-attr]
-                name=name,
-                as_type="span",
+            # propagate_attributes sets trace-level baggage so child spans
+            # (via @observe or CallbackHandler) inherit session/user context.
+            # Environment stays in metadata so it appears in start_observation
+            # AND is filterable in the Langfuse dashboard.
+            with propagate_attributes(
+                session_id=session_id,
+                user_id=user_id or "unknown",
+                trace_name=name,
                 metadata=meta,
-            )
-            # Set trace-level attributes via langfuse_context (v4+)
-            try:
-                from langfuse import langfuse_context as _lctx
-
-                _lctx.update_current_trace(
+            ):
+                trace = self._client.start_observation(  # type: ignore[union-attr]
                     name=name,
-                    session_id=session_id,
-                    user_id=user_id or "unknown",
+                    as_type="span",
+                    metadata=meta,
                 )
-            except Exception:
-                logger.debug("langfuse_context.update_current_trace skipped", exc_info=True)
 
             return trace
         except Exception:

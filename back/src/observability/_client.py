@@ -57,6 +57,8 @@ def _get_langfuse_client() -> object | None:
             public_key=settings.langfuse_public_key,
             secret_key=settings.langfuse_secret_key,
             host=settings.langfuse_host,
+            environment=settings.langfuse_environment or None,
+            release=settings.langfuse_release or None,
         )
         logger.info("Langfuse client initialised (host=%s)", settings.langfuse_host)
         return _langfuse_client

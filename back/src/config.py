@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = "http://localhost:3000"
+    langfuse_environment: str = ""  # Let SDK read LANGFUSE_TRACING_ENVIRONMENT
+    langfuse_release: str = ""  # LANGFUSE_RELEASE
 
     mathpix_app_id: str = ""
     mathpix_app_key: str = ""

@@ -7,6 +7,7 @@ import operator
 import os
 from typing import Annotated, Literal
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
@@ -88,7 +89,7 @@ class OrchestratorState(TypedDict):
     student_profile: dict | None
 
 
-def classify_intent(state: OrchestratorState) -> dict:
+def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> dict:
     """Classify user message into one of 7 intents with confidence score.
 
     On low confidence (< settings.classification_confidence_threshold), forces
@@ -117,7 +118,8 @@ def classify_intent(state: OrchestratorState) -> dict:
                 prompt += f"Perfil del estudiante (temas débiles): {weak}\n"
         prompt += "Respondé SOLO con la clasificación en formato JSON."
 
-        result = structured.invoke(prompt)
+        invoke_kwargs = {"config": config} if config is not None else {}
+        result = structured.invoke(prompt, **invoke_kwargs)
         intent = result.intent
         confidence = result.confidence
 
@@ -152,7 +154,7 @@ def route_to_agent(state: OrchestratorState) -> str:
     return "execute_step"
 
 
-def plan_composite(state: OrchestratorState) -> dict:
+def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> dict:
     """Plan steps for composite (multi-step) tasks.
 
     Uses LLM planner to generate an ordered list of tool names.
@@ -177,7 +179,8 @@ def plan_composite(state: OrchestratorState) -> dict:
             "Solo usá herramientas de la lista. Respondé SOLO en formato JSON."
         )
 
-        result = structured.invoke(prompt)
+        invoke_kwargs = {"config": config} if config is not None else {}
+        result = structured.invoke(prompt, **invoke_kwargs)
         plan = result.steps
 
         # Strip invalid tool names
@@ -292,7 +295,7 @@ async def execute_step(state: OrchestratorState) -> dict:
         }
 
 
-def synthesize_response(state: OrchestratorState) -> dict:
+def synthesize_response(state: OrchestratorState, config: RunnableConfig = None) -> dict:
     """Combine results from agent executions into a final response.
 
     - general_chat: LLM synthesizes direct answer from user_message.
@@ -354,7 +357,8 @@ def synthesize_response(state: OrchestratorState) -> dict:
                     "en español, de forma clara y educativa."
                 )
 
-        response = llm.invoke(prompt)
+        invoke_kwargs = {"config": config} if config is not None else {}
+        response = llm.invoke(prompt, **invoke_kwargs)
         text = response.content if hasattr(response, "content") else str(response)
 
         final_status = "complete" if status == "pending" else status

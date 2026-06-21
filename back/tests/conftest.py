@@ -19,6 +19,11 @@ if _env_path.exists():
     _load_dotenv(_env_path)
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Set Langfuse environment BEFORE any test creates the SDK global singleton."""
+    os.environ.setdefault("LANGFUSE_TRACING_ENVIRONMENT", "test")
+
+
 def _llm_provider_module() -> str:
     """Return the import path for the current LLM provider's chat class.
 
@@ -813,6 +818,7 @@ def mock_langfuse(langfuse_observe_tests: bool) -> Any:
         patch.object(_settings, "langfuse_secret_key", "sk-test-dummy", create=False),
         patch.object(_settings, "langfuse_host", "http://localhost:3000", create=False),
         patch("langfuse.Langfuse") as mock_client_cls,
+        patch.dict("os.environ", {"LANGFUSE_TRACING_ENVIRONMENT": "test"}, clear=False),
     ):
         mock_client = MagicMock()
         mock_trace = MagicMock()

@@ -16,6 +16,7 @@ import operator
 import uuid
 from typing import Annotated, Literal
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
@@ -89,7 +90,7 @@ def parse_document(state: IngestorState) -> dict:
         return {"errors": [f"Parse error: {e}"], "status": "error"}
 
 
-def classify_document(state: IngestorState) -> dict:
+def classify_document(state: IngestorState, config: RunnableConfig = None) -> dict:
     """Classify document type and detect topics using LLM."""
     from pydantic import BaseModel, Field
 
@@ -121,7 +122,8 @@ Extraé también los temas principales (3-8 temas).
 Texto:
 {raw_text[:3000]}
 """
-        result = structured_llm.invoke(prompt)
+        invoke_kwargs = {"config": config} if config is not None else {}
+        result = structured_llm.invoke(prompt, **invoke_kwargs)
 
         if result.classification == "no_academico":
             return {

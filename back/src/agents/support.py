@@ -14,8 +14,6 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-from langfuse import observe
-
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
@@ -275,7 +273,6 @@ def _route_after_fetch(state: SupportState) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-@observe(name="support_agent")
 def build_support_agent() -> StateGraph:
     """Build the 4-node Support Agent StateGraph with conditional routing.
 

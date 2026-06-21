@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from langchain_core.tools import tool
+from langfuse import observe
 
 
 @tool
+@observe(name="get_student_summary", as_type="tool")
 async def get_student_summary(student_id: str) -> dict | None:
     """Return an aggregated read-only summary of a student's profile.
 

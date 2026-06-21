@@ -11,11 +11,13 @@ import logging
 import uuid
 
 from langchain_core.tools import tool
+from langfuse import observe, propagate_attributes
 
 logger = logging.getLogger(__name__)
 
 
 @tool
+@observe(name="orchestrate_chat", as_type="tool")
 async def orchestrate_chat(
     messages: list[dict],
     thread_id: str | None = None,
@@ -66,20 +68,25 @@ async def orchestrate_chat(
     }
 
     # ── Observability wiring ────────────────────────────────────────────────
-    from src.observability import get_tracer, flush_traces
+    from src.observability import flush_traces, get_tracer
 
     tracer = get_tracer()
-    langfuse_handler = tracer.get_callback_handler(
-        session_id=session_id,
-        user_id=None,  # user_id extracted from profile if available
-    )
 
     config = {"configurable": {"thread_id": session_id}}
-    if langfuse_handler:
-        config.setdefault("callbacks", []).append(langfuse_handler)
 
     try:
-        final_state = await graph.ainvoke(initial_state, config=config)
+        # Per Langfuse docs: CallbackHandler must be created INSIDE
+        # propagate_attributes to inherit trace-level session/user context.
+        with propagate_attributes(session_id=session_id):
+            langfuse_handler = tracer.get_callback_handler(
+                session_id=session_id,
+                user_id=None,
+            )
+            if langfuse_handler:
+                config["callbacks"] = [langfuse_handler]
+                config["metadata"] = {"langfuse_session_id": session_id}
+
+            final_state = await graph.ainvoke(initial_state, config=config)
     finally:
         flush_traces()
 
