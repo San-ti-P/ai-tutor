@@ -1,6 +1,6 @@
 # Epic 1: Orchestrator Agent
 
-**Status:** Draft
+**Status:** Done
 **Source PRD:** [../init_PRD.md](../init_PRD.md) (esp. §4.1, §4.2, §5)
 **Delivery window:** Foundational — must be in place before any other agent can be invoked (Entrega 2 onwards)
 

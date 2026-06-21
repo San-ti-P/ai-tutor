@@ -1,6 +1,6 @@
 # Epic 8-H: Observability Hardening
 
-**Status:** Draft
+**Status:** Done
 **Extends:** [Epic 8 — Observability and Quality](./epic-08-observability.md)
 **Trigger:** Trace audit of 30-integration-test run against Langfuse v4.7.1
 **Delivery window:** Before Entrega 3 defense (29/06)

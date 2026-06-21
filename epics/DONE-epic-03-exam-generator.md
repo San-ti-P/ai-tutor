@@ -1,6 +1,6 @@
 # Epic 3: ExamGenerator Agent
 
-**Status:** Draft
+**Status:** Done
 **Source PRD:** [../init_PRD.md](../init_PRD.md) (esp. §3.2, §4.2, §5.2, §6.1, §7, §8)
 **Delivery window:** Entrega 2 (per source PRD §10)
 
