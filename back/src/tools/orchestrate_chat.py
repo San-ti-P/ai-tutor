@@ -90,9 +90,18 @@ async def orchestrate_chat(
     finally:
         flush_traces()
 
+    # Extract structured exam data for UI rendering (Epic 7 US-7.3)
+    exam = None
+    if final_state.get("intent") == "generate_exam":
+        for r in final_state.get("results", []):
+            if r.get("tool") == "generate_exam" and isinstance(r.get("result"), dict):
+                exam = r["result"]
+                break
+
     return {
         "response": final_state["response"],
         "intent": final_state["intent"],
         "status": final_state.get("status", "complete"),
         "trace_id": str(uuid.uuid4()),
+        "exam": exam,
     }

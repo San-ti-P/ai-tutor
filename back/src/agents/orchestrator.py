@@ -193,6 +193,51 @@ def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> d
         return {"plan": []}
 
 
+def _extract_topics(message: str) -> list[str]:
+    """Extract topic keywords from user message using simple heuristics.
+
+    Looks for phrases like 'sobre X', 'acerca de X', 'de X', 'temas de X'.
+    Falls back to ['general'] if no topics detected.
+    """
+    import re
+
+    patterns = [
+        r"(?:sobre|acerca\s+de|de)\s+(?:los\s+)?(?:temas?\s+(?:de\s+)?)?['\"]?([^,.;!?\d]+?)['\"]?(?:\s+(?:con|y|,|\.|$|con\s+))",
+        r"(?:gener[áa]\w*\s+(?:un\s+)?(?:examen|ejercicio)\s+(?:sobre|acerca\s+de|de)\s+)(.+?)(?:\s+(?:con|de|y|,|\.|$|\d+\s+preguntas))",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, message, re.IGNORECASE)
+        if match:
+            topic_text = match.group(1).strip().rstrip(".")
+            if topic_text and len(topic_text) > 2:
+                # Split on ' y ', ' e ', ', ' for multiple topics
+                topics = re.split(r"\s+(?:y|e)\s+|,\s*", topic_text)
+                return [t.strip() for t in topics if len(t.strip()) > 2]
+
+    return ["general"]
+
+
+def _extract_difficulty(message: str) -> str:
+    """Extract difficulty from user message. Defaults to 'medium'."""
+    msg_lower = message.lower()
+    if any(w in msg_lower for w in ["fácil", "facil", "easy", "básico", "basico"]):
+        return "easy"
+    if any(w in msg_lower for w in ["difícil", "dificil", "hard", "avanzado"]):
+        return "hard"
+    return "medium"
+
+
+def _extract_question_count(message: str) -> int:
+    """Extract question count from user message. Defaults to 5."""
+    import re
+
+    match = re.search(r"(\d+)\s*(?:preguntas?|questions?)", message, re.IGNORECASE)
+    if match:
+        count = int(match.group(1))
+        return max(1, min(count, 20))  # clamp 1-20
+    return 5
+
+
 def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
     """Build argument dict for a tool call from the current state.
 
@@ -205,15 +250,18 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
         # ingest_document needs file_path, session_id
         pass  # file_path not in orchestrator state; tool will use its own
     elif tool_name == "generate_exam":
-        args["topics"] = ["general"]
-        args["difficulty"] = "medium"
-        args["question_count"] = 5
+        args["topics"] = _extract_topics(state["user_message"])
+        args["difficulty"] = _extract_difficulty(state["user_message"])
+        args["question_count"] = _extract_question_count(state["user_message"])
         args["mcq_ratio"] = 0.5
         if profile:
             args["student_profile"] = profile
     elif tool_name == "generate_exercise":
-        args["topic"] = profile.get("weak_topics", ["general"])[0] if profile else "general"
-        args["difficulty"] = "medium"
+        msg_topics = _extract_topics(state["user_message"])
+        args["topic"] = msg_topics[0] if msg_topics else (
+            profile.get("weak_topics", ["general"])[0] if profile else "general"
+        )
+        args["difficulty"] = _extract_difficulty(state["user_message"])
         args["exercise_type"] = "problem_solving"
         if profile:
             args["student_profile"] = profile
