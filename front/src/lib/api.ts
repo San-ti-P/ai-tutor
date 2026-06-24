@@ -4,6 +4,8 @@ import type {
   ChatResponse,
   ExamRequest,
   Exam,
+  ExerciseRequest,
+  Exercise,
   EvaluationRequest,
   EvaluationResult,
   IngestResult,
@@ -32,6 +34,18 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`PUT ${path} failed: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 async function apiUpload<T>(path: string, files: File[]): Promise<T> {
   const formData = new FormData();
   files.forEach((file) => formData.append("files", file));
@@ -48,16 +62,32 @@ async function apiUpload<T>(path: string, files: File[]): Promise<T> {
 
 export const api = {
   chat: (req: ChatRequest) =>
-    apiPost<ApiResponse<ChatResponse>>("/chat", req),
+    apiPost<ApiResponse<ChatResponse>>("/api/chat", req),
 
   uploadDocuments: (files: File[]) =>
-    apiUpload<ApiResponse<IngestResult[]>>("/ingest", files),
+    apiUpload<ApiResponse<IngestResult[]>>("/api/ingest", files),
+
   generateExam: (req: ExamRequest) =>
-    apiPost<ApiResponse<Exam>>("/exam/generate", req),
+    apiPost<ApiResponse<Exam>>("/api/exam/generate", req),
+
+  generateExercise: (req: ExerciseRequest) =>
+    apiPost<ApiResponse<Exercise>>("/api/exercise/generate", req),
 
   submitAnswers: (req: EvaluationRequest) =>
-    apiPost<ApiResponse<EvaluationResult[]>>("/evaluate", req),
+    apiPost<ApiResponse<EvaluationResult[]>>("/api/evaluate", req),
 
   getProfile: (sessionId: string) =>
-    apiGet<ApiResponse<StudentProfile>>(`/profile/${sessionId}`),
+    apiGet<ApiResponse<StudentProfile>>(`/api/profile/${sessionId}`),
+
+  getDashboard: (studentId: string) =>
+    apiGet<ApiResponse<StudentProfile>>(`/api/students/${studentId}/dashboard`),
+
+  updatePreferences: (
+    studentId: string,
+    prefs: ExamRequest["preferences"]
+  ) =>
+    apiPut<ApiResponse<{ status: string }>>(
+      `/api/profile/${studentId}/preferences`,
+      prefs
+    ),
 };

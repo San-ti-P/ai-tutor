@@ -81,6 +81,7 @@ interface StudentProfile {
 }
 
 interface IngestResult {
+  sessionId: string;
   status: string;
   classification: string;
   topicsDetected: string[];
@@ -90,9 +91,34 @@ interface IngestResult {
   documentId?: string;
 }
 
+interface Exercise {
+  exercise_id: string;
+  statement: string;
+  given_data?: string;
+  question: string;
+  model_solution: {
+    steps: string[];
+    final_answer: string;
+    key_concepts: string[];
+  };
+  topics_covered: string[];
+  source_chunk_ids?: string[];
+  topic_not_found: string[];
+  topic_suggestions: string[];
+  status: string;
+}
+
+interface ExerciseRequest {
+  session_id: string;
+  topic: string;
+  difficulty: Difficulty;
+  exercise_type: string;
+}
+
 interface ApiResponse<T> {
   data: T;
   error?: string;
+  trace_id?: string;
 }
 
 interface ChatRequest {
@@ -128,6 +154,8 @@ export type {
   ChatMessage,
   ExamQuestion,
   Exam,
+  Exercise,
+  ExerciseRequest,
   EvaluationResult,
   ExamPreferences,
   StudentProfile,
