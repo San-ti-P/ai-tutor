@@ -287,6 +287,7 @@ async def get_dashboard(student_id: str) -> ApiResponse[StudentProfile]:
     """
     from src.memory.schema import (
         compute_weak_topics,
+        get_enriched_session_history,
         get_student_profile,
         get_topic_scores,
     )
@@ -299,6 +300,7 @@ async def get_dashboard(student_id: str) -> ApiResponse[StudentProfile]:
 
     topic_scores_list = await get_topic_scores(student_id)
     weak_topics = await compute_weak_topics(student_id)
+    enriched_sessions = await get_enriched_session_history(student_id)
 
     # Convert list[dict] to dict[str, list[float]] for StudentProfile
     topic_scores_dict: dict[str, list[float]] = {}
@@ -324,6 +326,7 @@ async def get_dashboard(student_id: str) -> ApiResponse[StudentProfile]:
             weakTopics=weak_topics,
             preferences=exam_prefs,
             sessionCount=profile.get("session_count", 0),
+            sessionHistory=enriched_sessions,
         ),
         error=None,
         trace_id=str(uuid.uuid4()),

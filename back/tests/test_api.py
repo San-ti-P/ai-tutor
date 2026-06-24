@@ -386,10 +386,12 @@ class TestTraceIdPropagation:
             patch("src.memory.schema.get_student_profile") as mock_profile,
             patch("src.memory.schema.get_topic_scores") as mock_scores,
             patch("src.memory.schema.compute_weak_topics") as mock_weak,
+            patch("src.memory.schema.get_recent_sessions") as mock_sessions,
         ):
             mock_profile.return_value = {"id": "stu-d", "preferences": {}, "session_count": 0}
             mock_scores.return_value = []
             mock_weak.return_value = []
+            mock_sessions.return_value = []
 
             response = client.get("/api/students/stu-d/dashboard")
 

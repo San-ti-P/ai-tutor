@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { StatsCards } from "@/components/dashboard/StatsCards";
 import { TopicChart } from "@/components/dashboard/TopicChart";
 import { WeakTopics } from "@/components/dashboard/WeakTopics";
+import { SessionHistory } from "@/components/dashboard/SessionHistory";
 import { Spinner } from "@/components/ui/spinner";
 import type { StudentProfile } from "@/lib/types";
 
@@ -141,6 +142,10 @@ export default function DashboardPage() {
         <TopicChart data={chartData} />
         <WeakTopics topics={weakTopics} />
       </div>
+
+      <SessionHistory
+        sessions={profile?.sessionHistory ?? []}
+      />
     </div>
   );
 }

@@ -95,6 +95,7 @@ class StudentProfile(BaseModel):
     weak_topics: list[str] = Field(alias="weakTopics")
     preferences: ExamPreferences
     session_count: int = Field(alias="sessionCount")
+    session_history: list[dict] = Field(default_factory=list, alias="sessionHistory")
 
     model_config = {"populate_by_name": True}
 
