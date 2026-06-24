@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { EvaluationResult } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -8,6 +9,7 @@ interface EvaluationViewProps {
   results: EvaluationResult[];
   totalScore?: number;
   maxScore?: number;
+  knownTopics?: string[];
 }
 
 function scoreColor(score: number): "success" | "warning" | "error" {
@@ -16,7 +18,51 @@ function scoreColor(score: number): "success" | "warning" | "error" {
   return "error";
 }
 
-export function EvaluationView({ results }: EvaluationViewProps) {
+function renderSuggestionWithLinks(
+  text: string,
+  knownTopics: string[],
+  index: number
+): React.ReactNode {
+  if (knownTopics.length === 0) {
+    return text;
+  }
+
+  // Find known topics that appear in the suggestion text (case-insensitive)
+  const matchingTopics = knownTopics.filter((t) =>
+    text.toLowerCase().includes(t.toLowerCase())
+  );
+
+  if (matchingTopics.length === 0) {
+    return text;
+  }
+
+  // Build a regex that matches any of the matching topics (case-insensitive)
+  const escaped = matchingTopics.map((t) =>
+    t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  );
+  const pattern = new RegExp(`(${escaped.join("|")})`, "gi");
+  const parts = text.split(pattern);
+
+  return parts.map((part, i) => {
+    const isTopic = matchingTopics.some(
+      (t) => t.toLowerCase() === part.toLowerCase()
+    );
+    if (isTopic) {
+      return (
+        <Link
+          key={`${index}-link-${i}`}
+          href={`/exam?topic=${encodeURIComponent(part)}`}
+          className="underline decoration-amber-500/40 underline-offset-2 hover:decoration-amber-500"
+        >
+          {part}
+        </Link>
+      );
+    }
+    return part;
+  });
+}
+
+export function EvaluationView({ results, knownTopics = [] }: EvaluationViewProps) {
   const evaluable = results.filter((r) => r.isEvaluable !== false);
   const totalScore = evaluable.reduce((sum, r) => sum + r.score, 0);
   const maxScore = evaluable.length;
@@ -105,7 +151,7 @@ export function EvaluationView({ results }: EvaluationViewProps) {
                     key={j}
                     className="text-amber-700 dark:text-amber-300 text-sm"
                   >
-                    {sug}
+                    {renderSuggestionWithLinks(sug, knownTopics, j)}
                   </li>
                 ))}
               </ul>

@@ -10,6 +10,7 @@ import type { EvaluationResult } from "@/lib/types";
 export default function ResultsPage() {
   const searchParams = useSearchParams();
   const examId = searchParams.get("exam_id");
+  const topic = searchParams.get("topic");
   const [results, setResults] = useState<EvaluationResult[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +86,7 @@ export default function ResultsPage() {
       </div>
 
       {results && results.length > 0 ? (
-        <EvaluationView results={results} />
+        <EvaluationView results={results} knownTopics={topic ? [topic] : []} />
       ) : (
         <div className="flex flex-col items-center gap-4 rounded-lg border border-border bg-card p-12">
           <BarChart3 className="size-12 text-muted-foreground/40" />

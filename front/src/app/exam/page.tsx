@@ -86,7 +86,7 @@ export default function ExamPage() {
       });
       // Pass evaluation results via session storage
       sessionStorage.setItem("evaluation-results", JSON.stringify(res.data));
-      router.push(`/results?exam_id=${encodeURIComponent(exam.id)}`);
+      router.push(`/results?exam_id=${encodeURIComponent(exam.id)}&topic=${encodeURIComponent(exam.topic)}`);
     } catch (err) {
       setError(
         err instanceof Error
