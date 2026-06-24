@@ -1,6 +1,6 @@
 # Epic 8: Observability and Quality
 
-**Status:** Draft
+**Status:** Done
 **Source PRD:** [../init_PRD.md](../init_PRD.md) (esp. §7, §9, §10.3)
 **Delivery window:** Entrega 2 (LLM-call logging) → Entrega 3 (full Langfuse)
 

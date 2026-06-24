@@ -1,0 +1,22 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	fetch_student_profile(fetch_student_profile)
+	fetch_session_history(fetch_session_history)
+	compute_progress_summary(compute_progress_summary)
+	generate_response(generate_response)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> fetch_student_profile;
+	compute_progress_summary --> generate_response;
+	fetch_session_history --> compute_progress_summary;
+	fetch_student_profile -.-> compute_progress_summary;
+	fetch_student_profile -.-> fetch_session_history;
+	fetch_student_profile -.-> generate_response;
+	generate_response --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

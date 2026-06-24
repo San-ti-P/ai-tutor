@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from langchain_core.tools import tool
+from langfuse import observe
 
 
 @tool
+@observe(name="update_student_profile", as_type="tool")
 async def update_student_profile(
     student_id: str,
     topic_scores: dict[str, float],

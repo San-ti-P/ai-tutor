@@ -17,17 +17,7 @@ import operator
 import random
 from typing import Annotated
 
-try:
-    from langfuse import observe
-except ImportError:
-
-    def observe(name: str | None = None):  # noqa: D103
-        def decorator(fn):  # noqa: D103
-            return fn
-
-        return decorator
-
-
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
@@ -303,7 +293,7 @@ def check_evaluability(state: EvaluatorState) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def evaluate_answer(state: EvaluatorState) -> dict:
+def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dict:
     """Grade current answer via structured LLM call with RAG context.
 
     Builds a Chain-of-Thought prompt including:
@@ -377,7 +367,8 @@ INSTRUCCIONES:
 
         structured_llm = get_structured_llm(SingleEvaluation)
 
-        result: SingleEvaluation = structured_llm.invoke(prompt)
+        invoke_kwargs = {"config": config} if config is not None else {}
+        result: SingleEvaluation = structured_llm.invoke(prompt, **invoke_kwargs)
 
         evaluation_dict = {
             "question_id": current.get("question_id", ""),
@@ -512,7 +503,7 @@ def validate_feedback(state: EvaluatorState) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def llm_judge(state: EvaluatorState) -> dict:
+def llm_judge(state: EvaluatorState, config: RunnableConfig = None) -> dict:
     """LLM-as-judge: second-pass evaluation on configurable sample rate.
 
     Guard:
@@ -574,7 +565,8 @@ INSTRUCCIONES:
 
         structured_llm = get_structured_llm(JudgeVerdict)
 
-        judge: JudgeVerdict = structured_llm.invoke(prompt)
+        invoke_kwargs = {"config": config} if config is not None else {}
+        judge: JudgeVerdict = structured_llm.invoke(prompt, **invoke_kwargs)
 
         judge_dict: dict = {
             "score": judge.score,
@@ -768,7 +760,6 @@ def _route_after_next(state: EvaluatorState) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-@observe(name="evaluator")
 def build_evaluator() -> StateGraph:
     """Build the 8-node evaluator StateGraph with conditional routing.
 

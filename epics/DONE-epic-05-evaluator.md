@@ -1,6 +1,6 @@
 # Epic 5: Evaluator Agent
 
-**Status:** Draft
+**Status:** Done
 **Source PRD:** [../init_PRD.md](../init_PRD.md) (esp. §3.2, §4.2, §5.3, §6.1, §7, §8)
 **Delivery window:** Entrega 3 (per source PRD §10)
 

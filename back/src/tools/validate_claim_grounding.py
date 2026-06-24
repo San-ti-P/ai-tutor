@@ -16,11 +16,13 @@ from __future__ import annotations
 from typing import Literal
 
 from langchain_core.tools import tool
+from langfuse import observe
 
 from src.config import settings
 
 
 @tool
+@observe(name="validate_claim_grounding", as_type="tool")
 def validate_claim_grounding(
     claims: list[str],
     chunks: list[dict],

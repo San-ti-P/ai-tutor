@@ -1,0 +1,7 @@
+{
+  "traceId": "98c8cce9e5cc78773ee9254eb5d5605e",
+  "n_observations_in_trace": 63,
+  "n_rendered": 22,
+  "root_name": "classify_intent",
+  "root_latency_s": 6.2
+}

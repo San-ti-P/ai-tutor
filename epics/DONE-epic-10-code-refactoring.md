@@ -1,6 +1,6 @@
 # Epic 10: Code Refactoring — Deduplication, Library Replacement & Architecture Hygiene
 
-**Status:** Draft
+**Status:** Done
 **Source:** Codebase audit (`exploration/agent-refactoring-audit` + `exploration/library-replacement-audit` in engram)
 **Delivery window:** Post-MVP hardening — before Entrega 3 (complete + defense)
 

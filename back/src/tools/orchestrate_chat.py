@@ -7,12 +7,17 @@ API → tools → agents.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from langchain_core.tools import tool
+from langfuse import observe, propagate_attributes
+
+logger = logging.getLogger(__name__)
 
 
 @tool
+@observe(name="orchestrate_chat", as_type="tool")
 async def orchestrate_chat(
     messages: list[dict],
     thread_id: str | None = None,
@@ -62,12 +67,41 @@ async def orchestrate_chat(
         "student_profile": None,
     }
 
+    # ── Observability wiring ────────────────────────────────────────────────
+    from src.observability import flush_traces, get_tracer
+
+    tracer = get_tracer()
+
     config = {"configurable": {"thread_id": session_id}}
-    final_state = await graph.ainvoke(initial_state, config=config)
+
+    try:
+        # Per Langfuse docs: CallbackHandler must be created INSIDE
+        # propagate_attributes to inherit trace-level session/user context.
+        with propagate_attributes(session_id=session_id):
+            langfuse_handler = tracer.get_callback_handler(
+                session_id=session_id,
+                user_id=None,
+            )
+            if langfuse_handler:
+                config["callbacks"] = [langfuse_handler]
+                config["metadata"] = {"langfuse_session_id": session_id}
+
+            final_state = await graph.ainvoke(initial_state, config=config)
+    finally:
+        flush_traces()
+
+    # Extract structured exam data for UI rendering (Epic 7 US-7.3)
+    exam = None
+    if final_state.get("intent") == "generate_exam":
+        for r in final_state.get("results", []):
+            if r.get("tool") == "generate_exam" and isinstance(r.get("result"), dict):
+                exam = r["result"]
+                break
 
     return {
         "response": final_state["response"],
         "intent": final_state["intent"],
         "status": final_state.get("status", "complete"),
         "trace_id": str(uuid.uuid4()),
+        "exam": exam,
     }

@@ -32,6 +32,7 @@ class ChatResponse(BaseModel):
     response: str
     intent: IntentEnum
     trace_id: str | None = None
+    exam: dict | None = None  # Structured exam data for UI rendering (Epic 7 US-7.3)
 
 
 class ExamPreferences(BaseModel):
@@ -99,6 +100,7 @@ class StudentProfile(BaseModel):
 
 
 class IngestResult(BaseModel):
+    session_id: str = Field(alias="sessionId")
     status: str
     classification: str
     topics_detected: list[str] = Field(alias="topicsDetected")

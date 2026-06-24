@@ -11,6 +11,7 @@ import operator
 from datetime import UTC
 from typing import Annotated
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
@@ -43,8 +44,8 @@ class OpenAnswerQuestion(BaseModel):
 class ExamGeneration(BaseModel):
     """Batch exam generation — all questions in a single structured LLM call."""
 
-    mcq_questions: list[MCQQuestion] = Field(default_factory=list)
-    open_questions: list[OpenAnswerQuestion] = Field(default_factory=list)
+    mcq_questions: list[MCQQuestion] = Field(..., description="MCQ questions list (required, can be empty)")
+    open_questions: list[OpenAnswerQuestion] = Field(..., description="Open-answer questions list (required, can be empty)")
     metadata: dict = Field(
         default_factory=dict,
         description="{topics_covered: [...], total_source_chunks: N}",
@@ -194,7 +195,7 @@ def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict:
         }
 
 
-def generate_questions(state: ExamGeneratorState) -> dict:
+def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None) -> dict:
     """Generate exam questions via a single structured LLM call.
 
     Builds a prompt from retrieved chunks, user preferences, student profile,
@@ -288,7 +289,8 @@ REQUISITOS:
 """
 
         structured_llm = get_structured_llm(ExamGeneration)
-        result: ExamGeneration = structured_llm.invoke(prompt)
+        invoke_kwargs = {"config": config} if config is not None else {}
+        result: ExamGeneration = structured_llm.invoke(prompt, **invoke_kwargs)
 
         # Convert Pydantic models to dicts
         new_questions: list[dict] = []

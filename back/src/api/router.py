@@ -54,6 +54,7 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
             response=result["response"],
             intent=result["intent"],
             trace_id=result["trace_id"],
+            exam=result.get("exam"),
         ),
         error=None,
     )
@@ -85,6 +86,7 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
 
             results.append(
                 IngestResult(
+                    sessionId=session_id,
                     status=result.get("status", "unknown"),
                     classification=result.get("classification", ""),
                     topicsDetected=result.get("topics", []),
@@ -97,6 +99,7 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
             logger.exception("Ingest failed for %s", file.filename)
             results.append(
                 IngestResult(
+                    sessionId=session_id,
                     status="error",
                     classification="",
                     topicsDetected=[],

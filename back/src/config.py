@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = "http://localhost:3000"
+    langfuse_environment: str = ""  # Let SDK read LANGFUSE_TRACING_ENVIRONMENT
+    langfuse_release: str = ""  # LANGFUSE_RELEASE
 
     mathpix_app_id: str = ""
     mathpix_app_key: str = ""
@@ -24,7 +26,7 @@ class Settings(BaseSettings):
     max_iterations_per_task: int = 15
     ocr_confidence_threshold: float = 0.85
     classification_confidence_threshold: float = 0.60
-    anti_hallucination_threshold: float = 0.55
+    anti_hallucination_threshold: float = 0.40
     judge_sample_rate: float = 0.10
     judge_disagreement_threshold: float = 2.0
 

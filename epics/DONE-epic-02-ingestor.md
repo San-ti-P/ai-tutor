@@ -1,6 +1,6 @@
 # Epic 2: Ingestor Agent
 
-**Status:** Draft
+**Status:** Done
 **Source PRD:** [../init_PRD.md](../init_PRD.md) (esp. §3.2, §4.2, §4.3, §4.4, §5.1, §6.1, §7, §8)
 **Delivery window:** Entrega 2 (per source PRD §10)
 

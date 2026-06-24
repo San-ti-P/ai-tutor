@@ -1,0 +1,21 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	retrieve_relevant_chunks(retrieve_relevant_chunks)
+	generate_questions(generate_questions)
+	validate_questions(validate_questions)
+	format_exam(format_exam)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> retrieve_relevant_chunks;
+	generate_questions --> validate_questions;
+	retrieve_relevant_chunks --> generate_questions;
+	validate_questions -. &nbsp;done&nbsp; .-> format_exam;
+	validate_questions -. &nbsp;retry&nbsp; .-> generate_questions;
+	format_exam --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

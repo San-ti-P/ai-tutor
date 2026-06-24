@@ -1,6 +1,6 @@
 # Epic 6: Support Agent
 
-**Status:** Draft
+**Status:** Done
 **Source PRD:** [../init_PRD.md](../init_PRD.md) (esp. §3.2, §4.2, §4.4, §5.3, §6.1, §8)
 **Delivery window:** Entrega 2 partial (profile schema) → Entrega 3 (full adaptation)
 

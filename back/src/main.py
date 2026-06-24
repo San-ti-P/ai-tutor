@@ -2,9 +2,14 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Load .env into os.environ so Langfuse SDK global singleton finds keys
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from src.api.router import router
 from src.memory.schema import init_db
@@ -12,8 +17,12 @@ from src.memory.schema import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    from src.observability import get_tracer, flush_traces
+
     await init_db()
+    get_tracer()  # eager init — triggers lazy Langfuse client creation
     yield
+    flush_traces()
     from src.agents.orchestrator import close_orchestrator_graph
 
     await close_orchestrator_graph()
@@ -29,4 +38,4 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(router)
+app.include_router(router, prefix="/api")
