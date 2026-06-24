@@ -18,7 +18,7 @@ export function QuestionNavigator({
   return (
     <div className="flex items-center justify-center gap-2 py-4">
       {Array.from({ length: total }, (_, i) => {
-        const isAnswered = answers[`q-${i}`] !== undefined;
+        const isAnswered = answers[`q-${i}`] !== undefined && answers[`q-${i}`] !== "";
         const isCurrent = i === current;
         return (
           <button
