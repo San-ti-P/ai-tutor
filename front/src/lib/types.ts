@@ -38,6 +38,8 @@ interface ChatMessage {
   content: string;
   timestamp: Date;
   traceId?: string;
+  exam?: Exam;
+  isError?: boolean;
 }
 
 interface ExamQuestion {
@@ -80,6 +82,15 @@ interface StudentProfile {
   weakTopics: string[];
   preferences: ExamPreferences;
   sessionCount: number;
+  sessionHistory: Array<{
+    id: string;
+    started_at: string;
+    ended_at: string | null;
+    intent: string | null;
+    status: string;
+    questions_answered: number;
+    average_score: number | null;
+  }>;
 }
 
 interface IngestResult {
@@ -132,6 +143,7 @@ interface ChatResponse {
   response: string;
   intent: Intent;
   trace_id?: string;
+  exam?: Exam;
 }
 
 interface ExamRequest {

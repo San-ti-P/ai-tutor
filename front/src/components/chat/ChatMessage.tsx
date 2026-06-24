@@ -3,6 +3,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage as ChatMessageType } from "@/lib/types";
+import { ExamWidget } from "@/components/chat/ExamWidget";
 import { cn } from "@/lib/utils";
 
 interface ChatMessageProps {
@@ -24,7 +25,9 @@ export function ChatMessage({ message }: ChatMessageProps) {
           "group relative max-w-[80%] rounded-lg px-4 py-2.5 text-sm",
           isUser
             ? "bg-primary text-primary-foreground"
-            : "bg-muted text-foreground"
+            : message.isError
+              ? "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200 border border-red-200 dark:border-red-800"
+              : "bg-muted text-foreground"
         )}
       >
         {isUser ? (
@@ -35,6 +38,10 @@ export function ChatMessage({ message }: ChatMessageProps) {
               {message.content}
             </ReactMarkdown>
           </div>
+        )}
+
+        {!isUser && message.exam && (
+          <ExamWidget exam={message.exam} />
         )}
 
         {message.traceId && (

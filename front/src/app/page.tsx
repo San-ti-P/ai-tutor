@@ -27,7 +27,6 @@ export default function ChatPage() {
   const { sessionId } = useSession();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
 
   const handleFilesSelected = useCallback(
@@ -94,7 +93,6 @@ export default function ChatPage() {
       };
       setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
-      setError(null);
 
       try {
         const res = await api.chat({
@@ -108,6 +106,7 @@ export default function ChatPage() {
           content: res.data.response,
           timestamp: new Date(),
           traceId: res.data.trace_id ?? res.trace_id,
+          exam: res.data.exam,
         };
         setMessages((prev) => [...prev, assistantMsg]);
       } catch (err) {
@@ -115,7 +114,14 @@ export default function ChatPage() {
           err instanceof Error
             ? err.message
             : "No se pudo conectar con el servidor. Verific\u00e1 que el backend est\u00e9 corriendo.";
-        setError(msg);
+        const errorMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: msg,
+          timestamp: new Date(),
+          isError: true,
+        };
+        setMessages((prev) => [...prev, errorMsg]);
       } finally {
         setIsLoading(false);
       }
@@ -133,19 +139,6 @@ export default function ChatPage() {
           Prepar&aacute; tus ex&aacute;menes con IA
         </p>
       </div>
-
-      {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-red-700 text-sm dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-          {error}
-          <button
-            type="button"
-            onClick={() => setError(null)}
-            className="ml-2 underline"
-          >
-            Descartar
-          </button>
-        </div>
-      )}
 
       <div className="flex flex-col gap-2">
         <UploadDropzone onFilesSelected={handleFilesSelected} />
