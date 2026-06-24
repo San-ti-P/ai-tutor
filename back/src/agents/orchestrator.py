@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from src.config import settings
-from src.llm import get_llm as _get_llm
+from src.llm import get_llm as _get_llm, get_structured_llm
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +37,12 @@ _SINGLE_TOOL_INTENTS: set[str] = {
 
 
 class IntentClassification(BaseModel):
-    intent: Intent
-    confidence: float = Field(ge=0.0, le=1.0)
+    intent: Intent = Field(description="The classified intent category")
+    confidence: float = Field(ge=0.0, le=1.0, description="Confidence score between 0 and 1")
 
 
 class CompositePlan(BaseModel):
-    steps: list[str] = Field(description="Ordered tool names from TOOL_MAP")
+    steps: list[str] = Field(description="Ordered list of tool names to execute")
 
 
 # ── Tool wiring ──────────────────────────────────────────────────────────────
@@ -100,8 +100,7 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
     profile = state.get("student_profile")
 
     try:
-        llm = _get_llm()
-        structured = llm.with_structured_output(IntentClassification)
+        structured = get_structured_llm(IntentClassification)
 
         prompt = "Clasificá la siguiente consulta en una de estas categorías:\n"
         prompt += "- ingest: subir/apuntes/documentos\n"
@@ -116,7 +115,8 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
             weak = profile.get("weak_topics", [])
             if weak:
                 prompt += f"Perfil del estudiante (temas débiles): {weak}\n"
-        prompt += "Respondé SOLO con la clasificación en formato JSON."
+        prompt += "Respondé SOLO con un objeto JSON con claves 'intent' y 'confidence'. "
+        prompt += 'Ejemplo: {"intent": "general_chat", "confidence": 0.9}'
 
         invoke_kwargs = {"config": config} if config is not None else {}
         result = structured.invoke(prompt, **invoke_kwargs)
@@ -167,8 +167,7 @@ def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> d
     )
 
     try:
-        llm = _get_llm()
-        structured = llm.with_structured_output(CompositePlan)
+        structured = get_structured_llm(CompositePlan)
 
         prompt = (
             "Sos un planificador de tareas académicas. El usuario quiere:\n"
@@ -176,7 +175,9 @@ def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> d
             "Herramientas disponibles:\n"
             f"{tool_descriptions}\n\n"
             "Generá una lista ORDENADA de nombres de herramientas a ejecutar. "
-            "Solo usá herramientas de la lista. Respondé SOLO en formato JSON."
+            "Solo usá herramientas de la lista. Respondé SOLO con un objeto JSON "
+            'con clave "steps". '
+            'Ejemplo: {"steps": ["generate_exam", "evaluate"]}'
         )
 
         invoke_kwargs = {"config": config} if config is not None else {}

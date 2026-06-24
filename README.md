@@ -28,7 +28,8 @@ The system supports 4 providers. Switch by changing `LLM_PROVIDER` in `back/.env
 |----------|---------------|------|-------|
 | `ollama` | `gemma4:e4b-it-q8_0` (local), `gemma4:31b-cloud` (cloud) | Free (local) / Pay-per-use (cloud) | Install [Ollama](https://ollama.com) for local; add `OLLAMA_API_KEY` for cloud |
 | `groq` | `llama-3.1-8b-instant` | Free tier | Sign up at [console.groq.com](https://console.groq.com) |
-| `opencode-go` | `deepseek-v4-pro`, `kimi-k2.7-code`, `qwen3.7-max` | $10/mo subscription | Subscribe at [opencode.ai/auth](https://opencode.ai/auth) |
+| `opencode-go` | `deepseek-v4-pro`, `kimi-k2.7-code`, `glm-5.2` | $10/mo subscription | Subscribe at [opencode.ai/auth](https://opencode.ai/auth) |
+| `opencode-go-anthropic` | `minimax-m3`, `qwen3.7-max`, `qwen3.7-plus` | $10/mo subscription | Same API key as opencode-go |
 | `openai` | `gpt-4o` | Pay-per-use | [platform.openai.com](https://platform.openai.com) API key |
 
 ### Provider config examples
@@ -59,6 +60,13 @@ GROQ_MODEL_NAME=llama-3.1-8b-instant
 LLM_PROVIDER=opencode-go
 OPENCODE_GO_API_KEY=<your-opencode-go-key>
 OPENCODE_GO_MODEL_NAME=deepseek-v4-pro
+```
+
+**OpenCode Go (Anthropic)** — for MiniMax M3, Qwen3.7, etc:
+```bash
+LLM_PROVIDER=opencode-go-anthropic
+OPENCODE_GO_API_KEY=<your-opencode-go-key>
+OPENCODE_GO_ANTHROPIC_MODEL_NAME=minimax-m3
 ```
 
 **OpenAI** — direct or custom base URL:

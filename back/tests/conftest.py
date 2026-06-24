@@ -28,6 +28,7 @@ _PROVIDER_MODULE_MAP: dict[str, str] = {
     "ollama": "langchain_ollama.ChatOllama",
     "groq": "langchain_groq.ChatGroq",
     "opencode-go": "langchain_openai.ChatOpenAI",
+    "opencode-go-anthropic": "langchain_anthropic.ChatAnthropic",
     "openai": "langchain_openai.ChatOpenAI",
 }
 

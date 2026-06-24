@@ -21,7 +21,7 @@ uvicorn src.main:app --reload
 
 ## LLM Provider Configuration
 
-Set `LLM_PROVIDER` in `.env`. Supported: `ollama`, `groq`, `opencode-go`, `openai`.
+Set `LLM_PROVIDER` in `.env`. Supported: `ollama`, `groq`, `opencode-go`, `opencode-go-anthropic`, `openai`.
 
 ### Ollama (local)
 ```bash
@@ -59,6 +59,19 @@ OPENCODE_GO_MODEL_NAME=deepseek-v4-pro
 ```
 
 Available Go models: `deepseek-v4-pro`, `deepseek-v4-flash`, `kimi-k2.7-code`, `kimi-k2.6`, `qwen3.7-max`, `qwen3.7-plus`, `glm-5.2`, `minimax-m3`, `mimo-v2.5`. See [opencode.ai/docs/go](https://opencode.ai/docs/go) for full list.
+
+### OpenCode Go (Anthropic-compatible)
+For models using the Anthropic Messages API (MiniMax M3, Qwen3.7). Same API key as above.
+Note: ChatAnthropic auto-appends `/v1/messages` — base_url must NOT end with `/v1`.
+
+```bash
+LLM_PROVIDER=opencode-go-anthropic
+OPENCODE_GO_API_KEY=<your-key>
+OPENCODE_GO_ANTHROPIC_MODEL_NAME=minimax-m3
+# OPENCODE_GO_ANTHROPIC_BASE_URL=https://opencode.ai/zen/go  (default)
+```
+
+Available Go Anthropic models: `minimax-m3`, `minimax-m2.7`, `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-plus`.
 
 ### OpenAI (direct)
 ```bash

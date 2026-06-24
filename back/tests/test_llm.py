@@ -30,11 +30,16 @@ class TestGetLLM:
         try:
             with patch("langchain_ollama.ChatOllama") as mock_ollama:
                 result = get_llm()
-                mock_ollama.assert_called_once_with(
-                    model=settings.ollama_model_name,
-                    base_url=settings.ollama_base_url,
-                    temperature=0,
-                )
+                expected_kwargs: dict = {
+                    "model": settings.ollama_model_name,
+                    "base_url": settings.ollama_base_url,
+                    "temperature": 0,
+                }
+                if settings.ollama_api_key:
+                    expected_kwargs["client_kwargs"] = {
+                        "headers": {"Authorization": f"Bearer {settings.ollama_api_key}"}
+                    }
+                mock_ollama.assert_called_once_with(**expected_kwargs)
                 assert result is mock_ollama.return_value
         finally:
             settings.llm_provider = original
@@ -201,6 +206,30 @@ class TestGetLLMOllamaCloud:
             settings.ollama_api_key = original_api_key
 
 
+class TestGetLLMOpenCodeGoAnthropic:
+    """Tests for get_llm() with opencode-go-anthropic provider."""
+
+    def test_get_llm_opencode_go_anthropic(self):
+        """Returns ChatAnthropic with Anthropic-compatible endpoint."""
+        from src.llm import get_llm
+
+        original = settings.llm_provider
+        settings.llm_provider = "opencode-go-anthropic"
+
+        try:
+            with patch("langchain_anthropic.ChatAnthropic") as mock_anthropic:
+                result = get_llm()
+                mock_anthropic.assert_called_once_with(
+                    model=settings.opencode_go_anthropic_model_name,
+                    base_url=settings.opencode_go_anthropic_base_url,
+                    api_key=settings.opencode_go_api_key,
+                    temperature=0,
+                )
+                assert result is mock_anthropic.return_value
+        finally:
+            settings.llm_provider = original
+
+
 class TestGetLLMUnknownProvider:
     """Tests for get_llm() with unknown provider."""
 
@@ -221,8 +250,8 @@ class TestGetLLMUnknownProvider:
 class TestGetStructuredLLM:
     """Tests for get_structured_llm() factory."""
 
-    def test_get_structured_llm_calls_with_structured_output(self):
-        """Returns a model with with_structured_output applied."""
+    def test_get_structured_llm_ollama_json_mode(self):
+        """For Ollama: creates ChatOllama with format='json' in a chain, not with_structured_output."""
         from src.llm import get_structured_llm
 
         original = settings.llm_provider
@@ -230,16 +259,20 @@ class TestGetStructuredLLM:
 
         try:
             with patch("langchain_ollama.ChatOllama") as mock_ollama:
-                mock_structured = mock_ollama.return_value.with_structured_output.return_value
-
                 result = get_structured_llm(_FakeSchema)
-                mock_ollama.return_value.with_structured_output.assert_called_once_with(_FakeSchema)
-                assert result is mock_structured
+                # Chain returned, not the raw LLM
+                mock_ollama.return_value.with_structured_output.assert_not_called()
+                mock_ollama.assert_called_once()
+                _, kwargs = mock_ollama.call_args
+                assert kwargs["format"] == "json"
+                assert kwargs["temperature"] == 0
+                assert hasattr(result, "invoke")
+                assert not hasattr(result, "with_structured_output")
         finally:
             settings.llm_provider = original
 
     def test_get_structured_llm_with_different_schema(self):
-        """Works with any Pydantic schema."""
+        """Works with any Pydantic schema on groq (uses with_structured_output)."""
 
         class _OtherSchema(BaseModel):
             score: float
