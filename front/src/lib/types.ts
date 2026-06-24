@@ -62,6 +62,8 @@ interface EvaluationResult {
   justification: string;
   conceptualErrors: string[];
   suggestions: string[];
+  isEvaluable?: boolean;
+  nonEvaluableReason?: string;
 }
 
 interface ExamPreferences {
