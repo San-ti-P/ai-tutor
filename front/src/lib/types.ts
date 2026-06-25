@@ -1,5 +1,6 @@
 const INTENT = {
   INGEST: "ingest",
+  RETRIEVE: "retrieve",
   GENERATE_EXAM: "generate_exam",
   GENERATE_EXERCISE: "generate_exercise",
   EVALUATE: "evaluate",

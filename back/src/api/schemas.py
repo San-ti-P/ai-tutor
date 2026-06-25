@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 IntentEnum = Literal[
     "ingest",
+    "retrieve",
     "generate_exam",
     "generate_exercise",
     "evaluate",

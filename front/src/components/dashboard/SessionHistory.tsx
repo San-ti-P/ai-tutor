@@ -37,6 +37,8 @@ function intentLabel(intent: string | null): string {
       return "Evaluación";
     case "ingest":
       return "Ingesta";
+    case "retrieve":
+      return "Consulta";
     case "general_chat":
       return "Chat";
     default:
