@@ -40,7 +40,7 @@ class TestOrchestratorStateSchema:
         assert isinstance(state["confidence"], float)
 
     def test_state_has_errors_field(self):
-        """errors: Annotated[list[dict], operator.add] — accumulates across nodes."""
+        """errors: list[dict] — records errors within a single graph invocation."""
         state = OrchestratorState(
             session_id="s1",
             user_message="hola",
@@ -1122,8 +1122,12 @@ class TestIntegrationPersistence:
         assert result["response"] == "Hola, ¿cómo estás?"
         assert result["status"] == "complete"
 
-    async def test_restore_session_accumulates_results(self, orchestrator_state):
-        """Same thread_id twice → second run accumulates results via operator.add."""
+    async def test_restore_session_resets_results(self, orchestrator_state):
+        """Same thread_id twice → results/errors reset per invocation.
+
+        The checkpointer preserves the thread for future memory features, but
+        per-invocation artifacts (results/errors) must not leak across turns.
+        """
         from unittest.mock import AsyncMock
 
         from langgraph.checkpoint.memory import InMemorySaver
@@ -1155,9 +1159,9 @@ class TestIntegrationPersistence:
                 config=config,
             )
 
-        assert len(result1["results"]) >= 1
+        assert len(result1["results"]) == 1
 
-        # Second invocation — same thread_id
+        # Second invocation — same thread_id, fresh results/errors
         with (
             patch(
                 "src.agents.orchestrator.get_structured_llm",
@@ -1174,9 +1178,9 @@ class TestIntegrationPersistence:
                 config=config,
             )
 
-        # Results should accumulate (operator.add reducer)
-        assert len(result2["results"]) >= 2
-        assert len(result2["results"]) > len(result1["results"])
+        # Results should NOT accumulate; each invocation starts fresh.
+        assert len(result2["results"]) == 1
+        assert result2["errors"] == []
 
     async def test_composite_multi_step_executes_all(self, orchestrator_state):
         """Composite with 2-step plan → both steps executed in order."""
@@ -1673,8 +1677,12 @@ class TestRealOrchestratorIntegration:
             f"Unexpected status: {result['status']}"
         )
 
-    async def test_e2e_multi_turn_accumulation(self, requires_ollama, orchestrator_state):
-        """Two turns on same thread → results accumulate via operator.add."""
+    async def test_e2e_multi_turn_resets_results(self, requires_ollama, orchestrator_state):
+        """Two turns on same thread → results/errors reset per turn.
+
+        The thread_id is preserved for future memory features, but tool
+        execution artifacts from one turn must not leak into the next.
+        """
         from langgraph.checkpoint.memory import InMemorySaver
 
         from src.agents.orchestrator import build_orchestrator
@@ -1688,19 +1696,16 @@ class TestRealOrchestratorIntegration:
 
         assert result1["status"] == "complete"
         assert result1["intent"] == "general_chat"
-        initial_results = len(result1.get("results", []))
 
         # Turn 2: follow-up — LANGGRAPH RESUMES STATE FROM CHECKPOINT
-        # When invoked on the same thread_id, LangGraph restores the full state
-        # including accumulated results. So the new user_message replaces the
-        # old one, and results from turn 1 persist via operator.add reducer.
+        # Per-invocation artifacts must be reset by the initial_state passed
+        # from orchestrate_chat, so turn 2 starts with empty results/errors.
         state2 = {**orchestrator_state, "user_message": "¿Qué materias podés ayudarme a estudiar?"}
         result2 = await graph.ainvoke(state2, config=config)
 
         assert result2["status"] == "complete"
         assert result2["intent"] == "general_chat"
-        # Results from turn 1 should persist in accumulated state
-        assert len(result2.get("results", [])) >= initial_results, (
-            f"Results should not shrink across turns: "
-            f"{initial_results} → {len(result2.get('results', []))}"
+        assert result2["errors"] == []
+        assert len(result2.get("results", [])) == 0, (
+            "General-chat turns should not carry results from previous turns"
         )

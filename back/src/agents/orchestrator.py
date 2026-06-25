@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
-import operator
 import os
-from typing import Annotated, Literal
+from typing import Literal
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -81,8 +80,8 @@ class OrchestratorState(TypedDict):
     confidence: float
     plan: list[str]
     current_step: int
-    results: Annotated[list[dict], operator.add]
-    errors: Annotated[list[dict], operator.add]
+    results: list[dict]
+    errors: list[dict]
     response: str
     status: str  # "pending" | "complete" | "incomplete" | "partial"
     iteration_count: int
@@ -312,12 +311,14 @@ async def _invoke_tool_with_retry(tool, args: dict, step: int) -> dict:
 async def execute_step(state: OrchestratorState) -> dict:
     """Execute the current step in the plan.
 
-    Resolves tool from TOOL_MAP, builds args, invokes with one retry, appends result.
+    Resolves tool from TOOL_MAP, builds args, invokes with one retry, records result.
     Increments current_step and iteration_count. On failure, records error.
     """
     plan = state["plan"]
     current = state["current_step"]
     iteration = state["iteration_count"]
+    results = state.get("results", [])
+    errors = state.get("errors", [])
 
     tool_map = _init_tool_map()
 
@@ -331,7 +332,7 @@ async def execute_step(state: OrchestratorState) -> dict:
     if tool is None:
         logger.warning("Tool '%s' not found in TOOL_MAP", tool_name)
         return {
-            "errors": [
+            "errors": errors + [
                 {
                     "step": current,
                     "tool": tool_name,
@@ -347,14 +348,14 @@ async def execute_step(state: OrchestratorState) -> dict:
         args = _build_tool_args(tool_name, state)
         result = await _invoke_tool_with_retry(tool, args, current)
         return {
-            "results": [{"step": current, "tool": tool_name, "result": result}],
+            "results": results + [{"step": current, "tool": tool_name, "result": result}],
             "current_step": current + 1,
             "iteration_count": iteration + 1,
         }
     except Exception as exc:
         logger.warning("execute_step failed for tool '%s': %s", tool_name, exc)
         return {
-            "errors": [{"step": current, "tool": tool_name, "error": str(exc)}],
+            "errors": errors + [{"step": current, "tool": tool_name, "error": str(exc)}],
             "status": "partial",
             "current_step": current + 1,
             "iteration_count": iteration + 1,
