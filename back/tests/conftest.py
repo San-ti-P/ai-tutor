@@ -24,17 +24,24 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ.setdefault("LANGFUSE_TRACING_ENVIRONMENT", "test")
 
 
+_PROVIDER_MODULE_MAP: dict[str, str] = {
+    "ollama": "langchain_ollama.ChatOllama",
+    "groq": "langchain_groq.ChatGroq",
+    "opencode-go": "langchain_openai.ChatOpenAI",
+    "opencode-go-anthropic": "langchain_anthropic.ChatAnthropic",
+    "openai": "langchain_openai.ChatOpenAI",
+}
+
+
 def _llm_provider_module() -> str:
     """Return the import path for the current LLM provider's chat class.
 
-    Returns ``"langchain_ollama.ChatOllama"`` or ``"langchain_groq.ChatGroq"``
-    based on ``settings.llm_provider`` so mock patches target the right class.
+    Based on ``settings.llm_provider`` so mock patches target the right class.
+    Supports ollama, groq, opencode-go, and openai providers.
     """
     from src.config import settings
 
-    if settings.llm_provider == "ollama":
-        return "langchain_ollama.ChatOllama"
-    return "langchain_groq.ChatGroq"
+    return _PROVIDER_MODULE_MAP.get(settings.llm_provider, "langchain_ollama.ChatOllama")
 
 
 @contextmanager

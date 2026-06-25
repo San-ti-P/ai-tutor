@@ -191,6 +191,12 @@ def chunk_and_embed(state: IngestorState) -> dict:
             for i in range(len(chunk_texts))
         ]
 
+        # ChromaDB rejects empty list metadata values — prune them
+        for meta in metadatas:
+            for key in list(meta.keys()):
+                if isinstance(meta[key], list) and not meta[key]:
+                    del meta[key]
+
         # Embed and store
         collection_name = f"session_{state['session_id']}"
         chunk_ids = embed_and_store(chunk_texts, metadatas, collection_name)

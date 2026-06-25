@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import aiosqlite
 
@@ -11,6 +12,9 @@ from src.config import settings
 
 async def init_db() -> None:
     """Initialize the SQLite database and create tables if they don't exist."""
+    db_dir = os.path.dirname(settings.sqlite_db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         await db.execute("PRAGMA journal_mode=WAL")
         await db.execute("PRAGMA foreign_keys=ON")

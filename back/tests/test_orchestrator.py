@@ -129,7 +129,10 @@ class TestClassifyIntent:
         """Strong signal → intent=generate_exam, plan pre-populated with tool name."""
         from src.agents.orchestrator import classify_intent
 
-        with patch("src.agents.orchestrator._get_llm", return_value=_FakeLLM()):
+        with patch(
+            "src.agents.orchestrator.get_structured_llm",
+            return_value=_FakeStructured("generate_exam", 0.95),
+        ):
             result = classify_intent(orchestrator_state)
 
         assert result["intent"] == "generate_exam"
@@ -140,10 +143,10 @@ class TestClassifyIntent:
         """Confidence < threshold → effective intent becomes general_chat."""
         from src.agents.orchestrator import classify_intent
 
-        # Mock LLM returns low-confidence result
+        # Mock returns low-confidence result
         with patch(
-            "src.agents.orchestrator._get_llm",
-            return_value=_FakeLLM(intent="generate_exam", confidence=0.30),
+            "src.agents.orchestrator.get_structured_llm",
+            return_value=_FakeStructured("generate_exam", 0.30),
         ):
             result = classify_intent(orchestrator_state)
 
@@ -157,8 +160,8 @@ class TestClassifyIntent:
 
         state = {**orchestrator_state, "user_message": "Ingest notes then quiz me"}
         with patch(
-            "src.agents.orchestrator._get_llm",
-            return_value=_FakeLLM(intent="composite", confidence=0.85),
+            "src.agents.orchestrator.get_structured_llm",
+            return_value=_FakeStructured("composite", 0.85),
         ):
             result = classify_intent(state)
 
@@ -171,7 +174,7 @@ class TestClassifyIntent:
         from src.agents.orchestrator import classify_intent
 
         with patch(
-            "src.agents.orchestrator._get_llm",
+            "src.agents.orchestrator.get_structured_llm",
             side_effect=RuntimeError("LLM unavailable"),
         ):
             result = classify_intent(orchestrator_state)
@@ -186,8 +189,8 @@ class TestClassifyIntent:
 
         for intent in ["ingest", "evaluate", "query_profile", "generate_exercise"]:
             with patch(
-                "src.agents.orchestrator._get_llm",
-                return_value=_FakeLLM(intent=intent, confidence=0.90),
+                "src.agents.orchestrator.get_structured_llm",
+                return_value=_FakeStructured(intent, 0.90),
             ):
                 result = classify_intent(orchestrator_state)
             assert result["plan"] == [intent], f"Expected plan=[{intent}], got {result['plan']}"
@@ -250,8 +253,8 @@ class TestPlanComposite:
         }
 
         with patch(
-            "src.agents.orchestrator._get_llm",
-            return_value=_FakeCompositeLLM(steps=["ingest", "generate_exam"]),
+            "src.agents.orchestrator.get_structured_llm",
+            return_value=_FakeCompositeStructured(["ingest", "generate_exam"]),
         ):
             result = plan_composite(state)
 
@@ -268,8 +271,8 @@ class TestPlanComposite:
         }
 
         with patch(
-            "src.agents.orchestrator._get_llm",
-            return_value=_FakeCompositeLLM(steps=["nonexistent_tool", "ingest", "bad_tool"]),
+            "src.agents.orchestrator.get_structured_llm",
+            return_value=_FakeCompositeStructured(["nonexistent_tool", "ingest", "bad_tool"]),
         ):
             result = plan_composite(state)
 
@@ -281,7 +284,10 @@ class TestPlanComposite:
 
         state = {**orchestrator_state, "intent": "composite", "user_message": "something"}
 
-        with patch("src.agents.orchestrator._get_llm", return_value=_FakeCompositeLLM(steps=[])):
+        with patch(
+            "src.agents.orchestrator.get_structured_llm",
+            return_value=_FakeCompositeStructured([]),
+        ):
             result = plan_composite(state)
 
         assert result["plan"] == []
@@ -293,7 +299,7 @@ class TestPlanComposite:
         state = {**orchestrator_state, "intent": "composite", "user_message": "Do stuff"}
 
         with patch(
-            "src.agents.orchestrator._get_llm",
+            "src.agents.orchestrator.get_structured_llm",
             side_effect=RuntimeError("Planner LLM down"),
         ):
             result = plan_composite(state)
@@ -1042,7 +1048,7 @@ class _FakeStructured:
         self._intent = intent
         self._confidence = confidence
 
-    def invoke(self, prompt):
+    def invoke(self, prompt, **kwargs):
         from src.agents.orchestrator import IntentClassification
 
         return IntentClassification(intent=self._intent, confidence=self._confidence)
@@ -1062,7 +1068,7 @@ class _FakeCompositeStructured:
     def __init__(self, steps: list[str]):
         self._steps = steps
 
-    def invoke(self, prompt):
+    def invoke(self, prompt, **kwargs):
         from src.agents.orchestrator import CompositePlan
 
         return CompositePlan(steps=self._steps)
@@ -1074,7 +1080,7 @@ class _FakeDirectLLM:
     def __init__(self, response: str):
         self._response = response
 
-    def invoke(self, prompt):
+    def invoke(self, prompt, **kwargs):
         return type("FakeAIMessage", (), {"content": self._response})()
 
 
@@ -1086,7 +1092,9 @@ class _FakeDirectLLM:
 class TestIntegrationPersistence:
     """End-to-end integration: graph wiring + checkpointer persistence.
 
-    Uses InMemorySaver for isolation. LLM mocked via _get_llm patch.
+    Uses InMemorySaver for isolation.
+    classify_intent/plan_composite patched via get_structured_llm;
+    synthesize_response patched via _get_llm.
     """
 
     async def test_new_session_creates_checkpoint(self, orchestrator_state):
@@ -1097,9 +1105,15 @@ class TestIntegrationPersistence:
 
         graph = build_orchestrator().compile(checkpointer=InMemorySaver())
 
-        with patch(
-            "src.agents.orchestrator._get_llm",
-            return_value=_FakeDirectLLM("Hola, ¿cómo estás?"),
+        with (
+            patch(
+                "src.agents.orchestrator.get_structured_llm",
+                return_value=_FakeStructured("general_chat", 0.98),
+            ),
+            patch(
+                "src.agents.orchestrator._get_llm",
+                return_value=_FakeDirectLLM("Hola, ¿cómo estás?"),
+            ),
         ):
             config = {"configurable": {"thread_id": "new-session-int-001"}}
             state = {**orchestrator_state, "user_message": "Hola"}
@@ -1127,8 +1141,12 @@ class TestIntegrationPersistence:
         # First invocation
         with (
             patch(
+                "src.agents.orchestrator.get_structured_llm",
+                return_value=_FakeStructured("query_profile", 0.95),
+            ),
+            patch(
                 "src.agents.orchestrator._get_llm",
-                return_value=_FakeLLM(intent="query_profile", confidence=0.95),
+                return_value=_FakeDirectLLM("Perfil listo."),
             ),
             patch.dict("src.agents.orchestrator.TOOL_MAP", {"query_profile": mock_tool}),
         ):
@@ -1142,8 +1160,12 @@ class TestIntegrationPersistence:
         # Second invocation — same thread_id
         with (
             patch(
+                "src.agents.orchestrator.get_structured_llm",
+                return_value=_FakeStructured("query_profile", 0.95),
+            ),
+            patch(
                 "src.agents.orchestrator._get_llm",
-                return_value=_FakeLLM(intent="query_profile", confidence=0.95),
+                return_value=_FakeDirectLLM("Perfil listo."),
             ),
             patch.dict("src.agents.orchestrator.TOOL_MAP", {"query_profile": mock_tool}),
         ):
@@ -1173,14 +1195,17 @@ class TestIntegrationPersistence:
         tool2.name = "generate_exam"
         tool2.ainvoke = AsyncMock(return_value={"exam": "ready"})
 
-        fake_llm_classify = _FakeLLM(intent="composite", confidence=0.9)
-        fake_llm_plan = _FakeCompositeLLM(steps=["ingest", "generate_exam"])
-        fake_llm_synth = _FakeDirectLLM("Todo listo.")
-
         with (
             patch(
+                "src.agents.orchestrator.get_structured_llm",
+                side_effect=[
+                    _FakeStructured("composite", 0.9),
+                    _FakeCompositeStructured(["ingest", "generate_exam"]),
+                ],
+            ),
+            patch(
                 "src.agents.orchestrator._get_llm",
-                side_effect=[fake_llm_classify, fake_llm_plan, fake_llm_synth],
+                return_value=_FakeDirectLLM("Todo listo."),
             ),
             patch.dict(
                 "src.agents.orchestrator.TOOL_MAP",
@@ -1215,13 +1240,17 @@ class TestIntegrationPersistence:
         tool.name = "ingest"
         tool.ainvoke = AsyncMock(return_value={"status": "ok"})
 
-        fake_llm_classify = _FakeLLM(intent="composite", confidence=0.9)
-        fake_llm_plan = _FakeCompositeLLM(steps=["ingest", "ingest", "ingest", "ingest"])
-
         with (
             patch(
+                "src.agents.orchestrator.get_structured_llm",
+                side_effect=[
+                    _FakeStructured("composite", 0.9),
+                    _FakeCompositeStructured(["ingest", "ingest", "ingest", "ingest"]),
+                ],
+            ),
+            patch(
                 "src.agents.orchestrator._get_llm",
-                side_effect=[fake_llm_classify, fake_llm_plan, _FakeDirectLLM("parcial")],
+                return_value=_FakeDirectLLM("parcial"),
             ),
             patch.dict("src.agents.orchestrator.TOOL_MAP", {"ingest": tool}),
             patch("src.agents.orchestrator.settings.max_iterations_per_task", 2),
@@ -1252,13 +1281,14 @@ class TestIntegrationPersistence:
         tool.name = "generate_exam"
         tool.ainvoke = AsyncMock(side_effect=[RuntimeError("fail1"), RuntimeError("fail2")])
 
-        fake_llm_classify = _FakeLLM(intent="generate_exam", confidence=0.95)
-        fake_llm_synth = _FakeDirectLLM("Error al generar el examen.")
-
         with (
             patch(
+                "src.agents.orchestrator.get_structured_llm",
+                return_value=_FakeStructured("generate_exam", 0.95),
+            ),
+            patch(
                 "src.agents.orchestrator._get_llm",
-                side_effect=[fake_llm_classify, fake_llm_synth],
+                return_value=_FakeDirectLLM("Error al generar el examen."),
             ),
             patch.dict("src.agents.orchestrator.TOOL_MAP", {"generate_exam": tool}),
         ):
@@ -1300,9 +1330,15 @@ class TestIntegrationSqliteSaver:
             config = {"configurable": {"thread_id": thread_id}}
 
             # First invocation
-            with patch(
-                "src.agents.orchestrator._get_llm",
-                return_value=_FakeDirectLLM("Respuesta uno."),
+            with (
+                patch(
+                    "src.agents.orchestrator.get_structured_llm",
+                    return_value=_FakeStructured("general_chat", 0.98),
+                ),
+                patch(
+                    "src.agents.orchestrator._get_llm",
+                    return_value=_FakeDirectLLM("Respuesta uno."),
+                ),
             ):
                 state = {**orchestrator_state, "user_message": "Mensaje uno"}
                 result1 = await graph.ainvoke(state, config=config)
@@ -1312,9 +1348,15 @@ class TestIntegrationSqliteSaver:
             assert result1["intent"] == "general_chat"
 
             # Second invocation — same thread_id → state restored from checkpoint
-            with patch(
-                "src.agents.orchestrator._get_llm",
-                return_value=_FakeDirectLLM("Respuesta dos."),
+            with (
+                patch(
+                    "src.agents.orchestrator.get_structured_llm",
+                    return_value=_FakeStructured("general_chat", 0.98),
+                ),
+                patch(
+                    "src.agents.orchestrator._get_llm",
+                    return_value=_FakeDirectLLM("Respuesta dos."),
+                ),
             ):
                 state2 = {**orchestrator_state, "user_message": "Mensaje dos"}
                 result2 = await graph.ainvoke(state2, config=config)
