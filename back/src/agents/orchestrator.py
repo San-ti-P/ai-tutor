@@ -102,21 +102,38 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
     try:
         structured = get_structured_llm(IntentClassification)
 
-        prompt = "Clasificá la siguiente consulta en una de estas categorías:\n"
-        prompt += "- ingest: subir/apuntes/documentos\n"
-        prompt += "- generate_exam: generar un examen\n"
-        prompt += "- generate_exercise: generar un ejercicio práctico\n"
-        prompt += "- evaluate: evaluar/corregir una respuesta\n"
-        prompt += "- query_profile: consultar perfil/progreso\n"
-        prompt += "- general_chat: charla general, saludo, pregunta no académica\n"
-        prompt += "- composite: múltiples tareas combinadas\n\n"
-        prompt += f"Consulta: {message}\n"
+        prompt = (
+            "Sos un clasificador de intents para un tutor académico. "
+            "Clasificá el mensaje del usuario en UNA de estas 7 categorías:\n\n"
+            "  - ingest: el usuario quiere SUBIR apuntes, PDFs, documentos\n"
+            "  - generate_exam: pide generar un examen\n"
+            "  - generate_exercise: pide un ejercicio práctico\n"
+            "  - evaluate: pide que corrijan/evalúen una respuesta\n"
+            "  - query_profile: pregunta por su perfil, progreso, temas débiles\n"
+            "  - general_chat: saludos, charla casual, preguntas NO académicas, "
+            "preguntas sobre cómo usar el sistema\n"
+            "  - composite: pide VARIAS tareas distintas en el mismo mensaje\n\n"
+            "REGLAS CRÍTICAS:\n"
+            "1. Si es saludo, cortesía, o NO contiene tarea académica explícita → "
+            "general_chat con confidence >= 0.95\n"
+            "2. Ante la duda entre dos intents, elegí general_chat\n"
+            "3. composite SOLO si hay 2+ tareas distintas y explícitas (no inferidas)\n\n"
+            "EJEMPLOS:\n"
+            '"Hola" → {"intent": "general_chat", "confidence": 0.99}\n'
+            '"Buenos días" → {"intent": "general_chat", "confidence": 0.99}\n'
+            '"Gracias" → {"intent": "general_chat", "confidence": 0.99}\n'
+            '"¿Qué hace esta app?" → {"intent": "general_chat", "confidence": 0.95}\n'
+            '"Quiero ver mi progreso" → {"intent": "query_profile", "confidence": 0.95}\n'
+            '"Generame un examen de derivadas" → {"intent": "generate_exam", "confidence": 0.95}\n'
+            '"Subime este PDF" → {"intent": "ingest", "confidence": 0.95}\n'
+            '"Generame un examen y corregilo" → {"intent": "composite", "confidence": 0.90}\n\n'
+            f"Mensaje del usuario: {message!r}\n"
+        )
         if profile:
             weak = profile.get("weak_topics", [])
             if weak:
-                prompt += f"Perfil del estudiante (temas débiles): {weak}\n"
-        prompt += "Respondé SOLO con un objeto JSON con claves 'intent' y 'confidence'. "
-        prompt += 'Ejemplo: {"intent": "general_chat", "confidence": 0.9}'
+                prompt += f"Contexto del estudiante (temas débiles): {weak}\n"
+        prompt += "Respondé SOLO con un objeto JSON con claves 'intent' y 'confidence'."
 
         invoke_kwargs = {"config": config} if config is not None else {}
         result = structured.invoke(prompt, **invoke_kwargs)
