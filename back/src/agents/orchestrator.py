@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 Intent = Literal[
     "ingest",
+    "retrieve",
     "generate_exam",
     "generate_exercise",
     "evaluate",
@@ -28,6 +29,7 @@ Intent = Literal[
 
 _SINGLE_TOOL_INTENTS: set[str] = {
     "ingest",
+    "retrieve",
     "generate_exam",
     "generate_exercise",
     "evaluate",
@@ -60,11 +62,13 @@ def _init_tool_map() -> dict[str, object]:
         generate_exam,
         generate_exercise,
         ingest_document,
+        query_material,
     )
     from src.tools.get_student_summary import get_student_summary
 
     TOOL_MAP = {
         "ingest": ingest_document,
+        "retrieve": query_material,
         "generate_exam": generate_exam,
         "generate_exercise": generate_exercise,
         "evaluate": evaluate_answer,
@@ -89,7 +93,7 @@ class OrchestratorState(TypedDict):
 
 
 def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> dict:
-    """Classify user message into one of 7 intents with confidence score.
+    """Classify user message into one of 8 intents with confidence score.
 
     On low confidence (< settings.classification_confidence_threshold), forces
     general_chat. On any exception, returns general_chat with confidence=0.0.
@@ -103,8 +107,9 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
 
         prompt = (
             "Sos un clasificador de intents para un tutor académico. "
-            "Clasificá el mensaje del usuario en UNA de estas 7 categorías:\n\n"
+            "Clasificá el mensaje del usuario en UNA de estas 8 categorías:\n\n"
             "  - ingest: el usuario quiere SUBIR apuntes, PDFs, documentos\n"
+            "  - retrieve: preguntar/consultar sobre el contenido de apuntes o documentos YA SUBIDOS\n"
             "  - generate_exam: pide generar un examen\n"
             "  - generate_exercise: pide un ejercicio práctico\n"
             "  - evaluate: pide que corrijan/evalúen una respuesta\n"
@@ -116,7 +121,8 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
             "1. Si es saludo, cortesía, o NO contiene tarea académica explícita → "
             "general_chat con confidence >= 0.95\n"
             "2. Ante la duda entre dos intents, elegí general_chat\n"
-            "3. composite SOLO si hay 2+ tareas distintas y explícitas (no inferidas)\n\n"
+            "3. ingest SOLO si el usuario quiere SUBIR un archivo; retrieve SOLO si pregunta por contenido ya subido\n"
+            "4. composite SOLO si hay 2+ tareas distintas y explícitas (no inferidas)\n\n"
             "EJEMPLOS:\n"
             '"Hola" → {"intent": "general_chat", "confidence": 0.99}\n'
             '"Buenos días" → {"intent": "general_chat", "confidence": 0.99}\n'
@@ -125,6 +131,7 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
             '"Quiero ver mi progreso" → {"intent": "query_profile", "confidence": 0.95}\n'
             '"Generame un examen de derivadas" → {"intent": "generate_exam", "confidence": 0.95}\n'
             '"Subime este PDF" → {"intent": "ingest", "confidence": 0.95}\n'
+            '"¿Qué dice el archivo sobre derivadas?" → {"intent": "retrieve", "confidence": 0.95}\n'
             '"Generame un examen y corregilo" → {"intent": "composite", "confidence": 0.90}\n\n'
             f"Mensaje del usuario: {message!r}\n"
         )
@@ -266,6 +273,9 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
     if tool_name == "ingest":
         # ingest_document needs file_path, session_id
         pass  # file_path not in orchestrator state; tool will use its own
+    elif tool_name == "retrieve":
+        args["query"] = state["user_message"]
+        args["top_k"] = 5
     elif tool_name == "generate_exam":
         args["topics"] = _extract_topics(state["user_message"])
         args["difficulty"] = _extract_difficulty(state["user_message"])

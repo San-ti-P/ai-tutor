@@ -139,6 +139,20 @@ class TestClassifyIntent:
         assert result["confidence"] == 0.95
         assert result["plan"] == ["generate_exam"]
 
+    def test_classify_high_confidence_retrieve(self, orchestrator_state):
+        """Strong signal → intent=retrieve, plan pre-populated with tool name."""
+        from src.agents.orchestrator import classify_intent
+
+        with patch(
+            "src.agents.orchestrator.get_structured_llm",
+            return_value=_FakeStructured("retrieve", 0.95),
+        ):
+            result = classify_intent(orchestrator_state)
+
+        assert result["intent"] == "retrieve"
+        assert result["confidence"] == 0.95
+        assert result["plan"] == ["retrieve"]
+
     def test_classify_low_confidence_fallback_to_general_chat(self, orchestrator_state):
         """Confidence < threshold → effective intent becomes general_chat."""
         from src.agents.orchestrator import classify_intent
@@ -396,6 +410,17 @@ class TestExecuteStepSuccess:
         mock_build.assert_called_once_with("query_profile", state)
         mock_tool.ainvoke.assert_called_once_with({"session_id": "sess-abc"})
         assert len(result["results"]) == 1
+
+    def test_build_tool_args_retrieve(self, orchestrator_state):
+        """retrieve intent gets query and top_k from state."""
+        from src.agents.orchestrator import _build_tool_args
+
+        state = {**orchestrator_state, "user_message": "¿Qué dice el apunte?"}
+        args = _build_tool_args("retrieve", state)
+
+        assert args["session_id"] == state["session_id"]
+        assert args["query"] == "¿Qué dice el apunte?"
+        assert args["top_k"] == 5
 
 
 # ==============================================================================
