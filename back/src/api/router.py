@@ -43,6 +43,9 @@ async def health() -> dict:
 
 @router.post("/chat", response_model=ApiResponse[ChatResponse])
 async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
+    import time
+
+    t0 = time.monotonic()
     logger.info("Chat request received for session %s", request.session_id)
 
     from src.tools import orchestrate_chat
@@ -54,6 +57,11 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
         }
     )
 
+    elapsed = (time.monotonic() - t0) * 1000
+    logger.info(
+        "Chat complete | session=%s | intent=%s | %dms",
+        request.session_id, result["intent"], int(elapsed),
+    )
     return ApiResponse(
         data=ChatResponse(
             response=result["response"],
@@ -108,6 +116,9 @@ async def ingest(
     files: list[UploadFile] = File(...),
     session_id: str | None = Form(None),
 ) -> ApiResponse[list[IngestResult]]:
+    import time
+
+    t0 = time.monotonic()
     logger.info("Ingest request received with %d file(s)", len(files))
     results: list[IngestResult] = []
 
@@ -155,6 +166,14 @@ async def ingest(
         finally:
             await file.close()
             Path(tmp_path).unlink(missing_ok=True)
+
+    elapsed = (time.monotonic() - t0) * 1000
+    ok = sum(1 for r in results if r.status != "error")
+    fail = len(results) - ok
+    logger.info(
+        "Ingest complete | session=%s | files=%d | ok=%d | fail=%d | %dms",
+        effective_session_id, len(files), ok, fail, int(elapsed),
+    )
     return ApiResponse(
         data=results,
         error=None,

@@ -49,6 +49,7 @@ async def orchestrate_chat(
             break
 
     session_id = thread_id or str(uuid.uuid4())
+    logger.info("[orchestrate_chat] START | session=%s", session_id)
 
     graph = await get_orchestrator_graph()
 

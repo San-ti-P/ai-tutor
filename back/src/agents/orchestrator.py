@@ -100,8 +100,11 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
     general_chat. On any exception, returns general_chat with confidence=0.0.
     Single-tool intents pre-populate plan with the tool name.
     """
+    import time
+
     message = state["user_message"]
     profile = state.get("student_profile")
+    t0 = time.monotonic()
 
     try:
         structured = get_structured_llm(IntentClassification)
@@ -161,6 +164,11 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
         if intent in _SINGLE_TOOL_INTENTS:
             plan = [intent]
 
+        elapsed = (time.monotonic() - t0) * 1000
+        logger.info(
+            "[classify_intent] COMPLETE | session=%s | intent=%s | confidence=%.2f | %dms",
+            state["session_id"], intent, confidence, int(elapsed),
+        )
         return {"intent": intent, "confidence": confidence, "plan": plan}
 
     except Exception:
@@ -177,10 +185,16 @@ def route_to_agent(state: OrchestratorState) -> str:
     """
     intent = state["intent"]
     if intent == "composite":
-        return "plan_composite"
-    if intent == "general_chat":
-        return "synthesize_response"
-    return "execute_step"
+        target = "plan_composite"
+    elif intent == "general_chat":
+        target = "synthesize_response"
+    else:
+        target = "execute_step"
+    logger.info(
+        "[route] %s | session=%s | intent=%s",
+        target, state["session_id"], intent,
+    )
+    return target
 
 
 def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> dict:
@@ -189,7 +203,10 @@ def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> d
     Uses LLM planner to generate an ordered list of tool names.
     Strips tools not in TOOL_MAP. Empty plan → treated as general_chat downstream.
     """
+    import time
+
     message = state["user_message"]
+    t0 = time.monotonic()
     tool_map = _init_tool_map()
     tool_descriptions = "\n".join(
         f"- {name}: {getattr(tool, 'description', '')}" for name, tool in tool_map.items()
@@ -216,6 +233,11 @@ def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> d
         # Strip invalid tool names
         valid_plan = [step for step in plan if step in tool_map]
 
+        elapsed = (time.monotonic() - t0) * 1000
+        logger.info(
+            "[plan_composite] COMPLETE | session=%s | steps=%s | %dms",
+            state["session_id"], valid_plan, int(elapsed),
+        )
         return {"plan": valid_plan}
 
     except Exception:
@@ -332,6 +354,8 @@ async def execute_step(state: OrchestratorState) -> dict:
     Resolves tool from TOOL_MAP, builds args, invokes with one retry, records result.
     Increments current_step and iteration_count. On failure, records error.
     """
+    import time
+
     plan = state["plan"]
     current = state["current_step"]
     iteration = state["iteration_count"]
@@ -346,6 +370,11 @@ async def execute_step(state: OrchestratorState) -> dict:
 
     tool_name = plan[current]
     tool = tool_map.get(tool_name)
+    t0 = time.monotonic()
+    logger.info(
+        "[execute_step] START | session=%s | step=%d/%d | tool=%s",
+        state["session_id"], current + 1, len(plan), tool_name,
+    )
 
     if tool is None:
         logger.warning("Tool '%s' not found in TOOL_MAP", tool_name)
@@ -366,13 +395,22 @@ async def execute_step(state: OrchestratorState) -> dict:
     try:
         args = _build_tool_args(tool_name, state)
         result = await _invoke_tool_with_retry(tool, args, current)
+        elapsed = (time.monotonic() - t0) * 1000
+        logger.info(
+            "[execute_step] COMPLETE | session=%s | step=%d | tool=%s | %dms",
+            state["session_id"], current + 1, tool_name, int(elapsed),
+        )
         return {
             "results": results + [{"step": current, "tool": tool_name, "result": result}],
             "current_step": current + 1,
             "iteration_count": iteration + 1,
         }
     except Exception as exc:
-        logger.warning("execute_step failed for tool '%s': %s", tool_name, exc)
+        elapsed = (time.monotonic() - t0) * 1000
+        logger.warning(
+            "execute_step failed for tool '%s' at step %d (%dms): %s",
+            tool_name, current, int(elapsed), exc,
+        )
         return {
             "errors": errors + [{"step": current, "tool": tool_name, "error": str(exc)}],
             "status": "partial",
@@ -455,6 +493,7 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
     - On LLM failure: hardcoded Spanish apology + raw results.
     """
     import json
+    import time
 
     from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT, no_material_message
 
@@ -463,6 +502,12 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
     results = state.get("results", [])
     errors = state.get("errors", [])
     status = state.get("status", "pending")
+    t0 = time.monotonic()
+
+    logger.info(
+        "[synthesize_response] START | session=%s | intent=%s | results=%d | errors=%d",
+        state["session_id"], intent, len(results), len(errors),
+    )
 
     # Detect cap hit: iteration_count >= max but steps not all done
     if (
@@ -510,12 +555,22 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
                         )
                     else:
                         # No chunks — return canonical no-material message
+                        elapsed = (time.monotonic() - t0) * 1000
+                        logger.info(
+                            "[synthesize_response] COMPLETE | session=%s | no_material | %dms",
+                            state["session_id"], int(elapsed),
+                        )
                         return {
                             "response": no_material_message(),
                             "status": "complete",
                         }
                 except Exception as exc:
                     logger.warning("Academic probe retrieval failed: %s", exc)
+                    elapsed = (time.monotonic() - t0) * 1000
+                    logger.info(
+                        "[synthesize_response] COMPLETE | session=%s | probe_failed | %dms",
+                        state["session_id"], int(elapsed),
+                    )
                     return {
                         "response": no_material_message(),
                         "status": "complete",
@@ -551,10 +606,20 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
         text = response.content if hasattr(response, "content") else str(response)
 
         final_status = "complete" if status == "pending" else status
+        elapsed = (time.monotonic() - t0) * 1000
+        logger.info(
+            "[synthesize_response] COMPLETE | session=%s | status=%s | %dms",
+            state["session_id"], final_status, int(elapsed),
+        )
         return {"response": prefix + text, "status": final_status}
 
     except Exception:
         logger.exception("synthesize_response LLM failed, using fallback")
+        elapsed = (time.monotonic() - t0) * 1000
+        logger.info(
+            "[synthesize_response] COMPLETE | session=%s | fallback | %dms",
+            state["session_id"], int(elapsed),
+        )
         results_str = json.dumps(
             {"results": results, "errors": errors},
             ensure_ascii=False,
@@ -580,10 +645,22 @@ def check_iteration_limit(state: OrchestratorState) -> Literal["continue", "term
     Otherwise returns "continue".
     """
     if state.get("status") == "partial":
+        logger.info(
+            "[check_iteration_limit] terminate | session=%s | reason=partial_error",
+            state["session_id"],
+        )
         return "terminate"
     if state["iteration_count"] >= settings.max_iterations_per_task:
+        logger.info(
+            "[check_iteration_limit] terminate | session=%s | reason=iteration_limit | iter=%d",
+            state["session_id"], state["iteration_count"],
+        )
         return "terminate"
     if state["current_step"] >= len(state["plan"]):
+        logger.info(
+            "[check_iteration_limit] terminate | session=%s | reason=plan_complete | steps=%d",
+            state["session_id"], state["current_step"],
+        )
         return "terminate"
     return "continue"
 

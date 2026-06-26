@@ -180,11 +180,13 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = No
     as context to guide regeneration.
     """
     import logging
+    import time
 
     from src.llm import get_structured_llm
     from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT
 
     logger = logging.getLogger(__name__)
+    t0 = time.monotonic()
 
     try:
         chunks: list[dict] = state.get("retrieved_chunks", [])
@@ -196,6 +198,11 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = No
             }
 
         topic: str = state.get("topic", "")
+
+        logger.info(
+            "[generate_exercise] START | session=%s | topic=%s",
+            state["session_id"], topic,
+        )
         difficulty: str = state.get("difficulty", "medium")
         exercise_type: str = state.get("exercise_type", "problem_solving")
         retry_count: int = state.get("retry_count", 0)
@@ -284,6 +291,11 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = No
         # Increment retry_count
         next_retry = retry_count + 1 if retry_count > 0 else 1
 
+        elapsed = (time.monotonic() - t0) * 1000
+        logger.info(
+            "[generate_exercise] COMPLETE | session=%s | %dms",
+            state["session_id"], int(elapsed),
+        )
         return {
             "generated_exercise": exercise_dict,
             "retry_count": next_retry,

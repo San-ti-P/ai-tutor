@@ -208,11 +208,13 @@ def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None)
     regenerated — valid questions from previous passes are preserved.
     """
     import logging
+    import time
 
     from src.llm import get_structured_llm
     from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT
 
     logger = logging.getLogger(__name__)
+    t0 = time.monotonic()
 
     try:
         chunks: list[dict] = state.get("retrieved_chunks", [])
@@ -226,6 +228,12 @@ def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None)
         question_count: int = state.get("question_count", 5)
         mcq_ratio: float = state.get("mcq_ratio", 0.5)
         difficulty: str = state.get("difficulty", "medium")
+
+        logger.info(
+            "[generate_questions] START | session=%s | topic=%s | count=%d",
+            state["session_id"], state.get("topic", "?"), question_count,
+        )
+
         student_profile = state.get("student_profile")
         retry_count: int = state.get("retry_count", 0)
         invalid_indices: list[int] = state.get("invalid_question_indices", [])
@@ -320,6 +328,11 @@ REQUISITOS:
         # Increment retry_count on every call (starts at 0, increments per retry)
         next_retry = retry_count + 1 if retry_count > 0 else 1
 
+        elapsed = (time.monotonic() - t0) * 1000
+        logger.info(
+            "[generate_questions] COMPLETE | session=%s | questions=%d | %dms",
+            state["session_id"], len(final_questions), int(elapsed),
+        )
         return {
             "generated_questions": final_questions,
             "retry_count": next_retry,

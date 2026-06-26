@@ -148,9 +148,12 @@ def compute_progress_summary(state: SupportState) -> dict:
     memory module. Also computes an average score across all topics.
     Returns partial state with ``weak_topics`` populated.
     """
+    import time
+
     from src.memory.schema import compute_weak_topics
     from src.utils.async_ import run_async_in_sync
 
+    t0 = time.monotonic()
     student_id: str = state.get("student_id", "")
     topic_scores: list[dict] = state.get("topic_scores", [])
 
@@ -161,6 +164,11 @@ def compute_progress_summary(state: SupportState) -> dict:
 
         weak = run_async_in_sync(_compute())
 
+        elapsed = (time.monotonic() - t0) * 1000
+        logger.info(
+            "[compute_progress] COMPLETE | student=%s | weak_topics=%s | %dms",
+            student_id, weak, int(elapsed),
+        )
         return {"weak_topics": weak}
 
     except Exception as exc:  # noqa: F841
