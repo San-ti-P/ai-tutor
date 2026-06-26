@@ -681,7 +681,9 @@ class TestRealIntegration:
             "Exercise has empty source_chunk_ids — not grounded"
         )
 
-    def test_anti_hallucination_catches_fabrication(self, requires_ollama, ingested_collection_name):
+    def test_anti_hallucination_catches_fabrication(
+        self, requires_ollama, ingested_collection_name
+    ):
         """EX-NFR-01: Claim-level validation detects fabricated content.
 
         Injects a fabricated exercise (about black holes) alongside real

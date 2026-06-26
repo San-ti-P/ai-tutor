@@ -223,13 +223,15 @@ async def get_enriched_session_history(student_id: str, limit: int = 10) -> list
             row = await cursor.fetchone()
             questions_answered = row["cnt"] if row else 0
             avg_score = round(row["avg_score"], 2) if row and row["avg_score"] is not None else None
-            enriched.append({
-                "id": ses["id"],
-                "started_at": ses["started_at"],
-                "ended_at": ses["ended_at"],
-                "intent": ses["intent"],
-                "status": ses["status"],
-                "questions_answered": questions_answered,
-                "average_score": avg_score,
-            })
+            enriched.append(
+                {
+                    "id": ses["id"],
+                    "started_at": ses["started_at"],
+                    "ended_at": ses["ended_at"],
+                    "intent": ses["intent"],
+                    "status": ses["status"],
+                    "questions_answered": questions_answered,
+                    "average_score": avg_score,
+                }
+            )
     return enriched

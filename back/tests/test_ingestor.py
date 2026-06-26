@@ -142,21 +142,22 @@ class TestIncrementalIngestion:
 class TestNonAcademicRejection:
     async def test_reject_non_academic_content(self, non_academic_txt, ingestor_state):
         """PRD Case #10: Non-academic text is rejected."""
-        mock_result = MagicMock()
-        mock_result.classification = "no_academico"
-        mock_result.confidence = 0.88
-        mock_result.topics = []
+        with patch("src.llm.get_structured_llm") as mock_gs_llm:
+            mock_result = MagicMock()
+            mock_result.classification = "no_academico"
+            mock_result.confidence = 0.88
+            mock_result.topics = []
 
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = mock_result
+            fake_invokable = MagicMock()
+            fake_invokable.invoke.return_value = mock_result
+            mock_gs_llm.return_value = fake_invokable
 
-        with patch(
-            "src.topic_extraction.extract_topics_pipeline",
-            new_callable=AsyncMock,
-        ) as mock_pipeline:
-            mock_pipeline.return_value = MOCK_PIPELINE_RESULT
+            with patch(
+                "src.topic_extraction.extract_topics_pipeline",
+                new_callable=AsyncMock,
+            ) as mock_pipeline:
+                mock_pipeline.return_value = MOCK_PIPELINE_RESULT
 
-            with patch("src.llm.get_structured_llm", return_value=mock_chain):
                 state = dict(ingestor_state)
                 state["file_path"] = str(non_academic_txt)
 

@@ -1,8 +1,11 @@
 """Quick test: raw LLM vs with_structured_output on the same prompt."""
+
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(".").resolve()))
 from dotenv import load_dotenv
+
 load_dotenv(".env")
 
 from langchain_ollama import ChatOllama
@@ -30,8 +33,8 @@ print(result.content[:1500])
 print()
 
 # Now test with structured output
-from src.llm import get_structured_llm
 from src.agents.exam_generator import ExamGeneration
+from src.llm import get_structured_llm
 
 print("=== with_structured_output ===")
 m = get_structured_llm(ExamGeneration)

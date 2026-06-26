@@ -305,9 +305,13 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dic
     for deterministic grading. Catches ``is_evaluable=False`` returned
     by the LLM itself as an additional guard.
 
+    When ``chunk_context`` is empty, short-circuits to ``cannot_evaluate``
+    with ``non_evaluable_reason="no_material"`` — no LLM call is made.
+
     Decorated with ``@observe()`` for Langfuse tracing.
     """
     from src.llm import get_structured_llm
+    from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT, no_material_message
 
     answers: list[dict] = state.get("answers", [])
     idx: int = state.get("current_index", 0)
@@ -322,29 +326,38 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dic
     student_answer = current.get("student_answer", "")
     topic = current.get("topic", "")
 
-    try:
-        # Build chunk context (truncated to avoid token overflow)
-        chunk_context = "\n\n".join(
-            f"[CHUNK:{c.get('chunk_id', '?')}] {c.get('text', '')}" for c in chunks
-        )[:6000]
+    # Build chunk context (truncated to avoid token overflow)
+    chunk_context = "\n\n".join(
+        f"[CHUNK:{c.get('chunk_id', '?')}] {c.get('text', '')}" for c in chunks
+    )[:6000]
 
-        # Adapt prompt to presence/absence of RAG chunks
-        if chunk_context:
-            reference_section = f"""MATERIAL DE REFERENCIA (chunks del apunte):
+    # Guard: no chunks → short-circuit to cannot_evaluate (no LLM call)
+    if not chunk_context:
+        return {
+            "evaluation": {
+                "question_id": current.get("question_id", ""),
+                "score": 0.0,
+                "justification": no_material_message(),
+                "conceptual_errors": [],
+                "suggestions": [],
+                "is_evaluable": False,
+                "non_evaluable_reason": "no_material",
+                "requires_review": False,
+                "topic": topic,
+                "source_chunk_ids": current.get("source_chunk_ids", []),
+                "status": "cannot_evaluate",
+            },
+            "status": "cannot_evaluate",
+        }
+
+    try:
+        reference_section = f"""MATERIAL DE REFERENCIA (chunks del apunte):
 {chunk_context}
 """
-            reference_rule = (
-                "6. Cada afirmación en la justificación DEBE estar "
-                "respaldada por el material de referencia."
-            )
-        else:
-            reference_section = ""
-            reference_rule = (
-                "6. Evaluá basándote en tu conocimiento del tema y la respuesta esperada. "
-                "Sé conservador con el puntaje ante incertidumbre."
-            )
 
-        prompt = f"""Evaluá la siguiente respuesta de un estudiante universitario.
+        prompt = f"""{RAG_ONLY_SYSTEM_PROMPT}
+
+Evaluá la siguiente respuesta de un estudiante universitario. Respondé SIEMPRE en español.
 
 PREGUNTA:
 {question}
@@ -358,12 +371,12 @@ RESPUESTA DEL ESTUDIANTE:
 {reference_section}
 INSTRUCCIONES:
 1. Asigná un puntaje de 0 a 10 basado en corrección conceptual, completitud y claridad.
-2. Justificá el puntaje mencionando conceptos específicos.
+2. Justificá el puntaje mencionando conceptos específicos, en español.
 3. Identificá errores conceptuales concretos (lista vacía si no hay).
 4. Proporcioná sugerencias de estudio accionables basadas en los errores detectados.
 5. Si la respuesta es incoherente, en otro idioma, o no se puede evaluar,
    establecé is_evaluable=false.
-{reference_rule}"""
+6. Cada afirmación en la justificación DEBE estar respaldada por el material de referencia."""
 
         structured_llm = get_structured_llm(SingleEvaluation)
 
@@ -541,6 +554,7 @@ def llm_judge(state: EvaluatorState, config: RunnableConfig = None) -> dict:
         )[:6000]
 
         prompt = f"""Actuá como juez de segunda instancia. Re-evaluá la siguiente respuesta.
+Respondé SIEMPRE en español.
 
 PREGUNTA:
 {current.get("question", "")}
@@ -560,7 +574,7 @@ EVALUACIÓN PRIMARIA (puntaje: {evaluation.get("score", 0)}):
 INSTRUCCIONES:
 1. Asigná tu propio puntaje independiente de 0 a 10.
 2. Indicá si estás de acuerdo con la evaluación primaria.
-3. Si hay discrepancia significativa, explicala.
+3. Si hay discrepancia significativa, explicala en español.
 4. Si sugerís un puntaje diferente, incluilo en suggested_score."""
 
         structured_llm = get_structured_llm(JudgeVerdict)

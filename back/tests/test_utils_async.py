@@ -55,6 +55,7 @@ class TestRunAsyncInSync:
 
     def test_coro_with_no_args(self):
         """Coroutine returning a string works."""
+
         async def _greet():
             return "hello"
 

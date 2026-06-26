@@ -149,10 +149,11 @@ class TestEvaluateAnswer:
         state = dict(evaluator_state)
         state["current_index"] = 0
 
-        from tests.conftest import _llm_provider_module as _provider
+        with patch("src.llm.get_structured_llm") as mock_gs_llm:
+            fake_invokable = MagicMock()
+            fake_invokable.invoke.side_effect = RuntimeError("LLM unavailable")
+            mock_gs_llm.return_value = fake_invokable
 
-        with patch(_provider()) as mock_groq:
-            mock_groq.side_effect = RuntimeError("LLM unavailable")
             result = evaluate_answer(state)
 
         assert result["status"] == "error"
@@ -179,9 +180,7 @@ class TestValidateFeedback:
                 "incremental. Esto representa la pendiente de la recta tangente."
             ),
             "conceptual_errors": [],
-            "suggestions": [
-                "Repasar las reglas de derivación como la derivada de una suma."
-            ],
+            "suggestions": ["Repasar las reglas de derivación como la derivada de una suma."],
             "is_evaluable": True,
             "status": "evaluated",
         }
@@ -335,9 +334,7 @@ class TestSyncScores:
 class TestValidateFeedbackAntiHallucination:
     """Anti-hallucination: flag fabricated claims."""
 
-    def test_validate_feedback_flags_fabricated_claims(
-        self, evaluator_state, mock_embedding_model
-    ):
+    def test_validate_feedback_flags_fabricated_claims(self, evaluator_state, mock_embedding_model):
         """Claims with no chunk match must produce validation_warnings.
 
         Uses a fabricated claim about "astrophysics" that doesn't match
@@ -391,11 +388,9 @@ class TestValidateFeedbackAntiHallucination:
 class TestLLMJudge:
     """LLM-as-judge: sampling and disagreement detection."""
 
-    def test_llm_judge_disagreement_flags_review(
-        self, evaluator_state
-    ):
+    def test_llm_judge_disagreement_flags_review(self, evaluator_state):
         """|primary.score - judge.score| > 2.0 → requires_review=True."""
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
 
         from src.agents.evaluator import JudgeVerdict, llm_judge
 
@@ -420,15 +415,10 @@ class TestLLMJudge:
             suggested_score=3.0,
         )
 
-        from tests.conftest import _llm_provider_module as _provider
+        fake_invokable = MagicMock()
+        fake_invokable.invoke.return_value = fake_verdict
 
-        with patch(_provider()) as mock_groq:
-            mock_structured = MagicMock()
-            mock_structured.invoke.return_value = fake_verdict
-            mock_instance = MagicMock()
-            mock_instance.with_structured_output.return_value = mock_structured
-            mock_groq.return_value = mock_instance
-
+        with patch("src.llm.get_structured_llm", return_value=fake_invokable):
             result = llm_judge(state)
 
         assert result["requires_review"] is True
@@ -437,7 +427,7 @@ class TestLLMJudge:
 
     def test_llm_judge_agrees_no_flag(self, evaluator_state):
         """|primary.score - judge.score| ≤ 2.0 → requires_review=False."""
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
 
         from src.agents.evaluator import JudgeVerdict, llm_judge
 
@@ -462,15 +452,10 @@ class TestLLMJudge:
             suggested_score=None,
         )
 
-        from tests.conftest import _llm_provider_module as _provider
+        fake_invokable = MagicMock()
+        fake_invokable.invoke.return_value = fake_verdict
 
-        with patch(_provider()) as mock_groq:
-            mock_structured = MagicMock()
-            mock_structured.invoke.return_value = fake_verdict
-            mock_instance = MagicMock()
-            mock_instance.with_structured_output.return_value = mock_structured
-            mock_groq.return_value = mock_instance
-
+        with patch("src.llm.get_structured_llm", return_value=fake_invokable):
             result = llm_judge(state)
 
         assert result["requires_review"] is False
@@ -523,6 +508,83 @@ class TestFullGraphMocked:
         # Graph final status
         assert result.get("scores_synced") is True
         assert result.get("status") in ("synced", "synced_with_errors")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RAG-exclusive answers: evaluator tests (task 3.4)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestEvaluatorNoChunks:
+    """Task 3.4: Evaluator returns cannot_evaluate when no chunks available."""
+
+    def test_evaluator_cannot_evaluate_when_no_chunks(self, evaluator_state):
+        """GIVEN chunk_context is empty → THEN short-circuit to cannot_evaluate (no LLM call).
+
+        Covers evaluation spec: "No chunks available — evaluation skipped".
+        """
+        from unittest.mock import patch
+
+        from src.agents.evaluator import evaluate_answer
+
+        state = dict(evaluator_state)
+        state["current_index"] = 0
+        state["retrieved_chunks"] = []  # Empty chunks
+
+        # Patch get_structured_llm to track whether it was called
+        with patch("src.llm.get_structured_llm") as mock_gs_llm:
+            result = evaluate_answer(state)
+
+            # NO LLM call should have been made
+            mock_gs_llm.assert_not_called()
+
+        eval_dict = result["evaluation"]
+        assert eval_dict is not None
+        assert eval_dict["score"] == 0.0
+        assert eval_dict["is_evaluable"] is False
+        assert eval_dict.get("status") == "cannot_evaluate"
+        reason = eval_dict.get("non_evaluable_reason") or eval_dict.get("reason", "")
+        assert "no_material" in reason
+
+    def test_evaluator_uses_rag_only_prompt_when_chunks_available(
+        self, evaluator_state, mock_evaluator_llm
+    ):
+        """GIVEN chunks are available → THEN evaluation proceeds with score.
+
+        Covers evaluation spec: "Prompt includes RAG-only instruction when chunks available".
+        The mock_evaluator_llm fixture provides the LLM chain; we verify the
+        result shape without inspecting the prompt text (which is a unit
+        concern best tested via the policy module's own test).
+        """
+        from src.agents.evaluator import evaluate_answer
+
+        state = dict(evaluator_state)
+        state["current_index"] = 0
+        # retrieved_chunks already populated from evaluator_state fixture
+
+        result = evaluate_answer(state)
+
+        eval_dict = result["evaluation"]
+        assert eval_dict is not None
+        assert eval_dict["score"] == 8.0  # from mock
+        assert eval_dict["is_evaluable"] is True
+        assert eval_dict["status"] == "evaluated"
+        # Should contain the justification from the mock
+        assert len(eval_dict["justification"]) > 0
+
+    def test_evaluator_no_material_requires_review_false(self, evaluator_state):
+        """GIVEN no chunks → THEN requires_review is False (not a quality issue)."""
+        from src.agents.evaluator import evaluate_answer
+
+        state = dict(evaluator_state)
+        state["current_index"] = 0
+        state["retrieved_chunks"] = []
+
+        result = evaluate_answer(state)
+        eval_dict = result["evaluation"]
+
+        # When cannot_evaluate due to no_material, it should not require review
+        assert eval_dict.get("requires_review", False) is False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -590,8 +652,7 @@ class TestEvaluatorIntegration:
             {
                 "question_id": "q-agent-002",
                 "question": (
-                    "¿Qué diferencia hay entre un agente reactivo "
-                    "y uno basado en objetivos?"
+                    "¿Qué diferencia hay entre un agente reactivo y uno basado en objetivos?"
                 ),
                 "base_answer": (
                     "Un agente reactivo responde directamente a estímulos del entorno "
@@ -618,9 +679,7 @@ class TestEvaluatorIntegration:
 
         assert ev.get("is_evaluable") is True
         score = ev.get("score", 0)
-        assert 3.0 <= score <= 7.5, (
-            f"Expected mid-range score for vague answer, got {score}"
-        )
+        assert 3.0 <= score <= 7.5, f"Expected mid-range score for vague answer, got {score}"
         assert score < 9.0, "Vague answer should not get near-perfect score"
 
     def test_evaluate_wrong_language(self, requires_ollama, evaluator_state):

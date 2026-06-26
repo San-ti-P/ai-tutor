@@ -59,6 +59,8 @@ class ExamQuestion(BaseModel):
     options: list[str] | None = None
     base_answer: str | None = Field(default=None, alias="baseAnswer")
     source_chunk_ids: list[str] | None = Field(default=None, alias="sourceChunkIds")
+    topic: str = Field(default="")
+    difficulty: DifficultyEnum = Field(default="medium")
 
     model_config = {"populate_by_name": True}
 
@@ -88,6 +90,7 @@ class EvaluationRequest(BaseModel):
     session_id: str
     exam_id: str
     answers: dict[str, str]
+    exam_questions: list[ExamQuestion] | None = Field(default=None, alias="examQuestions")
 
 
 class StudentProfile(BaseModel):
@@ -136,9 +139,9 @@ class Exercise(BaseModel):
     statement: str = ""
     given_data: str | None = None
     question: str = ""
-    model_solution: ExerciseModelSolution = Field(default_factory=lambda: ExerciseModelSolution(
-        steps=[], final_answer="", key_concepts=[]
-    ))
+    model_solution: ExerciseModelSolution = Field(
+        default_factory=lambda: ExerciseModelSolution(steps=[], final_answer="", key_concepts=[])
+    )
     topics_covered: list[str] = []
     source_chunk_ids: list[str] | None = None
     topic_not_found: list[str] = []

@@ -656,9 +656,7 @@ class TestHardening:
             patch("src.tools._get_or_compile", return_value=mock_graph),
             patch("src.observability.get_tracer", return_value=self._mock_tracer(mock_handler)),
         ):
-            tools_mod.generate_exercise.invoke(
-                {"session_id": "s1", "topic": "algebra"}
-            )
+            tools_mod.generate_exercise.invoke({"session_id": "s1", "topic": "algebra"})
 
         config = mock_graph.invoke.call_args.kwargs["config"]
         assert config["callbacks"] == [mock_handler]
@@ -669,9 +667,7 @@ class TestHardening:
             patch("src.tools._get_or_compile", return_value=mock_graph),
             patch("src.observability.get_tracer", return_value=self._mock_tracer(None)),
         ):
-            tools_mod.generate_exercise.invoke(
-                {"session_id": "s1", "topic": "algebra"}
-            )
+            tools_mod.generate_exercise.invoke({"session_id": "s1", "topic": "algebra"})
 
         config = mock_graph.invoke.call_args.kwargs["config"]
         assert "callbacks" not in config
@@ -764,15 +760,11 @@ class TestHardening:
                 "evaluation_results": [{"question_id": "q1"}],
             }
             with patch("src.tools._get_or_compile", return_value=mock_graph):
-                tools_mod.ingest_document.invoke(
-                    {"file_path": str(sample_txt), "session_id": "s1"}
-                )
+                tools_mod.ingest_document.invoke({"file_path": str(sample_txt), "session_id": "s1"})
                 tools_mod.generate_exam.invoke(
                     {"session_id": "s1", "topics": ["t"], "question_count": 1}
                 )
-                tools_mod.generate_exercise.invoke(
-                    {"session_id": "s1", "topic": "t"}
-                )
+                tools_mod.generate_exercise.invoke({"session_id": "s1", "topic": "t"})
                 tools_mod.evaluate_answer.invoke(
                     {
                         "session_id": "s1",
@@ -965,14 +957,11 @@ class TestObservationTypes:
         mod = importlib.import_module("src.rag")
 
         with patch("langfuse.observe") as mock_obs:
-            mock_obs.side_effect = lambda **kw: (lambda fn: fn)
+            mock_obs.side_effect = lambda **kw: lambda fn: fn
             importlib.reload(mod)
 
         # Collect all as_type values passed to @observe
-        as_types = [
-            call.kwargs.get("as_type")
-            for call in mock_obs.call_args_list
-        ]
+        as_types = [call.kwargs.get("as_type") for call in mock_obs.call_args_list]
         assert "embedding" in as_types, (
             f"embed_and_store must use as_type='embedding', got {as_types}"
         )
@@ -984,16 +973,11 @@ class TestObservationTypes:
         mod = importlib.import_module("src.rag")
 
         with patch("langfuse.observe") as mock_obs:
-            mock_obs.side_effect = lambda **kw: (lambda fn: fn)
+            mock_obs.side_effect = lambda **kw: lambda fn: fn
             importlib.reload(mod)
 
-        as_types = [
-            call.kwargs.get("as_type")
-            for call in mock_obs.call_args_list
-        ]
-        assert "retriever" in as_types, (
-            f"retrieve must use as_type='retriever', got {as_types}"
-        )
+        as_types = [call.kwargs.get("as_type") for call in mock_obs.call_args_list]
+        assert "retriever" in as_types, f"retrieve must use as_type='retriever', got {as_types}"
 
     def test_tools_init_as_type_tool(self):
         """All @observe in tools/__init__.py must use as_type='tool'."""
@@ -1002,15 +986,19 @@ class TestObservationTypes:
         mod = importlib.import_module("src.tools")
 
         with patch("langfuse.observe") as mock_obs:
-            mock_obs.side_effect = lambda **kw: (lambda fn: fn)
+            mock_obs.side_effect = lambda **kw: lambda fn: fn
             importlib.reload(mod)
 
         calls_by_name = {
-            call.kwargs.get("name"): call.kwargs.get("as_type")
-            for call in mock_obs.call_args_list
+            call.kwargs.get("name"): call.kwargs.get("as_type") for call in mock_obs.call_args_list
         }
-        expected = ["retrieve_chunks", "ingest_document", "generate_exercise",
-                     "evaluate_answer", "generate_exam"]
+        expected = [
+            "retrieve_chunks",
+            "ingest_document",
+            "generate_exercise",
+            "evaluate_answer",
+            "generate_exam",
+        ]
         for name in expected:
             assert name in calls_by_name, f"{name} not found in @observe calls"
             assert calls_by_name[name] == "tool", (
@@ -1185,14 +1173,10 @@ class TestContextPropagation:
             mock_get_tracer.return_value = mock_tracer
 
             importlib.reload(tools_mod)
-            tools_mod.ingest_document.invoke(
-                {"file_path": "/tmp/f.txt", "session_id": "ctx-s1"}
-            )
+            tools_mod.ingest_document.invoke({"file_path": "/tmp/f.txt", "session_id": "ctx-s1"})
 
         # propagate_attributes must be called with session_id
-        assert mock_pa.called, (
-            "propagate_attributes must be called before graph.invoke"
-        )
+        assert mock_pa.called, "propagate_attributes must be called before graph.invoke"
         update_kwargs = mock_pa.call_args.kwargs
         assert update_kwargs.get("session_id") == "ctx-s1", (
             f"Expected session_id='ctx-s1', got {update_kwargs}"
@@ -1241,9 +1225,7 @@ class TestContextPropagation:
             mock_get_tracer.return_value = mock_tracer
 
             importlib.reload(tools_mod)
-            tools_mod.generate_exercise.invoke(
-                {"session_id": "ctx-s3", "topic": "algebra"}
-            )
+            tools_mod.generate_exercise.invoke({"session_id": "ctx-s3", "topic": "algebra"})
 
         assert mock_pa.called
         assert mock_pa.call_args.kwargs.get("session_id") == "ctx-s3"
@@ -1311,9 +1293,7 @@ class TestMetadataInjectionCompat:
                         f"environment preserved in metadata, got {meta}"
                     )
                     # Other keys like test_run_id should stay
-                    assert "test_run_id" in meta, (
-                        f"test_run_id preserved in metadata, got {meta}"
-                    )
+                    assert "test_run_id" in meta, f"test_run_id preserved in metadata, got {meta}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1345,9 +1325,7 @@ class TestLangfuseRealTraces:
 
         def spy_start(*, name, as_type="span", metadata=None, **kwargs):
             captured_meta.update(metadata or {})
-            return original_start(
-                name=name, as_type=as_type, metadata=metadata, **kwargs
-            )
+            return original_start(name=name, as_type=as_type, metadata=metadata, **kwargs)
 
         monkeypatch.setattr(obs_manager._client, "start_observation", spy_start)
 
@@ -1366,13 +1344,19 @@ class TestLangfuseRealTraces:
         assert captured_meta.get("source") == "pytest-integration", (
             f"Expected source=pytest-integration, got {captured_meta}"
         )
-        assert "test_name" in captured_meta, (
-            f"Expected test_name in metadata, got {captured_meta}"
-        )
+        assert "test_name" in captured_meta, f"Expected test_name in metadata, got {captured_meta}"
 
     def test_agent_invocation_creates_trace(
-        self, langfuse_observe_tests, test_run_id, obs_manager, sample_txt,
-        mock_llm_response, mock_embedding_model, in_memory_chroma, request, monkeypatch,
+        self,
+        langfuse_observe_tests,
+        test_run_id,
+        obs_manager,
+        sample_txt,
+        mock_llm_response,
+        mock_embedding_model,
+        in_memory_chroma,
+        request,
+        monkeypatch,
     ):
         """Running an agent flow creates a Langfuse trace with test metadata.
 
@@ -1392,9 +1376,7 @@ class TestLangfuseRealTraces:
         assert tracer.enabled, "Tracer should be enabled with real Langfuse keys"
 
         handler = tracer.get_callback_handler(session_id="integration-sess-001")
-        assert handler is not None, (
-            "CallbackHandler should be created when Langfuse is available"
-        )
+        assert handler is not None, "CallbackHandler should be created when Langfuse is available"
 
         # Build and run ingestor with Langfuse callback
         graph = build_ingestor().compile()
@@ -1424,9 +1406,7 @@ class TestLangfuseRealTraces:
 
             def spy_start(*, name, as_type="span", metadata=None, **kwargs):
                 captured_meta.update(metadata or {})
-                return original_start(
-                    name=name, as_type=as_type, metadata=metadata, **kwargs
-                )
+                return original_start(name=name, as_type=as_type, metadata=metadata, **kwargs)
 
             monkeypatch.setattr(obs_manager._client, "start_observation", spy_start)
 
@@ -1438,11 +1418,16 @@ class TestLangfuseRealTraces:
 
         # After agent run, flush traces
         from src.observability import flush_traces
+
         flush_traces()
 
     def test_langfuse_unreachable_agent_does_not_crash(
-        self, langfuse_observe_tests, sample_txt, mock_llm_response,
-        mock_embedding_model, in_memory_chroma,
+        self,
+        langfuse_observe_tests,
+        sample_txt,
+        mock_llm_response,
+        mock_embedding_model,
+        in_memory_chroma,
     ):
         """Agent completes successfully even when Langfuse is unreachable.
 
@@ -1468,9 +1453,7 @@ class TestLangfuseRealTraces:
             assert not tracer.enabled, "Tracer must be disabled when Langfuse unreachable"
 
             handler = tracer.get_callback_handler(session_id="crash-test-sess")
-            assert handler is None, (
-                "CallbackHandler must be None when Langfuse unreachable"
-            )
+            assert handler is None, "CallbackHandler must be None when Langfuse unreachable"
 
             # Run agent without Langfuse — must not crash
             graph = build_ingestor().compile()
@@ -1492,8 +1475,7 @@ class TestLangfuseRealTraces:
             final_state = graph.invoke(initial_state)
 
             assert final_state["status"] == "completed", (
-                f"Agent should complete even without Langfuse: "
-                f"{final_state.get('errors', [])}"
+                f"Agent should complete even without Langfuse: {final_state.get('errors', [])}"
             )
 
         # Clean up: reset singleton so subsequent tests get fresh state

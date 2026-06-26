@@ -12,7 +12,8 @@ from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from src.config import settings
-from src.llm import get_llm as _get_llm, get_structured_llm
+from src.llm import get_llm as _get_llm
+from src.llm import get_structured_llm
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,8 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
             "Sos un clasificador de intents para un tutor académico. "
             "Clasificá el mensaje del usuario en UNA de estas 8 categorías:\n\n"
             "  - ingest: el usuario quiere SUBIR apuntes, PDFs, documentos\n"
-            "  - retrieve: preguntar/consultar sobre el contenido de apuntes o documentos YA SUBIDOS\n"
+            "  - retrieve: preguntar/consultar sobre el contenido de apuntes"
+            " o documentos YA SUBIDOS\n"
             "  - generate_exam: pide generar un examen\n"
             "  - generate_exercise: pide un ejercicio práctico\n"
             "  - evaluate: pide que corrijan/evalúen una respuesta\n"
@@ -121,7 +123,8 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
             "1. Si es saludo, cortesía, o NO contiene tarea académica explícita → "
             "general_chat con confidence >= 0.95\n"
             "2. Ante la duda entre dos intents, elegí general_chat\n"
-            "3. ingest SOLO si el usuario quiere SUBIR un archivo; retrieve SOLO si pregunta por contenido ya subido\n"
+            "3. ingest SOLO si el usuario quiere SUBIR un archivo; retrieve SOLO"
+            " si pregunta por contenido ya subido\n"
             "4. composite SOLO si hay 2+ tareas distintas y explícitas (no inferidas)\n\n"
             "EJEMPLOS:\n"
             '"Hola" → {"intent": "general_chat", "confidence": 0.99}\n'
@@ -139,7 +142,10 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
             weak = profile.get("weak_topics", [])
             if weak:
                 prompt += f"Contexto del estudiante (temas débiles): {weak}\n"
-        prompt += "Respondé SOLO con un objeto JSON con claves 'intent' y 'confidence'."
+        prompt += (
+            "Respondé SOLO con un objeto JSON con claves 'intent' y 'confidence'. "
+            "El output SIEMPRE debe ser en español."
+        )
 
         invoke_kwargs = {"config": config} if config is not None else {}
         result = structured.invoke(prompt, **invoke_kwargs)
@@ -199,7 +205,7 @@ def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> d
             f"{tool_descriptions}\n\n"
             "Generá una lista ORDENADA de nombres de herramientas a ejecutar. "
             "Solo usá herramientas de la lista. Respondé SOLO con un objeto JSON "
-            'con clave "steps". '
+            'con clave "steps". El output SIEMPRE debe ser en español. '
             'Ejemplo: {"steps": ["generate_exam", "evaluate"]}'
         )
 
@@ -285,8 +291,10 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
             args["student_profile"] = profile
     elif tool_name == "generate_exercise":
         msg_topics = _extract_topics(state["user_message"])
-        args["topic"] = msg_topics[0] if msg_topics else (
-            profile.get("weak_topics", ["general"])[0] if profile else "general"
+        args["topic"] = (
+            msg_topics[0]
+            if msg_topics
+            else (profile.get("weak_topics", ["general"])[0] if profile else "general")
         )
         args["difficulty"] = _extract_difficulty(state["user_message"])
         args["exercise_type"] = "problem_solving"
@@ -342,7 +350,8 @@ async def execute_step(state: OrchestratorState) -> dict:
     if tool is None:
         logger.warning("Tool '%s' not found in TOOL_MAP", tool_name)
         return {
-            "errors": errors + [
+            "errors": errors
+            + [
                 {
                     "step": current,
                     "tool": tool_name,
@@ -372,6 +381,70 @@ async def execute_step(state: OrchestratorState) -> dict:
         }
 
 
+def _is_academic_question(message: str) -> bool:
+    """Determine whether *message* looks like an academic question.
+
+    Uses deterministic regex/heuristics — no LLM call — to avoid
+    probing retrieval for greetings, casual chat, or how-to-use-app
+    questions.
+
+    Returns True when:
+    - Message length >= 10 characters.
+    - Contains question-like patterns in Spanish (¿, ?, qué es, explica,
+      definí, cómo se, cuál, etc.).
+    - Does NOT match typical greeting/courtesy patterns.
+    - Does NOT match meta/how-to-use-app patterns.
+    """
+    import re
+
+    if not message or len(message.strip()) < 10:
+        return False
+
+    msg = message.strip().lower()
+
+    # Exclude greetings, thanks, farewells
+    greeting_patterns = [
+        r"^(hola|buenos\s+d[ií]as|buenas\s+(tardes|noches)|chau|adios|gracias)",
+        r"^(ok|okey|entendido|perfecto|genial|bien|bueno)[\s\!\.]*$",
+        r"^(c[oó]mo\s+(est[aá]s|andas|va|andan))",
+    ]
+    for pat in greeting_patterns:
+        if re.search(pat, msg):
+            return False
+
+    # Exclude meta / how-to-use-app questions
+    meta_patterns = [
+        r"c[oó]mo\s+(funciona|uso|subo|hago|puedo|se\s+usa)",
+        r"qu[eé]\s+(puedes|pod[eé]s|hac[eé]s|sabes|sab[eé]s)\s+hacer",
+        r"para\s+qu[eé]\s+(sirve|sirven|funciona)",
+        r"ayuda|help|comando",
+    ]
+    for pat in meta_patterns:
+        if re.search(pat, msg):
+            return False
+
+    # Academic question signals
+    academic_signals = [
+        r"[¿\?]",  # Contains question marks
+        r"qu[eé]\s+(es|son|significa)",  # "qué es/son/significa"
+        r"explic[aá]",  # "explica/explicá"
+        r"defin[ií]",  # "definí/define"
+        r"c[oó]mo\s+(se\s+)?(calcula|resuelve|determina|obtiene|halla)",
+        r"cu[aá]l\s+(es|son)",  # "cuál es/son"
+        r"diferencia\s+entre",
+        r"qu[eé]\s+(dice|dice\s+el|habla|trata|contiene)",
+        r"en\s+qu[eé]\s+(consiste|se\s+basa)",
+        r"mencion[aá]",  # "menciona/mencioná"
+        r"describ[ií]",  # "describe/describí"
+        r"caracter[ií]sticas?\s+de",
+    ]
+    for pat in academic_signals:
+        if re.search(pat, msg):
+            return True
+
+    return False
+
+
 def synthesize_response(state: OrchestratorState, config: RunnableConfig = None) -> dict:
     """Combine results from agent executions into a final response.
 
@@ -382,6 +455,8 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
     - On LLM failure: hardcoded Spanish apology + raw results.
     """
     import json
+
+    from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT, no_material_message
 
     intent = state["intent"]
     message = state["user_message"]
@@ -410,9 +485,46 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
         llm = _get_llm()
 
         if intent == "general_chat" and not results:
-            prompt = (
-                f'El usuario preguntó: "{message}"\nRespondé de forma clara y educativa en español.'
-            )
+            # Academic probe: check if this looks like an academic question
+            if _is_academic_question(message):
+                from src.tools import query_material as _query_material
+
+                try:
+                    qm_result = _query_material.invoke(
+                        {
+                            "query": message,
+                            "session_id": state["session_id"],
+                            "top_k": 3,  # lighter probe
+                        }
+                    )
+
+                    if qm_result.get("chunks_found", 0) > 0:
+                        # RAG-grounded: synthesize with chunks
+                        chunks_text = "\n\n".join(qm_result.get("sources", []))
+                        prompt = (
+                            f"{RAG_ONLY_SYSTEM_PROMPT}\n\n"
+                            f"Fragmentos del material:\n{chunks_text}\n\n"
+                            f"Pregunta del estudiante: {message}\n\n"
+                            "Respondé SIEMPRE en español, de forma clara y educativa, "
+                            "citando los fragmentos relevantes."
+                        )
+                    else:
+                        # No chunks — return canonical no-material message
+                        return {
+                            "response": no_material_message(),
+                            "status": "complete",
+                        }
+                except Exception as exc:
+                    logger.warning("Academic probe retrieval failed: %s", exc)
+                    return {
+                        "response": no_material_message(),
+                        "status": "complete",
+                    }
+            else:
+                prompt = (
+                    f'El usuario preguntó: "{message}"\n'
+                    "Respondé SIEMPRE en español, de forma clara y educativa."
+                )
         else:
             results_str = json.dumps(results, ensure_ascii=False, indent=2)
             errors_str = json.dumps(errors, ensure_ascii=False, indent=2) if errors else "ninguno"
@@ -426,12 +538,12 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
                 prompt += (
                     "Algunas tareas no se completaron exitosamente. "
                     "Generá una respuesta que resuma lo logrado y mencione los errores. "
-                    "Sé honesto pero alentador en español."
+                    "Respondé SIEMPRE en español. Sé honesto pero alentador."
                 )
             else:
                 prompt += (
                     "Generá una respuesta coherente que resuma todos estos resultados "
-                    "en español, de forma clara y educativa."
+                    "de forma clara y educativa. Respondé SIEMPRE en español."
                 )
 
         invoke_kwargs = {"config": config} if config is not None else {}

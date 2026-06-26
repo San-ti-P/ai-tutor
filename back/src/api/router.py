@@ -9,7 +9,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from src.api.schemas import (
     ApiResponse,
@@ -24,7 +24,6 @@ from src.api.schemas import (
     Exercise,
     ExerciseModelSolution,
     ExerciseRequest,
-    HealthResponse,
     IngestResult,
     PreferencesStatus,
     PreferencesUpdate,
@@ -67,11 +66,54 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
     )
 
 
+def _validate_session_id(raw: str | None) -> str:
+    """Validate and sanitise an incoming session_id.
+
+    Accepts only non-empty, ≤ 64 chars, and UUID-like values (standard
+    UUID regex or at least 32 hex chars with optional dashes). Returns
+    a generated UUID4 when the input is invalid or absent.
+
+    Rationale: avoids Langfuse OTEL baggage drop (>200 chars) and
+    ChromaDB collection-name limits.
+    """
+    import re
+
+    if not raw or not raw.strip():
+        return str(uuid.uuid4())
+
+    sid = raw.strip()
+    if len(sid) > 64:
+        logger.warning("session_id too long (%d chars), generating UUID", len(sid))
+        return str(uuid.uuid4())
+
+    # Standard UUID4 with dashes
+    uuid_pattern = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        re.IGNORECASE,
+    )
+    if uuid_pattern.match(sid):
+        return sid
+
+    # At least 32 hex chars with optional dashes (loose UUID)
+    hex_only = re.sub(r"-", "", sid)
+    if re.match(r"^[0-9a-f]{32}$", hex_only, re.IGNORECASE):
+        return sid
+
+    logger.warning("session_id '%s' not UUID-like, generating UUID", sid)
+    return str(uuid.uuid4())
+
+
 @router.post("/ingest", response_model=ApiResponse[list[IngestResult]])
-async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[IngestResult]]:
+async def ingest(
+    files: list[UploadFile] = File(...),
+    session_id: str | None = Form(None),
+) -> ApiResponse[list[IngestResult]]:
     logger.info("Ingest request received with %d file(s)", len(files))
     results: list[IngestResult] = []
-    request_session_id = str(uuid.uuid4())
+
+    # Validate or generate session_id
+    effective_session_id = _validate_session_id(session_id)
+    logger.info("Effective ingest session_id: %s", effective_session_id)
 
     # Use the tools layer — ingest_document wraps the full ingestion graph
     from src.tools import ingest_document as _ingest_tool
@@ -84,15 +126,13 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
             tmp_path = tmp.name
 
         try:
-            session_id = request_session_id
-
             result = await _ingest_tool.ainvoke(
-                {"file_path": tmp_path, "session_id": session_id},
+                {"file_path": tmp_path, "session_id": effective_session_id},
             )
 
             results.append(
                 IngestResult(
-                    sessionId=session_id,
+                    sessionId=effective_session_id,
                     status=result.get("status", "unknown"),
                     classification=result.get("classification", ""),
                     topicsDetected=result.get("topics", []),
@@ -105,7 +145,7 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
             logger.exception("Ingest failed for %s", file.filename)
             results.append(
                 IngestResult(
-                    sessionId=session_id,
+                    sessionId=effective_session_id,
                     status="error",
                     classification="",
                     topicsDetected=[],
@@ -118,7 +158,7 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
     return ApiResponse(
         data=results,
         error=None,
-        trace_id=str(request_session_id),
+        trace_id=str(effective_session_id),
     )
 
 
@@ -175,20 +215,53 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
 
     from src.tools import evaluate_answer as _evaluate_tool
 
+    # Build lookup map from exam_questions (if provided) for cross-referencing
+    question_map: dict[str, dict] = {}
+    if request.exam_questions:
+        for eq in request.exam_questions:
+            question_map[eq.id] = {
+                "question": eq.prompt,
+                "base_answer": eq.base_answer or "",
+                "topic": eq.topic,
+                "difficulty": eq.difficulty.value
+                if hasattr(eq.difficulty, "value")
+                else str(eq.difficulty),
+                "source_chunk_ids": eq.source_chunk_ids or [],
+            }
+
     # Convert dict[str, str] answers to list[dict] format expected by evaluator
     answers_list: list[dict] = []
     for question_id, student_answer in request.answers.items():
-        answers_list.append(
-            {
-                "question_id": question_id,
-                "question": "",  # Would come from exam data in full impl
-                "base_answer": "",  # Would come from exam data
-                "student_answer": student_answer,
-                "source_chunk_ids": [],
-                "topic": "",
-                "difficulty": "medium",
-            }
-        )
+        if question_id in question_map:
+            qdata = question_map[question_id]
+            answers_list.append(
+                {
+                    "question_id": question_id,
+                    "question": qdata["question"],
+                    "base_answer": qdata["base_answer"],
+                    "student_answer": student_answer,
+                    "source_chunk_ids": qdata["source_chunk_ids"],
+                    "topic": qdata["topic"],
+                    "difficulty": qdata["difficulty"],
+                }
+            )
+        else:
+            if request.exam_questions:
+                logger.warning(
+                    "question_id '%s' not found in exam_questions, using empty placeholders",
+                    question_id,
+                )
+            answers_list.append(
+                {
+                    "question_id": question_id,
+                    "question": "",
+                    "base_answer": "",
+                    "student_answer": student_answer,
+                    "source_chunk_ids": [],
+                    "topic": "",
+                    "difficulty": "medium",
+                }
+            )
 
     try:
         results = _evaluate_tool.invoke(

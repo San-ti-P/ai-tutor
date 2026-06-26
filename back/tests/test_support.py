@@ -364,9 +364,7 @@ class TestGetStudentSummaryTool:
                 ],
             )
 
-            result = await get_student_summary.ainvoke(
-                {"student_id": "test-student-001"}
-            )
+            result = await get_student_summary.ainvoke({"student_id": "test-student-001"})
 
             assert result is not None
             assert result["id"] == "test-student-001"
@@ -383,9 +381,7 @@ class TestGetStudentSummaryTool:
         with patch("src.memory.schema.settings") as mock_schema_settings:
             mock_schema_settings.sqlite_db_path = populated_db
 
-            result = await get_student_summary.ainvoke(
-                {"student_id": "nonexistent"}
-            )
+            result = await get_student_summary.ainvoke({"student_id": "nonexistent"})
 
             assert result is None
 
@@ -652,9 +648,7 @@ class TestMultiSessionAdaptation:
 
             weak = asyncio.run(_check())
             assert "cálculo" in weak, f"Expected 'cálculo' in weak topics, got {weak}"
-            assert "álgebra" not in weak, (
-                f"'álgebra' with score 8.0 should not be weak, got {weak}"
-            )
+            assert "álgebra" not in weak, f"'álgebra' with score 8.0 should not be weak, got {weak}"
 
 
 @pytest.mark.integration
@@ -704,6 +698,7 @@ class TestEvaluatorTopicScoresSync:
 
             # The function uses asyncio.ensure_future or event loop — need to wait
             import time
+
             time.sleep(0.5)
 
             # Verify topic_scores were upserted
@@ -750,6 +745,7 @@ class TestDashboardEndpoint:
 
             # Seed evaluations and topic_scores via upsert_topic_scores
             from src.memory.schema import upsert_topic_scores
+
             await upsert_topic_scores(
                 "test-student-001",
                 [
@@ -804,13 +800,11 @@ class TestDashboardEndpoint:
             mock_settings.sqlite_db_path = populated_db
 
             # Seed realistic data volume
-            topics = [
-                {"topic": f"topic_{i}", "score": float(i % 10)}
-                for i in range(20)
-            ]
+            topics = [{"topic": f"topic_{i}", "score": float(i % 10)} for i in range(20)]
             await upsert_topic_scores("test-student-001", topics)
 
             from src.main import app
+
             client = TestClient(app)
 
             # Warm-up

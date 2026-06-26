@@ -46,18 +46,19 @@ def _llm_provider_module() -> str:
 
 @contextmanager
 def patch_llm(fake_return: Any):
-    """Context manager that patches the current LLM provider's chat class.
+    """Context manager that patches get_structured_llm for deterministic testing.
 
-    The mock is set up with ``with_structured_output().invoke()`` returning
-    *fake_return*, matching the pattern used by all agent nodes.
+    Patches ``src.llm.get_structured_llm`` to return a callable that
+    ignores the schema and returns *fake_return* directly. This works
+    across all providers (Ollama, Groq, etc.) because it bypasses the
+    entire LLM instantiation and chain assembly.
     """
-    with patch(_llm_provider_module()) as mock_llm:
-        mock_structured = MagicMock()
-        mock_structured.invoke.return_value = fake_return
-        mock_instance = MagicMock()
-        mock_instance.with_structured_output.return_value = mock_structured
-        mock_llm.return_value = mock_instance
-        yield mock_llm
+
+    fake_invokable = MagicMock()
+    fake_invokable.invoke.return_value = fake_return
+
+    with patch("src.llm.get_structured_llm", return_value=fake_invokable) as mock_gs_llm:
+        yield mock_gs_llm
 
 
 @pytest.fixture
@@ -379,16 +380,11 @@ def mock_exam_llm():
         },
     )
 
-    with patch(_llm_provider_module()) as mock_groq:
-        mock_structured = MagicMock()
-        mock_structured.invoke.return_value = fake_exam
-        mock_instance = MagicMock()
-        mock_instance.with_structured_output.return_value = mock_structured
-        mock_groq.return_value = mock_instance
-        yield mock_groq
-
-
-# ── Real-model integration fixtures (opt-in via `-m integration`) ─────────────
+    with patch("src.llm.get_structured_llm") as mock_gs_llm:
+        fake_invokable = MagicMock()
+        fake_invokable.invoke.return_value = fake_exam
+        mock_gs_llm.return_value = fake_invokable
+        yield mock_gs_llm
 
 
 @pytest.fixture
@@ -523,13 +519,11 @@ def mock_exercise_llm():
         },
     )
 
-    with patch(_llm_provider_module()) as mock_groq:
-        mock_structured = MagicMock()
-        mock_structured.invoke.return_value = fake_exercise
-        mock_instance = MagicMock()
-        mock_instance.with_structured_output.return_value = mock_structured
-        mock_groq.return_value = mock_instance
-        yield mock_groq
+    with patch("src.llm.get_structured_llm") as mock_gs_llm:
+        fake_invokable = MagicMock()
+        fake_invokable.invoke.return_value = fake_exercise
+        mock_gs_llm.return_value = fake_invokable
+        yield mock_gs_llm
 
 
 # ── Orchestrator fixtures ───────────────────────────────────────────────────
