@@ -64,6 +64,14 @@
       "sessions": 0,
       "memories": 12,
       "prompts": 9
+    },
+    {
+      "id": "99be1142",
+      "created_by": "bmlp",
+      "created_at": "2026-06-26T22:26:07Z",
+      "sessions": 1,
+      "memories": 8,
+      "prompts": 12
     }
   ]
 }

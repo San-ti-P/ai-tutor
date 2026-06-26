@@ -317,6 +317,11 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dic
     idx: int = state.get("current_index", 0)
     chunks: list[dict] = state.get("retrieved_chunks", [])
 
+    logger.info(
+        "[evaluate_answer] START | session=%s | answers=%d | idx=%d",
+        state["session_id"], len(answers), idx,
+    )
+
     if idx >= len(answers):
         return {"errors": ["current_index out of range"], "status": "error"}
 

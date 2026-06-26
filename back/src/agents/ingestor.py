@@ -51,6 +51,9 @@ def parse_document(state: IngestorState) -> dict:
     Uses ``src.utils.text.parse_file_to_text`` — the single source of truth
     for markitdown-based parsing.
     """
+    import time
+
+    t0 = time.monotonic()
     try:
         from pathlib import Path
 
@@ -81,6 +84,11 @@ def parse_document(state: IngestorState) -> dict:
 
         raw_text = parse_file_to_text(str(file_path))
 
+        elapsed = (time.monotonic() - t0) * 1000
+        logger.info(
+            "[parse_document] COMPLETE | session=%s | type=%s | len=%d | %dms",
+            state["session_id"], file_type, len(raw_text), int(elapsed),
+        )
         return {
             "raw_text": raw_text,
             "file_type": file_type,
@@ -98,10 +106,18 @@ async def classify_document(state: IngestorState, config: RunnableConfig = None)
     prompt, then injects pipeline-detected topics as context for the classifier.
     Classification itself still uses ``raw_text[:3000]`` preview.
     """
+    import time
+
     from pydantic import BaseModel, Field
 
     from src.config import settings
     from src.topic_extraction import extract_topics_pipeline
+
+    t0 = time.monotonic()
+    logger.info(
+        "[classify_document] START | session=%s",
+        state["session_id"],
+    )
 
     class Classification(BaseModel):
         classification: Literal[
@@ -140,6 +156,11 @@ Texto (vista previa):
         result = structured_llm.invoke(prompt, **invoke_kwargs)
 
         if result.classification == "no_academico":
+            elapsed = (time.monotonic() - t0) * 1000
+            logger.info(
+                "[classify_document] COMPLETE | session=%s | rejected=non_academic | %dms",
+                state["session_id"], int(elapsed),
+            )
             return {
                 "classification": result.classification,
                 "classification_confidence": result.confidence,
@@ -150,6 +171,11 @@ Texto (vista previa):
             }
 
         if result.confidence < settings.classification_confidence_threshold:
+            elapsed = (time.monotonic() - t0) * 1000
+            logger.info(
+                "[classify_document] COMPLETE | session=%s | uncertain | confidence=%.2f | %dms",
+                state["session_id"], result.confidence, int(elapsed),
+            )
             return {
                 "classification": result.classification,
                 "classification_confidence": result.confidence,
@@ -158,6 +184,11 @@ Texto (vista previa):
                 "status": "classification_uncertain",
             }
 
+        elapsed = (time.monotonic() - t0) * 1000
+        logger.info(
+            "[classify_document] COMPLETE | session=%s | class=%s | topics=%d | %dms",
+            state["session_id"], result.classification, len(pipeline_topics), int(elapsed),
+        )
         return {
             "classification": result.classification,
             "classification_confidence": result.confidence,
@@ -175,8 +206,15 @@ Texto (vista previa):
 
 def chunk_and_embed(state: IngestorState) -> dict:
     """Split text into semantic chunks and store in ChromaDB with embeddings."""
+    import time
+
     from src.rag import chunk_text, embed_and_store
 
+    t0 = time.monotonic()
+    logger.info(
+        "[chunk_and_embed] START | session=%s",
+        state["session_id"],
+    )
     try:
         document_id = state.get("document_id") or str(uuid.uuid4())
 
@@ -218,6 +256,11 @@ def chunk_and_embed(state: IngestorState) -> dict:
         collection_name = f"session_{state['session_id']}"
         chunk_ids = embed_and_store(chunk_texts, metadatas, collection_name)
 
+        elapsed = (time.monotonic() - t0) * 1000
+        logger.info(
+            "[chunk_and_embed] COMPLETE | session=%s | chunks=%d | %dms",
+            state["session_id"], len(chunk_ids), int(elapsed),
+        )
         return {
             "document_id": document_id,
             "chunk_ids": chunk_ids,

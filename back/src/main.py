@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Load .env into os.environ so Langfuse SDK global singleton finds keys
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from src.api.router import router  # noqa: E402
+from src.api.router import router  # noqa: E402 (dotenv must load first)
 from src.memory.schema import init_db  # noqa: E402
 
 
