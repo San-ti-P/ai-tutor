@@ -159,6 +159,41 @@ interface EvaluationRequest {
   answers: Record<string, string>;
 }
 
+interface Session {
+  id: string;
+  name: string;
+  description: string;
+  studentId: string;
+  createdAt: string;
+  status: string;
+  fileCount: number;
+  examCount: number;
+  averageScore: number | null;
+}
+
+interface SessionFile {
+  id: string;
+  fileName: string;
+  classification: string;
+  topics: string[];
+  chunksCount: number;
+  ingestedAt: string;
+}
+
+interface SessionProfile {
+  sessionId: string;
+  topicScores: Record<string, number[]>;
+  weakTopics: string[];
+  examCount: number;
+  averageScore: number | null;
+}
+
+interface SessionCreate {
+  name: string;
+  description?: string;
+  studentId: string;
+}
+
 export { INTENT, MESSAGE_ROLE, QUESTION_TYPE, DIFFICULTY };
 
 export type {
@@ -180,4 +215,8 @@ export type {
   ChatResponse,
   ExamRequest,
   EvaluationRequest,
+  Session,
+  SessionFile,
+  SessionProfile,
+  SessionCreate,
 };

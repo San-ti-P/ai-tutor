@@ -10,6 +10,10 @@ import type {
   EvaluationResult,
   IngestResult,
   StudentProfile,
+  Session,
+  SessionFile,
+  SessionProfile,
+  SessionCreate,
 } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -63,6 +67,14 @@ async function apiUpload<T>(path: string, files: File[], sessionId?: string): Pr
   return res.json() as Promise<T>;
 }
 
+async function apiDelete<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, { method: "DELETE" });
+  if (!res.ok) {
+    throw new Error(`DELETE ${path} failed: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 export const api = {
   chat: (req: ChatRequest) =>
     apiPost<ApiResponse<ChatResponse>>("/api/chat", req),
@@ -93,4 +105,24 @@ export const api = {
       `/api/profile/${studentId}/preferences`,
       prefs
     ),
+
+  // ── Session lifecycle ────────────────────────────────────────────────
+
+  listSessions: (studentId: string) =>
+    apiGet<ApiResponse<Session[]>>(`/api/sessions?student_id=${encodeURIComponent(studentId)}`),
+
+  createSession: (req: SessionCreate) =>
+    apiPost<ApiResponse<Session>>("/api/sessions", req),
+
+  getSession: (sessionId: string) =>
+    apiGet<ApiResponse<Session>>(`/api/sessions/${sessionId}`),
+
+  deleteSession: (sessionId: string) =>
+    apiDelete<ApiResponse<{ deleted: string }>>(`/api/sessions/${sessionId}`),
+
+  getSessionFiles: (sessionId: string) =>
+    apiGet<ApiResponse<SessionFile[]>>(`/api/sessions/${sessionId}/files`),
+
+  getSessionProfile: (sessionId: string) =>
+    apiGet<ApiResponse<SessionProfile>>(`/api/sessions/${sessionId}/profile`),
 };

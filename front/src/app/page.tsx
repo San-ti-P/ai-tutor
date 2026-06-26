@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useSession } from "@/hooks/useSession";
+import { useState, useCallback, useEffect } from "react";
+import { useStudySession } from "@/hooks/useStudySession";
 import { api } from "@/lib/api";
 import { ChatMessageList } from "@/components/chat/ChatMessageList";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { UploadDropzone } from "@/components/upload/UploadDropzone";
+import { SessionSidebar } from "@/components/layout/SessionSidebar";
+import { SessionFileList } from "@/components/upload/SessionFileList";
 import {
   UploadFileList,
   type FileStatus,
@@ -24,12 +26,37 @@ interface FileEntry {
 }
 
 export default function ChatPage() {
-  const { sessionId } = useSession();
+  const {
+    sessions,
+    activeSession,
+    isLoading: sessionsLoading,
+    createSession,
+    switchSession,
+    deleteSession,
+    refreshSessions,
+  } = useStudySession();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
 
+  const sessionId = activeSession?.id ?? "";
+
+  // Auto-create default session if none exist after load
+  useEffect(() => {
+    if (!sessionsLoading && sessions.length === 0) {
+      createSession("General").catch(() => {});
+    }
+  }, [sessionsLoading, sessions.length, createSession]);
+
+  // Clear messages when switching sessions
+  useEffect(() => {
+    setMessages([]);
+    setFileEntries([]);
+  }, [sessionId]);
+
   const handleFilesSelected = useCallback(async (newFiles: File[]) => {
+    if (!sessionId) return;
+
     const entries: FileEntry[] = newFiles.map((f) => ({
       file: f,
       status: "uploading" as FileStatus,
@@ -40,18 +67,13 @@ export default function ChatPage() {
       const res = await api.uploadDocuments(newFiles, sessionId);
       const results = Array.isArray(res.data) ? res.data : [res.data];
 
-      // Sync session_id if backend returned a different one
-      const STORAGE_KEY = "ai-tutor-session-id";
-      const effectiveSid = results[0]?.sessionId;
-      if (effectiveSid && effectiveSid !== sessionId) {
-        localStorage.setItem(STORAGE_KEY, effectiveSid);
-      }
+      // Refresh sessions to pick up file_count update
+      refreshSessions();
 
       setFileEntries((prev) => {
         const updated = [...prev];
         for (const entry of updated) {
           if (entry.status === "uploading") {
-            // Match result by original index
             const idx = newFiles.findIndex(
               (f) => f.name === entry.file.name && f.size === entry.file.size,
             );
@@ -85,7 +107,7 @@ export default function ChatPage() {
         ),
       );
     }
-  }, [sessionId]);
+  }, [sessionId, refreshSessions]);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -135,34 +157,58 @@ export default function ChatPage() {
     [sessionId],
   );
 
+  if (sessionsLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <p className="text-muted-foreground text-sm">Cargando sesiones...</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-6">
-      <div className="text-center">
-        <h1 className="font-bold text-3xl text-foreground tracking-tight">
-          Tutor Académico
-        </h1>
-        <p className="mt-2 text-muted-foreground">
-          Prepará tus exámenes con IA
-        </p>
-      </div>
+    <div className="flex h-screen">
+      <SessionSidebar
+        sessions={sessions}
+        activeSession={activeSession}
+        onCreate={createSession}
+        onSwitch={switchSession}
+        onDelete={deleteSession}
+      />
 
-      <div className="flex flex-col gap-2">
-        <UploadDropzone onFilesSelected={handleFilesSelected} />
-        <UploadFileList files={fileEntries} />
-      </div>
+      <div className="flex flex-col flex-1 gap-6 overflow-y-auto p-6">
+        <div className="text-center">
+          <h1 className="font-bold text-3xl text-foreground tracking-tight">
+            Tutor Académico
+          </h1>
+          <p className="mt-2 text-muted-foreground">
+            {activeSession
+              ? `Sesión: ${activeSession.name}`
+              : "Prepará tus exámenes con IA"}
+          </p>
+        </div>
 
-      <div
-        className="flex flex-1 flex-col rounded-lg border border-border bg-card overflow-hidden"
-        style={{ minHeight: "60vh" }}
-      >
-        <ChatMessageList messages={messages} isLoading={isLoading} />
-        {!sessionId ? (
-          <div className="border-t border-border p-4 text-center text-muted-foreground text-sm">
-            Inicializando sesión...
-          </div>
-        ) : (
-          <ChatInput onSend={handleSend} disabled={isLoading} />
-        )}
+        <div className="flex flex-col gap-2">
+          <UploadDropzone
+            onFilesSelected={handleFilesSelected}
+            activeSessionId={sessionId}
+          />
+          <SessionFileList sessionId={sessionId} />
+          <UploadFileList files={fileEntries} />
+        </div>
+
+        <div
+          className="flex flex-1 flex-col rounded-lg border border-border bg-card overflow-hidden"
+          style={{ minHeight: "60vh" }}
+        >
+          <ChatMessageList messages={messages} isLoading={isLoading} />
+          {!sessionId ? (
+            <div className="border-t border-border p-4 text-center text-muted-foreground text-sm">
+              Inicializando sesión...
+            </div>
+          ) : (
+            <ChatInput onSend={handleSend} disabled={isLoading} />
+          )}
+        </div>
       </div>
     </div>
   );
