@@ -415,14 +415,27 @@ async def list_session_files(session_id: str) -> list[dict]:
 async def get_session_profile(session_id: str) -> dict | None:
     """Return per-session progress aggregated from evaluations.
 
-    Includes topic scores (latest per topic within the session), weak topics
-    (score < threshold), exam count, and average score.
+    Includes topic scores (all scores per topic within the session), weak topics
+    (latest score < threshold), exam count, and average score.
     """
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,))
         if await cursor.fetchone() is None:
             return None
+
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt, AVG(score) as avg_score "
+            "FROM evaluations WHERE session_id = ?",
+            (session_id,),
+        )
+        summary = await cursor.fetchone()
+        exam_count = summary["cnt"] if summary else 0
+        average_score = (
+            round(summary["avg_score"], 2)
+            if summary and summary["avg_score"] is not None
+            else None
+        )
 
         cursor = await db.execute(
             """
@@ -450,13 +463,10 @@ async def get_session_profile(session_id: str) -> dict | None:
         if score < 6.0
     ][:3]
 
-    all_scores = [s for scores in topic_scores.values() for s in scores]
-    average_score = round(sum(all_scores) / len(all_scores), 2) if all_scores else None
-
     return {
         "session_id": session_id,
         "topic_scores": topic_scores,
         "weak_topics": weak_topics,
-        "exam_count": len(all_scores),
+        "exam_count": exam_count,
         "average_score": average_score,
     }
