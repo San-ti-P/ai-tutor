@@ -50,8 +50,8 @@ def _ollama_json_mode_chain(
 
     Ollama's native structured output (``format={json_schema}``) is not
     reliably enforced by all models (e.g. Gemma may use wrong field names).
-    JSON mode with the schema embedded in the system prompt is more
-    portable, matching Ollama's own documented examples.
+    JSON mode with the schema appended to the user prompt keeps the
+    original task instructions intact and works across models.
     """
     import json
     import re
@@ -81,17 +81,35 @@ def _ollama_json_mode_chain(
     prompt_template = ChatPromptTemplate.from_messages([
         (
             "system",
-            "Respond with JSON matching this exact schema:\n{schema}\n\n"
-            "No other text. Just valid JSON.",
+            "You are a helpful assistant. Carefully follow the user's instructions "
+            "and examples, then respond with valid JSON matching the schema below. "
+            "Do not output any text outside the JSON object.",
         ),
-        ("user", "{input}"),
+        ("user", "{input}\n\nReturn valid JSON matching this schema:\n{schema}"),
     ])
 
     def _parse(text: str) -> BaseModel:
-        json_match = re.search(r"\{[\s\S]*\}", text)
-        if not json_match:
-            raise ValueError(f"No JSON found in response: {text[:300]!r}")
-        return schema.model_validate(json.loads(json_match.group(0)))
+        # Find the last complete JSON object by scanning from the end with a
+        # brace counter. This handles nested JSON and correctly ignores any
+        # JSON examples that may appear earlier in the user prompt.
+        for end in range(len(text) - 1, -1, -1):
+            if text[end] != "}":
+                continue
+            depth = 1
+            start = end - 1
+            while start >= 0 and depth > 0:
+                if text[start] == "}":
+                    depth += 1
+                elif text[start] == "{":
+                    depth -= 1
+                start -= 1
+            if depth == 0:
+                candidate = text[start + 1 : end + 1]
+                try:
+                    return schema.model_validate(json.loads(candidate))
+                except Exception:
+                    continue
+        raise ValueError(f"No valid JSON object found in response: {text[:300]!r}")
 
     chain = (
         RunnableLambda(lambda x: {"input": x, "schema": schema_json})
@@ -109,7 +127,7 @@ def get_structured_llm(
 ) -> Runnable:
     """Return an LLM configured with structured output for a Pydantic schema.
 
-    For Ollama: uses ``format="json"`` with schema in system prompt.
+    For Ollama: uses ``format="json"`` with schema appended to the user prompt.
     For other providers: uses native ``with_structured_output(schema)``.
 
     Args:
