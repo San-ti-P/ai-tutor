@@ -47,13 +47,14 @@ async def build_topic_tree(topics: list[str]) -> dict:
     try:
         llm = get_llm()
 
-        schema_desc = '{"topic_name": {"subtopic_name": {}, ...}, ...}'
+        schema_desc = '{"nombre_tema": {"nombre_subtema": {}, ...}, ...}'
         prompt = (
-            "Organize these academic topics into a hierarchical tree. "
-            "Return ONLY a JSON object where each key is a top-level category "
-            "and each value is a nested object of subtopics (empty objects for leaves).\n\n"
-            f"Schema: {schema_desc}\n\n"
-            "Topics:\n" + "\n".join(f"- {t}" for t in topics)
+            "Organizá estos temas académicos en un árbol jerárquico. "
+            "Devolvé ÚNICAMENTE un objeto JSON donde cada clave es una categoría "
+            "de nivel superior y cada valor es un objeto anidado de subtemas "
+            "(objetos vacíos para las hojas).\n\n"
+            f"Esquema: {schema_desc}\n\n"
+            "Temas:\n" + "\n".join(f"- {t}" for t in topics)
         )
 
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -61,10 +62,10 @@ async def build_topic_tree(topics: list[str]) -> dict:
         messages = [
             SystemMessage(
                 content=(
-                    "You organize academic topics into hierarchies. "
-                    "Return ONLY valid JSON matching this pattern: "
+                    "Organizás temas académicos en jerarquías. "
+                    "Devolvé ÚNICAMENTE JSON válido que coincida con este patrón: "
                     f"{schema_desc}\n"
-                    "No other text. Just valid JSON."
+                    "Ningún otro texto. Solo JSON válido."
                 )
             ),
             HumanMessage(content=prompt),

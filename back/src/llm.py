@@ -87,7 +87,7 @@ def _ollama_json_mode_chain(
                 "el esquema), pero los valores de texto deben estar en español. No "
                 "generes ningún texto fuera del objeto JSON.",
             ),
-            ("user", "{input}\n\nReturn valid JSON matching this schema:\n{schema}"),
+            ("user", "{input}\n\nDevolvé JSON válido que coincida con este esquema:\n{schema}"),
         ]
     )
 

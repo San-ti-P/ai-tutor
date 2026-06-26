@@ -36,11 +36,12 @@ _TOPIC_SCHEMA_JSON = json.dumps(SegmentTopics.model_json_schema(), indent=2)
 # ── System prompt template ────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = (
-    "Respond with JSON matching this exact schema. No other text:\n"
+    "Respondé únicamente con un objeto JSON que coincida exactamente con este esquema. "
+    "No incluyas ningún otro texto:\n"
     f"{_TOPIC_SCHEMA_JSON}\n\n"
-    "Extract 3-8 concise academic topics from the text segment below. "
-    "Topics should be specific phrases, not single generic words. "
-    "Return only valid JSON."
+    "Extraé entre 3 y 8 temas académicos concretos del fragmento de texto a continuación. "
+    "Los temas deben ser frases específicas, no palabras genéricas sueltas. "
+    "Devolvé solo JSON válido."
 )
 
 # ── Regex for extracting JSON from LLM output ─────────────────────────────────
@@ -86,7 +87,7 @@ async def _extract_segment_topics(
     """
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    human_msg = f"Text segment ({segment_index + 1} of {total}):\n\n{segment}"
+    human_msg = f"Fragmento de texto ({segment_index + 1} de {total}):\n\n{segment}"
 
     messages = [
         SystemMessage(content=_SYSTEM_PROMPT),
