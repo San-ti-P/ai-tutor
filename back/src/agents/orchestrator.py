@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import operator
 import os
-from typing import Literal
+from typing import Annotated, Literal, NotRequired
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -14,6 +15,7 @@ from typing_extensions import TypedDict
 from src.config import settings
 from src.llm import get_llm as _get_llm
 from src.llm import get_structured_llm
+from src.memory.schema import resolve_student_id
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,35 @@ class OrchestratorState(TypedDict):
     status: str  # "pending" | "complete" | "incomplete" | "partial"
     iteration_count: int
     student_profile: dict | None
+    student_id: NotRequired[str | None]
+    session_context: NotRequired[dict | None]
+    messages_history: NotRequired[Annotated[list, operator.add]]
+
+
+async def load_profile(state: OrchestratorState, config: RunnableConfig = None) -> dict:
+    """Load the student profile at session bootstrap.
+
+    Resolves ``student_id`` from the session row (or override), calls
+    ``get_student_summary``, and stores the result in ``student_profile``.
+    Any failure falls back to an empty dict so the session continues.
+    """
+    from src.tools.get_student_summary import get_student_summary
+
+    session_id = state["session_id"]
+    student_id_override = state.get("student_id")
+
+    try:
+        student_id = await resolve_student_id(session_id, student_id_override)
+        profile = await get_student_summary(student_id)
+        if profile is None:
+            return {"student_profile": {}}
+        return {"student_profile": profile}
+    except Exception:
+        logger.exception(
+            "Failed to load profile for session %s, falling back to empty profile",
+            session_id,
+        )
+        return {"student_profile": {}}
 
 
 def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> dict:
@@ -138,10 +169,24 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
             '"Generame un examen y corregilo" → {"intent": "composite", "confidence": 0.90}\n\n'
             f"Mensaje del usuario: {message!r}\n"
         )
+        context_parts: list[str] = []
         if profile:
             weak = profile.get("weak_topics", [])
             if weak:
-                prompt += f"Contexto del estudiante (temas débiles): {weak}\n"
+                context_parts.append(f"temas débiles: {weak}")
+            prefs = profile.get("preferences")
+            if prefs:
+                context_parts.append(f"preferencias: {prefs}")
+        session_context = state.get("session_context")
+        if session_context:
+            files = session_context.get("files")
+            if files:
+                context_parts.append(f"archivos cargados: {[f.get('file_name') for f in files]}")
+            progress = session_context.get("progress")
+            if progress:
+                context_parts.append(f"progreso: {progress}")
+        if context_parts:
+            prompt += "Contexto del estudiante: " + "; ".join(context_parts) + "\n"
         prompt += (
             "Respondé SOLO con un objeto JSON con claves 'intent' y 'confidence'. "
             "El output SIEMPRE debe ser en español."
@@ -592,12 +637,14 @@ def build_orchestrator() -> StateGraph:
     """Build and return the Orchestrator LangGraph."""
     builder = StateGraph(OrchestratorState)
 
+    builder.add_node("load_profile", load_profile)
     builder.add_node("classify_intent", classify_intent)
     builder.add_node("plan_composite", plan_composite)
     builder.add_node("execute_step", execute_step)
     builder.add_node("synthesize_response", synthesize_response)
 
-    builder.add_edge(START, "classify_intent")
+    builder.add_edge(START, "load_profile")
+    builder.add_edge("load_profile", "classify_intent")
     builder.add_conditional_edges(
         "classify_intent",
         route_to_agent,

@@ -69,6 +69,27 @@ async def init_db() -> None:
         await db.commit()
 
 
+async def resolve_student_id(session_id: str, student_id: str | None = None) -> str:
+    """Resolve the student_id for a given session_id.
+
+    Priority:
+        1. Explicit *student_id* override if provided.
+        2. ``sessions.student_id`` looked up by *session_id*.
+        3. Fall back to *session_id* itself when no row exists (backward
+           compatibility for anonymous sessions).
+    """
+    if student_id:
+        return student_id
+
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT student_id FROM sessions WHERE id = ?", (session_id,)
+        )
+        row = await cursor.fetchone()
+        return row["student_id"] if row else session_id
+
+
 async def get_student_profile(student_id: str) -> dict | None:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row

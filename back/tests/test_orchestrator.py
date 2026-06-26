@@ -927,7 +927,7 @@ class TestChatEndpoint:
 
         with patch("src.tools.orchestrate_chat", mock_tool):
             response = client.post(
-                "/chat",
+                "/api/chat",
                 json={"session_id": "test-session-99", "message": "Hola"},
             )
 
