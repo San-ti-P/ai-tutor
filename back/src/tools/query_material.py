@@ -49,9 +49,7 @@ def query_material(
         }
 
     # Build context from chunks
-    context = "\n\n---\n\n".join(
-        f"Fragmento {i + 1}:\n{c['text']}" for i, c in enumerate(chunks)
-    )
+    context = "\n\n---\n\n".join(f"Fragmento {i + 1}:\n{c['text']}" for i, c in enumerate(chunks))
 
     prompt = (
         f"{RAG_ONLY_SYSTEM_PROMPT}\n\n"

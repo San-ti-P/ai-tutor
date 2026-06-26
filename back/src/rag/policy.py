@@ -8,7 +8,6 @@ This module MUST NOT import from agent implementations — agents
 consume the policy, not the reverse.
 """
 
-
 RAG_ONLY_SYSTEM_PROMPT: str = (
     "Sos un tutor académico. Respondé usando ÚNICAMENTE la información "
     "proporcionada en los fragmentos del material. Si no hay fragmentos "

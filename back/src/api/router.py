@@ -24,7 +24,6 @@ from src.api.schemas import (
     Exercise,
     ExerciseModelSolution,
     ExerciseRequest,
-    HealthResponse,
     IngestResult,
     PreferencesStatus,
     PreferencesUpdate,
@@ -225,7 +224,9 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
                 "question": eq.prompt,
                 "base_answer": eq.base_answer or "",
                 "topic": eq.topic,
-                "difficulty": eq.difficulty.value if hasattr(eq.difficulty, "value") else str(eq.difficulty),
+                "difficulty": eq.difficulty.value
+                if hasattr(eq.difficulty, "value")
+                else str(eq.difficulty),
                 "source_chunk_ids": eq.source_chunk_ids or [],
             }
 

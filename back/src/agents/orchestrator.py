@@ -12,7 +12,8 @@ from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from src.config import settings
-from src.llm import get_llm as _get_llm, get_structured_llm
+from src.llm import get_llm as _get_llm
+from src.llm import get_structured_llm
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,8 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
             "Sos un clasificador de intents para un tutor académico. "
             "Clasificá el mensaje del usuario en UNA de estas 8 categorías:\n\n"
             "  - ingest: el usuario quiere SUBIR apuntes, PDFs, documentos\n"
-            "  - retrieve: preguntar/consultar sobre el contenido de apuntes o documentos YA SUBIDOS\n"
+            "  - retrieve: preguntar/consultar sobre el contenido de apuntes"
+            " o documentos YA SUBIDOS\n"
             "  - generate_exam: pide generar un examen\n"
             "  - generate_exercise: pide un ejercicio práctico\n"
             "  - evaluate: pide que corrijan/evalúen una respuesta\n"
@@ -121,7 +123,8 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
             "1. Si es saludo, cortesía, o NO contiene tarea académica explícita → "
             "general_chat con confidence >= 0.95\n"
             "2. Ante la duda entre dos intents, elegí general_chat\n"
-            "3. ingest SOLO si el usuario quiere SUBIR un archivo; retrieve SOLO si pregunta por contenido ya subido\n"
+            "3. ingest SOLO si el usuario quiere SUBIR un archivo; retrieve SOLO"
+            " si pregunta por contenido ya subido\n"
             "4. composite SOLO si hay 2+ tareas distintas y explícitas (no inferidas)\n\n"
             "EJEMPLOS:\n"
             '"Hola" → {"intent": "general_chat", "confidence": 0.99}\n'
@@ -285,8 +288,10 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
             args["student_profile"] = profile
     elif tool_name == "generate_exercise":
         msg_topics = _extract_topics(state["user_message"])
-        args["topic"] = msg_topics[0] if msg_topics else (
-            profile.get("weak_topics", ["general"])[0] if profile else "general"
+        args["topic"] = (
+            msg_topics[0]
+            if msg_topics
+            else (profile.get("weak_topics", ["general"])[0] if profile else "general")
         )
         args["difficulty"] = _extract_difficulty(state["user_message"])
         args["exercise_type"] = "problem_solving"
@@ -342,7 +347,8 @@ async def execute_step(state: OrchestratorState) -> dict:
     if tool is None:
         logger.warning("Tool '%s' not found in TOOL_MAP", tool_name)
         return {
-            "errors": errors + [
+            "errors": errors
+            + [
                 {
                     "step": current,
                     "tool": tool_name,
@@ -416,17 +422,17 @@ def _is_academic_question(message: str) -> bool:
 
     # Academic question signals
     academic_signals = [
-        r"[¿\?]",                    # Contains question marks
+        r"[¿\?]",  # Contains question marks
         r"qu[eé]\s+(es|son|significa)",  # "qué es/son/significa"
-        r"explic[aá]",               # "explica/explicá"
-        r"defin[ií]",                # "definí/define"
+        r"explic[aá]",  # "explica/explicá"
+        r"defin[ií]",  # "definí/define"
         r"c[oó]mo\s+(se\s+)?(calcula|resuelve|determina|obtiene|halla)",
-        r"cu[aá]l\s+(es|son)",       # "cuál es/son"
+        r"cu[aá]l\s+(es|son)",  # "cuál es/son"
         r"diferencia\s+entre",
         r"qu[eé]\s+(dice|dice\s+el|habla|trata|contiene)",
         r"en\s+qu[eé]\s+(consiste|se\s+basa)",
-        r"mencion[aá]",              # "menciona/mencioná"
-        r"describ[ií]",              # "describe/describí"
+        r"mencion[aá]",  # "menciona/mencioná"
+        r"describ[ií]",  # "describe/describí"
         r"caracter[ií]sticas?\s+de",
     ]
     for pat in academic_signals:
@@ -481,17 +487,17 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
                 from src.tools import query_material as _query_material
 
                 try:
-                    qm_result = _query_material.invoke({
-                        "query": message,
-                        "session_id": state["session_id"],
-                        "top_k": 3,  # lighter probe
-                    })
+                    qm_result = _query_material.invoke(
+                        {
+                            "query": message,
+                            "session_id": state["session_id"],
+                            "top_k": 3,  # lighter probe
+                        }
+                    )
 
                     if qm_result.get("chunks_found", 0) > 0:
                         # RAG-grounded: synthesize with chunks
-                        chunks_text = "\n\n".join(
-                            qm_result.get("sources", [])
-                        )
+                        chunks_text = "\n\n".join(qm_result.get("sources", []))
                         prompt = (
                             f"{RAG_ONLY_SYSTEM_PROMPT}\n\n"
                             f"Fragmentos del material:\n{chunks_text}\n\n"

@@ -53,7 +53,9 @@ class PracticalExercise(BaseModel):
 class ExerciseGeneration(BaseModel):
     """Structured output for exercise generation — single exercise per invocation."""
 
-    exercises: list[PracticalExercise] = Field(..., description="Exercise list (required, can be empty)")
+    exercises: list[PracticalExercise] = Field(
+        ..., description="Exercise list (required, can be empty)"
+    )
     metadata: dict = Field(
         default_factory=dict,
         description="{topics_covered, total_source_chunks}",

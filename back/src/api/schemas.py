@@ -139,9 +139,9 @@ class Exercise(BaseModel):
     statement: str = ""
     given_data: str | None = None
     question: str = ""
-    model_solution: ExerciseModelSolution = Field(default_factory=lambda: ExerciseModelSolution(
-        steps=[], final_answer="", key_concepts=[]
-    ))
+    model_solution: ExerciseModelSolution = Field(
+        default_factory=lambda: ExerciseModelSolution(steps=[], final_answer="", key_concepts=[])
+    )
     topics_covered: list[str] = []
     source_chunk_ids: list[str] | None = None
     topic_not_found: list[str] = []
