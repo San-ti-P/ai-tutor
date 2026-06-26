@@ -29,57 +29,56 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
 
-  const handleFilesSelected = useCallback(
-    async (newFiles: File[]) => {
-      const entries: FileEntry[] = newFiles.map((f) => ({
-        file: f,
-        status: "uploading" as FileStatus,
-      }));
-      setFileEntries((prev) => [...prev, ...entries]);
+  const handleFilesSelected = useCallback(async (newFiles: File[]) => {
+    const entries: FileEntry[] = newFiles.map((f) => ({
+      file: f,
+      status: "uploading" as FileStatus,
+    }));
+    setFileEntries((prev) => [...prev, ...entries]);
 
-      try {
-        const res = await api.uploadDocuments(newFiles);
-        const results = Array.isArray(res.data) ? res.data : [res.data];
+    try {
+      const res = await api.uploadDocuments(newFiles);
+      const results = Array.isArray(res.data) ? res.data : [res.data];
 
-        setFileEntries((prev) => {
-          const updated = [...prev];
-          for (const entry of updated) {
-            if (entry.status === "uploading") {
-              // Match result by original index
-              const idx = newFiles.findIndex(
-                (f) => f.name === entry.file.name && f.size === entry.file.size
-              );
-              if (idx >= 0 && results[idx]) {
-                const r: IngestResult = results[idx];
-                const isError =
-                  r.status === "error" || r.status === "rejected_non_academic";
-                entry.status = isError ? "error" : "complete";
-                entry.result = {
-                  classification: r.classification,
-                  topicsDetected: r.topicsDetected,
-                  chunksCreated: r.chunksCreated,
-                };
-                if (r.status === "rejected_non_academic") {
-                  entry.status = "rejected";
-                  entry.message = "No es material acad\u00e9mico";
-                }
-              } else {
-                entry.status = "complete";
+      setFileEntries((prev) => {
+        const updated = [...prev];
+        for (const entry of updated) {
+          if (entry.status === "uploading") {
+            // Match result by original index
+            const idx = newFiles.findIndex(
+              (f) => f.name === entry.file.name && f.size === entry.file.size,
+            );
+            if (idx >= 0 && results[idx]) {
+              const r: IngestResult = results[idx];
+              const isError =
+                r.status === "error" || r.status === "rejected_non_academic";
+              entry.status = isError ? "error" : "complete";
+              entry.result = {
+                classification: r.classification,
+                topicsDetected: r.topicsDetected,
+                chunksCreated: r.chunksCreated,
+              };
+              if (r.status === "rejected_non_academic") {
+                entry.status = "rejected";
+                entry.message = "No es material académico";
               }
+            } else {
+              entry.status = "complete";
             }
           }
-          return updated;
-        });
-      } catch {
-        setFileEntries((prev) =>
-          prev.map((e) =>
-            e.status === "uploading" ? { ...e, status: "error" as FileStatus } : e
-          )
-        );
-      }
-    },
-    []
-  );
+        }
+        return updated;
+      });
+    } catch {
+      setFileEntries((prev) =>
+        prev.map((e) =>
+          e.status === "uploading"
+            ? { ...e, status: "error" as FileStatus }
+            : e,
+        ),
+      );
+    }
+  }, []);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -113,7 +112,7 @@ export default function ChatPage() {
         const msg =
           err instanceof Error
             ? err.message
-            : "No se pudo conectar con el servidor. Verific\u00e1 que el backend est\u00e9 corriendo.";
+            : "No se pudo conectar con el servidor. Verificá que el backend esté corriendo.";
         const errorMsg: ChatMessage = {
           id: crypto.randomUUID(),
           role: "assistant",
@@ -126,17 +125,17 @@ export default function ChatPage() {
         setIsLoading(false);
       }
     },
-    [sessionId]
+    [sessionId],
   );
 
   return (
     <div className="flex flex-col gap-6">
       <div className="text-center">
         <h1 className="font-bold text-3xl text-foreground tracking-tight">
-          Tutor Acad&eacute;mico
+          Tutor Académico
         </h1>
         <p className="mt-2 text-muted-foreground">
-          Prepar&aacute; tus ex&aacute;menes con IA
+          Prepará tus exámenes con IA
         </p>
       </div>
 
@@ -152,7 +151,7 @@ export default function ChatPage() {
         <ChatMessageList messages={messages} isLoading={isLoading} />
         {!sessionId ? (
           <div className="border-t border-border p-4 text-center text-muted-foreground text-sm">
-            Inicializando sesi&oacute;n...
+            Inicializando sesión...
           </div>
         ) : (
           <ChatInput onSend={handleSend} disabled={isLoading} />

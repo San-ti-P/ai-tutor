@@ -21,7 +21,7 @@ export function ChatMessageList({ messages, isLoading }: ChatMessageListProps) {
     return (
       <div className="flex flex-1 items-center justify-center p-12">
         <p className="text-center text-muted-foreground text-sm">
-          Todav&iacute;a no hay mensajes. Escrib&iacute; tu consulta abajo.
+          Todavía no hay mensajes. Escribí tu consulta abajo.
         </p>
       </div>
     );

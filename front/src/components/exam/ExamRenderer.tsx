@@ -58,7 +58,7 @@ export function ExamRenderer({
             ))}
             {!value && (
               <p className="mt-1 text-muted-foreground text-xs italic">
-                Seleccion&aacute; una respuesta
+                Seleccioná una respuesta
               </p>
             )}
           </div>
@@ -67,7 +67,7 @@ export function ExamRenderer({
             rows={5}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="Escrib&iacute; tu respuesta ac&aacute;..."
+            placeholder="Escribí tu respuesta acá..."
           />
         )}
       </div>

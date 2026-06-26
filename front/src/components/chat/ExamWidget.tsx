@@ -23,8 +23,8 @@ export function ExamWidget({ exam }: ExamWidgetProps) {
         Examen: {exam.topic}
       </h3>
       <p className="mb-3 text-muted-foreground text-xs">
-        {exam.questions.length} pregunta{exam.questions.length !== 1 && "s"} &middot;{" "}
-        Dificultad: {exam.difficulty}
+        {exam.questions.length} pregunta{exam.questions.length !== 1 && "s"}{" "}
+        &middot; Dificultad: {exam.difficulty}
       </p>
       <div className="flex flex-col gap-3">
         {exam.questions.map((q, i) => (
@@ -51,7 +51,7 @@ export function ExamWidget({ exam }: ExamWidgetProps) {
               </div>
             ) : (
               <textarea
-                placeholder="Escrib&iacute; tu respuesta ac&aacute;..."
+                placeholder="Escribí tu respuesta acá..."
                 rows={3}
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring resize-vertical"
               />

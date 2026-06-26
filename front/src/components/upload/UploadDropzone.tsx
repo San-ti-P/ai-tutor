@@ -22,7 +22,7 @@ export function UploadDropzone({ onFilesSelected }: UploadDropzoneProps) {
         onFilesSelected(accepted);
       }
     },
-    [onFilesSelected]
+    [onFilesSelected],
   );
 
   const { getRootProps, getInputProps, isDragActive, fileRejections } =
@@ -46,11 +46,11 @@ export function UploadDropzone({ onFilesSelected }: UploadDropzoneProps) {
         <Upload className="mx-auto mb-3 size-8 text-muted-foreground" />
         <p className="font-medium text-foreground text-sm">
           {isDragActive
-            ? "Sol&aacute; los archivos ac&aacute;"
-            : "Arrastr&aacute; archivos ac&aacute; o hac&eacute; clic para seleccionar"}
+            ? "Soltá los archivos acá"
+            : "Arrastrá archivos acá o hacé clic para seleccionar"}
         </p>
         <p className="mt-1 text-muted-foreground text-xs">
-          PDF, TXT, PNG o JPG (m&aacute;x. 50 MB)
+          PDF, TXT, PNG o JPG (máx. 50 MB)
         </p>
       </div>
 

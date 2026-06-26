@@ -1,12 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import {
-  BookOpen,
-  TrendingUp,
-  Target,
-  CheckCircle2,
-} from "lucide-react";
+import { BookOpen, TrendingUp, Target, CheckCircle2 } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 import { api } from "@/lib/api";
 import { StatsCards } from "@/components/dashboard/StatsCards";
@@ -32,7 +27,7 @@ export default function DashboardPage() {
       })
       .catch(() => {
         setError(
-          "Todav\u00eda no ten\u00e9s datos de progreso. Complet\u00e1 un examen para empezar."
+          "Todavía no tenés datos de progreso. Completá un examen para empezar.",
         );
       })
       .finally(() => setIsLoading(false));
@@ -46,14 +41,12 @@ export default function DashboardPage() {
             Mi Progreso
           </h1>
           <p className="mt-1 text-muted-foreground">
-            Seguimiento de tu rendimiento acad\u00e9mico
+            Seguimiento de tu rendimiento académico
           </p>
         </div>
         <div className="flex flex-col items-center gap-4 py-16">
           <Spinner size="lg" />
-          <p className="text-muted-foreground text-sm">
-            Cargando datos...
-          </p>
+          <p className="text-muted-foreground text-sm">Cargando datos...</p>
         </div>
       </div>
     );
@@ -67,7 +60,7 @@ export default function DashboardPage() {
             Mi Progreso
           </h1>
           <p className="mt-1 text-muted-foreground">
-            Seguimiento de tu rendimiento acad\u00e9mico
+            Seguimiento de tu rendimiento académico
           </p>
         </div>
         <div className="flex flex-col items-center gap-4 rounded-lg border border-border bg-card p-12">
@@ -86,16 +79,16 @@ export default function DashboardPage() {
     profile?.topicScores && topicCount > 0
       ? Object.values(profile.topicScores)
           .flat()
-          .reduce((a, b) => a + b, 0) / Object.values(profile.topicScores).flat().length
+          .reduce((a, b) => a + b, 0) /
+        Object.values(profile.topicScores).flat().length
       : null;
 
-  const chartData =
-    profile?.topicScores
-      ? Object.entries(profile.topicScores).map(([topic, scores]) => ({
-          topic: topic.split("/").pop() ?? topic,
-          score: scores.length > 0 ? scores[scores.length - 1] : 0,
-        }))
-      : [];
+  const chartData = profile?.topicScores
+    ? Object.entries(profile.topicScores).map(([topic, scores]) => ({
+        topic: topic.split("/").pop() ?? topic,
+        score: scores.length > 0 ? scores[scores.length - 1] : 0,
+      }))
+    : [];
 
   const weakTopics = profile?.weakTopics ?? [];
 
@@ -106,7 +99,7 @@ export default function DashboardPage() {
           Mi Progreso
         </h1>
         <p className="mt-1 text-muted-foreground">
-          Seguimiento de tu rendimiento acad\u00e9mico
+          Seguimiento de tu rendimiento académico
         </p>
       </div>
 
@@ -124,10 +117,7 @@ export default function DashboardPage() {
           },
           {
             label: "Promedio general",
-            value:
-              avgScore !== null
-                ? `${(avgScore * 10).toFixed(0)}%`
-                : "--%",
+            value: avgScore !== null ? `${(avgScore * 10).toFixed(0)}%` : "--%",
             icon: TrendingUp,
           },
           {
@@ -143,9 +133,7 @@ export default function DashboardPage() {
         <WeakTopics topics={weakTopics} />
       </div>
 
-      <SessionHistory
-        sessions={profile?.sessionHistory ?? []}
-      />
+      <SessionHistory sessions={profile?.sessionHistory ?? []} />
     </div>
   );
 }
