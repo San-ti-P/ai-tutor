@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shutil
 import tempfile
@@ -27,7 +28,26 @@ from src.api.schemas import (
     IngestResult,
     PreferencesStatus,
     PreferencesUpdate,
+    Session,
+    SessionCreate,
+    SessionFile,
+    SessionProfile,
     StudentProfile,
+)
+from src.memory.schema import (
+    create_session as _create_session,
+)
+from src.memory.schema import (
+    delete_session as _delete_session,
+)
+from src.memory.schema import (
+    get_session as _get_session,
+)
+from src.memory.schema import (
+    list_session_files as _list_session_files,
+)
+from src.memory.schema import (
+    list_sessions as _list_sessions,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,6 +71,7 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
         {
             "messages": [{"role": "user", "content": request.message}],
             "thread_id": request.session_id,
+            "student_id": request.student_id,
         }
     )
 
@@ -101,6 +122,89 @@ def _validate_session_id(raw: str | None) -> str:
 
     logger.warning("session_id '%s' not UUID-like, generating UUID", sid)
     return str(uuid.uuid4())
+
+
+@router.post("/sessions", response_model=ApiResponse[Session])
+async def create_session_endpoint(request: SessionCreate) -> ApiResponse[Session]:
+    """Create a new named study session."""
+    logger.info("Creating session for student %s", request.student_id)
+    session = await _create_session(request.student_id, request.name, request.description)
+    detail = await _get_session(session["id"])
+    return ApiResponse(data=Session(**detail), error=None, trace_id=str(uuid.uuid4()))
+
+
+@router.get("/sessions", response_model=ApiResponse[list[Session]])
+async def list_sessions_endpoint(student_id: str) -> ApiResponse[list[Session]]:
+    """List all sessions for a student ordered by most recent first."""
+    logger.info("Listing sessions for student %s", student_id)
+    rows = await _list_sessions(student_id)
+    return ApiResponse(
+        data=[Session(**row) for row in rows],
+        error=None,
+        trace_id=str(uuid.uuid4()),
+    )
+
+
+@router.get("/sessions/{session_id}", response_model=ApiResponse[Session])
+async def get_session_endpoint(session_id: str) -> ApiResponse[Session]:
+    """Get session details including file count and progress summary."""
+    logger.info("Getting session %s", session_id)
+    detail = await _get_session(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+    return ApiResponse(data=Session(**detail), error=None, trace_id=str(uuid.uuid4()))
+
+
+@router.delete("/sessions/{session_id}", response_model=ApiResponse[dict])
+async def delete_session_endpoint(session_id: str) -> ApiResponse[dict]:
+    """Delete a session and cascade its associated files."""
+    logger.info("Deleting session %s", session_id)
+    detail = await _get_session(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+    await _delete_session(session_id)
+    return ApiResponse(data={"deleted": session_id}, error=None, trace_id=str(uuid.uuid4()))
+
+
+@router.get("/sessions/{session_id}/files", response_model=ApiResponse[list[SessionFile]])
+async def get_session_files(session_id: str) -> ApiResponse[list[SessionFile]]:
+    """List files uploaded to a session."""
+    logger.info("Listing files for session %s", session_id)
+    detail = await _get_session(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+    rows = await _list_session_files(session_id)
+    files = []
+    for row in rows:
+        topics = []
+        if row.get("topics_json"):
+            try:
+                topics = json.loads(row["topics_json"])
+            except Exception:
+                topics = []
+        files.append(
+            SessionFile(
+                id=row["id"],
+                file_name=row["file_name"],
+                classification=row.get("classification", ""),
+                topics=topics,
+                chunks_count=row.get("chunks_count", 0),
+                ingested_at=row["ingested_at"],
+            )
+        )
+    return ApiResponse(data=files, error=None, trace_id=str(uuid.uuid4()))
+
+
+@router.get("/sessions/{session_id}/profile", response_model=ApiResponse[SessionProfile])
+async def get_session_profile_endpoint(session_id: str) -> ApiResponse[SessionProfile]:
+    """Return per-session progress: topic scores, weak topics, exam count, avg score."""
+    logger.info("Session profile requested for %s", session_id)
+    from src.memory.schema import get_session_profile as _get_session_profile
+
+    detail = await _get_session_profile(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+    return ApiResponse(data=SessionProfile(**detail), error=None, trace_id=str(uuid.uuid4()))
 
 
 @router.post("/ingest", response_model=ApiResponse[list[IngestResult]])

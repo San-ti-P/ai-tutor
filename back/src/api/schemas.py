@@ -27,6 +27,7 @@ MessageRoleEnum = Literal["user", "assistant"]
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    student_id: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -164,6 +165,47 @@ class PreferencesStatus(BaseModel):
     student_id: str = ""
     upserted_topics: int = 0
     errors: list[str] = []
+
+
+class SessionCreate(BaseModel):
+    name: str
+    description: str = ""
+    student_id: str
+
+
+class Session(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    student_id: str = Field(alias="studentId")
+    created_at: str = Field(alias="createdAt")
+    status: str = "active"
+    file_count: int = Field(default=0, alias="fileCount")
+    exam_count: int = Field(default=0, alias="examCount")
+    average_score: float | None = Field(default=None, alias="averageScore")
+
+    model_config = {"populate_by_name": True}
+
+
+class SessionFile(BaseModel):
+    id: str
+    file_name: str = Field(alias="fileName")
+    classification: str = ""
+    topics: list[str] = Field(default_factory=list)
+    chunks_count: int = Field(default=0, alias="chunksCount")
+    ingested_at: str = Field(alias="ingestedAt")
+
+    model_config = {"populate_by_name": True}
+
+
+class SessionProfile(BaseModel):
+    session_id: str = Field(alias="sessionId")
+    topic_scores: dict[str, list[float]] = Field(default_factory=dict, alias="topicScores")
+    weak_topics: list[str] = Field(default_factory=list, alias="weakTopics")
+    exam_count: int = Field(default=0, alias="examCount")
+    average_score: float | None = Field(default=None, alias="averageScore")
+
+    model_config = {"populate_by_name": True}
 
 
 class ApiResponse[T](BaseModel):

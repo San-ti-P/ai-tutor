@@ -2,12 +2,39 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
+import uuid
 
 import aiosqlite
 
 from src.config import settings
+from src.rag import get_chroma_client
+
+
+async def _column_exists(db: aiosqlite.Connection, table: str, column: str) -> bool:
+    """Return True if *column* already exists in *table*."""
+    # PRAGMA does not accept parameter binding for the table name.
+    cursor = await db.execute(f"PRAGMA table_info({table})")
+    rows = await cursor.fetchall()
+    return any(row[1] == column for row in rows)
+
+
+async def _run_migrations(db: aiosqlite.Connection) -> None:
+    """Apply additive schema migrations idempotently."""
+    if not await _column_exists(db, "sessions", "name"):
+        await db.execute(
+            "ALTER TABLE sessions ADD COLUMN name TEXT NOT NULL DEFAULT ''"
+        )
+    if not await _column_exists(db, "sessions", "description"):
+        await db.execute("ALTER TABLE sessions ADD COLUMN description TEXT DEFAULT ''")
+    if not await _column_exists(db, "ingested_documents", "session_id"):
+        await db.execute(
+            "ALTER TABLE ingested_documents ADD COLUMN session_id TEXT "
+            "REFERENCES sessions(id)"
+        )
 
 
 async def init_db() -> None:
@@ -66,6 +93,7 @@ async def init_db() -> None:
                 ingested_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
         """)
+        await _run_migrations(db)
         await db.commit()
 
 
@@ -256,3 +284,173 @@ async def get_enriched_session_history(student_id: str, limit: int = 10) -> list
                 }
             )
     return enriched
+
+
+# ── Session lifecycle (Epic 9) ───────────────────────────────────────────────
+
+
+async def create_session(student_id: str, name: str, description: str = "") -> dict:
+    """Create a named session and return its metadata."""
+    session_id = str(uuid.uuid4())
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        await db.execute(
+            """
+            INSERT INTO sessions (id, student_id, name, description, status)
+            VALUES (?, ?, ?, ?, 'active')
+            """,
+            (session_id, student_id, name, description),
+        )
+        await db.commit()
+    return {
+        "id": session_id,
+        "student_id": student_id,
+        "name": name,
+        "description": description,
+        "created_at": None,  # populated by get_session if needed
+    }
+
+
+async def list_sessions(student_id: str) -> list[dict]:
+    """Return all sessions for a student ordered by most recent first."""
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id, student_id, name, description, started_at as created_at, status "
+            "FROM sessions WHERE student_id = ? ORDER BY started_at DESC, rowid DESC",
+            (student_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def get_session(session_id: str) -> dict | None:
+    """Return session details including file_count and progress summary."""
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id, student_id, name, description, started_at as created_at, status "
+            "FROM sessions WHERE id = ?",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        session = dict(row)
+
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt FROM ingested_documents WHERE session_id = ?",
+            (session_id,),
+        )
+        session["file_count"] = (await cursor.fetchone())["cnt"]
+
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt, AVG(score) as avg_score "
+            "FROM evaluations WHERE session_id = ? AND score IS NOT NULL",
+            (session_id,),
+        )
+        eval_row = await cursor.fetchone()
+        session["exam_count"] = eval_row["cnt"] if eval_row else 0
+        avg = eval_row["avg_score"] if eval_row else None
+        session["average_score"] = round(avg, 2) if avg is not None else None
+
+        return session
+
+
+async def delete_session(session_id: str) -> None:
+    """Delete a session, cascade its ingested_documents, and drop Chroma collection."""
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        await db.execute("DELETE FROM ingested_documents WHERE session_id = ?", (session_id,))
+        await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        await db.commit()
+
+    try:
+        client = get_chroma_client()
+        await asyncio.to_thread(client.delete_collection, f"session_{session_id}")
+    except Exception:
+        # Collection may not exist; don't fail the delete.
+        logger = logging.getLogger(__name__)
+        logger.warning("Could not drop ChromaDB collection for session %s", session_id)
+
+
+async def insert_ingested_document(doc: dict) -> None:
+    """Persist file metadata after a successful ingest."""
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        await db.execute(
+            """
+            INSERT INTO ingested_documents
+            (id, file_name, classification, topics_json, chunks_count, session_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                doc["id"],
+                doc["file_name"],
+                doc.get("classification"),
+                doc.get("topics_json"),
+                doc.get("chunks_count", 0),
+                doc.get("session_id"),
+            ),
+        )
+        await db.commit()
+
+
+async def list_session_files(session_id: str) -> list[dict]:
+    """Return files for a session ordered by most recent first."""
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id, file_name, classification, topics_json, chunks_count, ingested_at "
+            "FROM ingested_documents WHERE session_id = ? ORDER BY ingested_at DESC",
+            (session_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def get_session_profile(session_id: str) -> dict | None:
+    """Return per-session progress aggregated from evaluations.
+
+    Includes topic scores (latest per topic within the session), weak topics
+    (score < threshold), exam count, and average score.
+    """
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,))
+        if await cursor.fetchone() is None:
+            return None
+
+        cursor = await db.execute(
+            """
+            SELECT topic, score
+            FROM evaluations
+            WHERE session_id = ? AND topic IS NOT NULL AND score IS NOT NULL
+            ORDER BY created_at DESC
+            """,
+            (session_id,),
+        )
+        rows = await cursor.fetchall()
+
+    topic_scores: dict[str, list[float]] = {}
+    latest_score: dict[str, float] = {}
+    for row in rows:
+        topic = row["topic"]
+        score = row["score"]
+        topic_scores.setdefault(topic, []).append(score)
+        # First row per topic is the latest because of ORDER BY created_at DESC
+        if topic not in latest_score:
+            latest_score[topic] = score
+
+    weak_topics = [
+        topic for topic, score in sorted(latest_score.items(), key=lambda x: x[1])
+        if score < 6.0
+    ][:3]
+
+    all_scores = [s for scores in topic_scores.values() for s in scores]
+    average_score = round(sum(all_scores) / len(all_scores), 2) if all_scores else None
+
+    return {
+        "session_id": session_id,
+        "topic_scores": topic_scores,
+        "weak_topics": weak_topics,
+        "exam_count": len(all_scores),
+        "average_score": average_score,
+    }
