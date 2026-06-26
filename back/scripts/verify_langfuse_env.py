@@ -1,7 +1,7 @@
 """Isolated test: Ollama + Langfuse token tracking.
 
 Mirrors exactly how our system wires Langfuse:
-  1. propagate_attributes(session_id=...) 
+  1. propagate_attributes(session_id=...)
   2. CallbackHandler() created INSIDE
   3. LLM invoked with config={"callbacks": [handler]} + RunnableConfig
   4. Check if token usage appears in Langfuse dashboard
@@ -36,8 +36,8 @@ langfuse = Langfuse(
 )
 
 # ── Ollama model (mirrors config.py defaults) ──
-from langchain_ollama import ChatOllama
 from langchain_core.runnables import RunnableConfig
+from langchain_ollama import ChatOllama
 
 model = ChatOllama(
     model="gemma4:e4b-it-q8_0",
@@ -45,7 +45,7 @@ model = ChatOllama(
     temperature=0,
 )
 
-print(f"Ollama model: gemma4:e4b-it-q8_0 @ http://localhost:11434")
+print("Ollama model: gemma4:e4b-it-q8_0 @ http://localhost:11434")
 print(f"Langfuse env: {os.environ['LANGFUSE_TRACING_ENVIRONMENT']}")
 print()
 
@@ -62,7 +62,9 @@ with propagate_attributes(
     }
     result = model.invoke("What is 2+2? Answer in one word.", config=config)
     print(f"  Response: {result.content}")
-    print(f"  usage_metadata: {result.usage_metadata if hasattr(result, 'usage_metadata') else 'N/A'}")
+    print(
+        f"  usage_metadata: {result.usage_metadata if hasattr(result, 'usage_metadata') else 'N/A'}"
+    )
     print(f"  response_metadata: {result.response_metadata}")
 langfuse.flush()
 print("  Flushed.\n")
@@ -70,6 +72,7 @@ print("  Flushed.\n")
 # ── Pattern 2: @observe decorator (how our tools are traced) ──
 print("=== Pattern 2: @observe + CallbackHandler inside ===")
 from langfuse import observe
+
 
 @observe(name="isolated-observe-test", as_type="tool")
 def tool_with_llm(session_id: str) -> str:
@@ -81,6 +84,7 @@ def tool_with_llm(session_id: str) -> str:
         }
         result = model.invoke("Say 'hello' in one word.", config=config)
         return result.content
+
 
 result = tool_with_llm("isolated-observe-sess")
 print(f"  Response: {result}")
@@ -109,7 +113,9 @@ with langfuse.start_as_current_observation(
         )
         gen.end()
         print(f"  Response: {result.content}")
-        print(f"  usage_metadata: {result.usage_metadata if hasattr(result, 'usage_metadata') else 'N/A'}")
+        print(
+            f"  usage_metadata: {result.usage_metadata if hasattr(result, 'usage_metadata') else 'N/A'}"
+        )
 langfuse.flush()
 print("  Flushed.\n")
 

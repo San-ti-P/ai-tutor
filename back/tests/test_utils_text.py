@@ -35,7 +35,9 @@ class TestSplitIntoClaims:
 
     def test_split_into_claims_simple(self):
         """Splits on sentence boundaries and removes short fragments."""
-        text = "La derivada es un límite. Geométricamente, es la pendiente de la tangente a la curva."
+        text = (
+            "La derivada es un límite. Geométricamente, es la pendiente de la tangente a la curva."
+        )
         result = split_into_claims(text)
 
         assert len(result) >= 1

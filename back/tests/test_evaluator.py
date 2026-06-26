@@ -180,9 +180,7 @@ class TestValidateFeedback:
                 "incremental. Esto representa la pendiente de la recta tangente."
             ),
             "conceptual_errors": [],
-            "suggestions": [
-                "Repasar las reglas de derivación como la derivada de una suma."
-            ],
+            "suggestions": ["Repasar las reglas de derivación como la derivada de una suma."],
             "is_evaluable": True,
             "status": "evaluated",
         }
@@ -336,9 +334,7 @@ class TestSyncScores:
 class TestValidateFeedbackAntiHallucination:
     """Anti-hallucination: flag fabricated claims."""
 
-    def test_validate_feedback_flags_fabricated_claims(
-        self, evaluator_state, mock_embedding_model
-    ):
+    def test_validate_feedback_flags_fabricated_claims(self, evaluator_state, mock_embedding_model):
         """Claims with no chunk match must produce validation_warnings.
 
         Uses a fabricated claim about "astrophysics" that doesn't match
@@ -392,9 +388,7 @@ class TestValidateFeedbackAntiHallucination:
 class TestLLMJudge:
     """LLM-as-judge: sampling and disagreement detection."""
 
-    def test_llm_judge_disagreement_flags_review(
-        self, evaluator_state
-    ):
+    def test_llm_judge_disagreement_flags_review(self, evaluator_state):
         """|primary.score - judge.score| > 2.0 → requires_review=True."""
         from unittest.mock import MagicMock, patch
 
@@ -552,7 +546,9 @@ class TestEvaluatorNoChunks:
         reason = eval_dict.get("non_evaluable_reason") or eval_dict.get("reason", "")
         assert "no_material" in reason
 
-    def test_evaluator_uses_rag_only_prompt_when_chunks_available(self, evaluator_state, mock_evaluator_llm):
+    def test_evaluator_uses_rag_only_prompt_when_chunks_available(
+        self, evaluator_state, mock_evaluator_llm
+    ):
         """GIVEN chunks are available → THEN evaluation proceeds with score.
 
         Covers evaluation spec: "Prompt includes RAG-only instruction when chunks available".
@@ -656,8 +652,7 @@ class TestEvaluatorIntegration:
             {
                 "question_id": "q-agent-002",
                 "question": (
-                    "¿Qué diferencia hay entre un agente reactivo "
-                    "y uno basado en objetivos?"
+                    "¿Qué diferencia hay entre un agente reactivo y uno basado en objetivos?"
                 ),
                 "base_answer": (
                     "Un agente reactivo responde directamente a estímulos del entorno "
@@ -684,9 +679,7 @@ class TestEvaluatorIntegration:
 
         assert ev.get("is_evaluable") is True
         score = ev.get("score", 0)
-        assert 3.0 <= score <= 7.5, (
-            f"Expected mid-range score for vague answer, got {score}"
-        )
+        assert 3.0 <= score <= 7.5, f"Expected mid-range score for vague answer, got {score}"
         assert score < 9.0, "Vague answer should not get near-perfect score"
 
     def test_evaluate_wrong_language(self, requires_ollama, evaluator_state):

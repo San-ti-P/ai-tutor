@@ -669,7 +669,9 @@ class TestRealIntegration:
             "No question content matches any source chunk text. Questions may be hallucinated."
         )
 
-    def test_anti_hallucination_catches_fabrication(self, requires_ollama, ingested_collection_name):
+    def test_anti_hallucination_catches_fabrication(
+        self, requires_ollama, ingested_collection_name
+    ):
         """R3: Claim-level validation detects content not in source chunks.
 
         Injects a fabricated question (about black holes) alongside real

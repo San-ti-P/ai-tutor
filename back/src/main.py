@@ -17,7 +17,7 @@ from src.memory.schema import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    from src.observability import get_tracer, flush_traces
+    from src.observability import flush_traces, get_tracer
 
     await init_db()
     get_tracer()  # eager init — triggers lazy Langfuse client creation

@@ -355,7 +355,6 @@ class TestTraceIdPropagation:
         import uuid as _uuid
         from unittest.mock import patch
 
-        from src.api.schemas import IngestResult
 
         provided_sid = str(_uuid.uuid4())
 

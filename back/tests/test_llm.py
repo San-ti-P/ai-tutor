@@ -12,6 +12,7 @@ from src.config import settings
 
 class _FakeSchema(BaseModel):
     """Schema used for testing get_structured_llm."""
+
     name: str = Field(...)
     value: int = Field(...)
 
@@ -168,9 +169,7 @@ class TestGetLLMOllamaCloud:
                     model=settings.ollama_model_name,
                     base_url=settings.ollama_base_url,
                     temperature=0,
-                    client_kwargs={
-                        "headers": {"Authorization": "Bearer test-cloud-key"}
-                    },
+                    client_kwargs={"headers": {"Authorization": "Bearer test-cloud-key"}},
                 )
                 assert result is mock_ollama.return_value
         finally:
@@ -195,9 +194,7 @@ class TestGetLLMOllamaCloud:
                     model=settings.ollama_model_name,
                     base_url="https://api.ollama.com",
                     temperature=0,
-                    client_kwargs={
-                        "headers": {"Authorization": "Bearer cloud-key-123"}
-                    },
+                    client_kwargs={"headers": {"Authorization": "Bearer cloud-key-123"}},
                 )
                 assert result is mock_ollama.return_value
         finally:

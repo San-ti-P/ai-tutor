@@ -357,7 +357,7 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dic
 
         prompt = f"""{RAG_ONLY_SYSTEM_PROMPT}
 
-Evaluá la siguiente respuesta de un estudiante universitario.
+Evaluá la siguiente respuesta de un estudiante universitario. Respondé SIEMPRE en español.
 
 PREGUNTA:
 {question}
@@ -371,7 +371,7 @@ RESPUESTA DEL ESTUDIANTE:
 {reference_section}
 INSTRUCCIONES:
 1. Asigná un puntaje de 0 a 10 basado en corrección conceptual, completitud y claridad.
-2. Justificá el puntaje mencionando conceptos específicos.
+2. Justificá el puntaje mencionando conceptos específicos, en español.
 3. Identificá errores conceptuales concretos (lista vacía si no hay).
 4. Proporcioná sugerencias de estudio accionables basadas en los errores detectados.
 5. Si la respuesta es incoherente, en otro idioma, o no se puede evaluar,
@@ -554,6 +554,7 @@ def llm_judge(state: EvaluatorState, config: RunnableConfig = None) -> dict:
         )[:6000]
 
         prompt = f"""Actuá como juez de segunda instancia. Re-evaluá la siguiente respuesta.
+Respondé SIEMPRE en español.
 
 PREGUNTA:
 {current.get("question", "")}
@@ -573,7 +574,7 @@ EVALUACIÓN PRIMARIA (puntaje: {evaluation.get("score", 0)}):
 INSTRUCCIONES:
 1. Asigná tu propio puntaje independiente de 0 a 10.
 2. Indicá si estás de acuerdo con la evaluación primaria.
-3. Si hay discrepancia significativa, explicala.
+3. Si hay discrepancia significativa, explicala en español.
 4. Si sugerís un puntaje diferente, incluilo en suggested_score."""
 
         structured_llm = get_structured_llm(JudgeVerdict)

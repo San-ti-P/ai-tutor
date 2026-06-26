@@ -9,7 +9,6 @@ import pytest
 
 from src.rag import ThematicIndex, chunk_text, embed_and_store, retrieve
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # RAG policy module tests (rag-exclusive-answers, task 3.1)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -26,7 +25,10 @@ class TestRagPolicy:
         assert len(RAG_ONLY_SYSTEM_PROMPT) > 50
         # Must explicitly forbid parametric knowledge
         assert "ÚNICAMENTE" in RAG_ONLY_SYSTEM_PROMPT or "SOLO" in RAG_ONLY_SYSTEM_PROMPT
-        assert "no inventes" in RAG_ONLY_SYSTEM_PROMPT.lower() or "no" in RAG_ONLY_SYSTEM_PROMPT.lower()
+        assert (
+            "no inventes" in RAG_ONLY_SYSTEM_PROMPT.lower()
+            or "no" in RAG_ONLY_SYSTEM_PROMPT.lower()
+        )
 
     def test_no_material_message_returns_string(self):
         """no_material_message() returns a Spanish string with actionable guidance."""

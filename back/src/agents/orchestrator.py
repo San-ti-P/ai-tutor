@@ -142,7 +142,10 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
             weak = profile.get("weak_topics", [])
             if weak:
                 prompt += f"Contexto del estudiante (temas débiles): {weak}\n"
-        prompt += "Respondé SOLO con un objeto JSON con claves 'intent' y 'confidence'."
+        prompt += (
+            "Respondé SOLO con un objeto JSON con claves 'intent' y 'confidence'. "
+            "El output SIEMPRE debe ser en español."
+        )
 
         invoke_kwargs = {"config": config} if config is not None else {}
         result = structured.invoke(prompt, **invoke_kwargs)
@@ -202,7 +205,7 @@ def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> d
             f"{tool_descriptions}\n\n"
             "Generá una lista ORDENADA de nombres de herramientas a ejecutar. "
             "Solo usá herramientas de la lista. Respondé SOLO con un objeto JSON "
-            'con clave "steps". '
+            'con clave "steps". El output SIEMPRE debe ser en español. '
             'Ejemplo: {"steps": ["generate_exam", "evaluate"]}'
         )
 
@@ -502,7 +505,7 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
                             f"{RAG_ONLY_SYSTEM_PROMPT}\n\n"
                             f"Fragmentos del material:\n{chunks_text}\n\n"
                             f"Pregunta del estudiante: {message}\n\n"
-                            "Respondé de forma clara y educativa en español, "
+                            "Respondé SIEMPRE en español, de forma clara y educativa, "
                             "citando los fragmentos relevantes."
                         )
                     else:
@@ -520,7 +523,7 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
             else:
                 prompt = (
                     f'El usuario preguntó: "{message}"\n'
-                    "Respondé de forma clara y educativa en español."
+                    "Respondé SIEMPRE en español, de forma clara y educativa."
                 )
         else:
             results_str = json.dumps(results, ensure_ascii=False, indent=2)
@@ -535,12 +538,12 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
                 prompt += (
                     "Algunas tareas no se completaron exitosamente. "
                     "Generá una respuesta que resuma lo logrado y mencione los errores. "
-                    "Sé honesto pero alentador en español."
+                    "Respondé SIEMPRE en español. Sé honesto pero alentador."
                 )
             else:
                 prompt += (
                     "Generá una respuesta coherente que resuma todos estos resultados "
-                    "en español, de forma clara y educativa."
+                    "de forma clara y educativa. Respondé SIEMPRE en español."
                 )
 
         invoke_kwargs = {"config": config} if config is not None else {}
