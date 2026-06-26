@@ -141,7 +141,7 @@ async def create_session_endpoint(request: SessionCreate) -> ApiResponse[Session
     logger.info("Creating session for student %s", request.student_id)
     session = await _create_session(request.student_id, request.name, request.description)
     detail = await _get_session(session["id"])
-    return ApiResponse(data=Session(**detail), error=None, trace_id=str(uuid.uuid4()))
+    return ApiResponse(data=Session.model_validate(detail), error=None, trace_id=str(uuid.uuid4()))
 
 
 @router.get("/sessions", response_model=ApiResponse[list[Session]])
@@ -150,7 +150,7 @@ async def list_sessions_endpoint(student_id: str) -> ApiResponse[list[Session]]:
     logger.info("Listing sessions for student %s", student_id)
     rows = await _list_sessions(student_id)
     return ApiResponse(
-        data=[Session(**row) for row in rows],
+        data=[Session.model_validate(row) for row in rows],
         error=None,
         trace_id=str(uuid.uuid4()),
     )
@@ -196,11 +196,11 @@ async def get_session_files(session_id: str) -> ApiResponse[list[SessionFile]]:
         files.append(
             SessionFile(
                 id=row["id"],
-                file_name=row["file_name"],
+                fileName=row["file_name"],
                 classification=row.get("classification", ""),
                 topics=topics,
-                chunks_count=row.get("chunks_count", 0),
-                ingested_at=row["ingested_at"],
+                chunksCount=row.get("chunks_count", 0),
+                ingestedAt=row["ingested_at"],
             )
         )
     return ApiResponse(data=files, error=None, trace_id=str(uuid.uuid4()))
@@ -215,7 +215,11 @@ async def get_session_profile_endpoint(session_id: str) -> ApiResponse[SessionPr
     detail = await _get_session_profile(session_id)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
-    return ApiResponse(data=SessionProfile(**detail), error=None, trace_id=str(uuid.uuid4()))
+    return ApiResponse(
+        data=SessionProfile.model_validate(detail),
+        error=None,
+        trace_id=str(uuid.uuid4()),
+    )
 
 
 @router.post("/ingest", response_model=ApiResponse[list[IngestResult]])
@@ -374,9 +378,7 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
                 "question": eq.prompt,
                 "base_answer": eq.base_answer or "",
                 "topic": eq.topic,
-                "difficulty": eq.difficulty.value
-                if hasattr(eq.difficulty, "value")
-                else str(eq.difficulty),
+                "difficulty": str(eq.difficulty),
                 "source_chunk_ids": eq.source_chunk_ids or [],
             }
 
@@ -426,15 +428,15 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
 
         evaluation_results = [
             EvaluationResult(
-                question_id=r.get("question_id", ""),
+                questionId=r.get("question_id", ""),
                 score=r.get("score", 0.0),
                 justification=r.get("justification", ""),
-                conceptual_errors=r.get("conceptual_errors", []),
+                conceptualErrors=r.get("conceptual_errors", []),
                 suggestions=r.get("suggestions", []),
-                is_evaluable=r.get("is_evaluable", True),
-                non_evaluable_reason=r.get("non_evaluable_reason", ""),
-                requires_review=r.get("requires_review", False),
-                judge_score=r.get("judge_verdict", {}).get("score")
+                isEvaluable=r.get("is_evaluable", True),
+                nonEvaluableReason=r.get("non_evaluable_reason", ""),
+                requiresReview=r.get("requires_review", False),
+                judgeScore=r.get("judge_verdict", {}).get("score")
                 if isinstance(r.get("judge_verdict"), dict)
                 else None,
             )
@@ -448,10 +450,10 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
         return ApiResponse(
             data=[
                 EvaluationResult(
-                    question_id=q_id,
+                    questionId=q_id,
                     score=0.0,
                     justification=f"Evaluation error: {exc}",
-                    conceptual_errors=[],
+                    conceptualErrors=[],
                     suggestions=[],
                 )
                 for q_id in request.answers
