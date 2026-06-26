@@ -44,6 +44,9 @@ from src.memory.schema import (
     get_session as _get_session,
 )
 from src.memory.schema import (
+    insert_ingested_document as _insert_ingested_document,
+)
+from src.memory.schema import (
     list_session_files as _list_session_files,
 )
 from src.memory.schema import (
@@ -234,6 +237,31 @@ async def ingest(
                 {"file_path": tmp_path, "session_id": effective_session_id},
             )
 
+            document_id = result.get("document_id") or str(uuid.uuid4())
+            try:
+                # Ensure the session row exists so ingested_documents FK succeeds.
+                # Anonymous uploads generate a fresh session_id on the fly.
+                session_detail = await _get_session(effective_session_id)
+                if session_detail is None:
+                    await _create_session(
+                        student_id=effective_session_id,
+                        name="",
+                        description="",
+                        session_id=effective_session_id,
+                    )
+                await _insert_ingested_document(
+                    {
+                        "id": document_id,
+                        "file_name": file.filename or "unknown",
+                        "classification": result.get("classification"),
+                        "topics_json": json.dumps(result.get("topics", [])),
+                        "chunks_count": result.get("chunks_created", 0),
+                        "session_id": effective_session_id,
+                    }
+                )
+            except Exception:
+                logger.exception("Failed to persist file metadata for %s", file.filename)
+
             results.append(
                 IngestResult(
                     sessionId=effective_session_id,
@@ -242,7 +270,7 @@ async def ingest(
                     topicsDetected=result.get("topics", []),
                     chunksCreated=result.get("chunks_created", 0),
                     classificationConfidence=result.get("classification_confidence"),
-                    documentId=result.get("document_id"),
+                    documentId=document_id,
                 )
             )
         except Exception:

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import uuid
+from datetime import UTC, datetime
 
 import aiosqlite
 
@@ -289,9 +290,11 @@ async def get_enriched_session_history(student_id: str, limit: int = 10) -> list
 # ── Session lifecycle (Epic 9) ───────────────────────────────────────────────
 
 
-async def create_session(student_id: str, name: str, description: str = "") -> dict:
+async def create_session(
+    student_id: str, name: str, description: str = "", session_id: str | None = None
+) -> dict:
     """Create a named session and return its metadata."""
-    session_id = str(uuid.uuid4())
+    session_id = session_id or str(uuid.uuid4())
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         await db.execute(
             """
@@ -374,12 +377,13 @@ async def delete_session(session_id: str) -> None:
 
 async def insert_ingested_document(doc: dict) -> None:
     """Persist file metadata after a successful ingest."""
+    ingested_at = doc.get("ingested_at") or datetime.now(UTC).isoformat()
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         await db.execute(
             """
             INSERT INTO ingested_documents
-            (id, file_name, classification, topics_json, chunks_count, session_id)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (id, file_name, classification, topics_json, chunks_count, session_id, ingested_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 doc["id"],
@@ -388,6 +392,7 @@ async def insert_ingested_document(doc: dict) -> None:
                 doc.get("topics_json"),
                 doc.get("chunks_count", 0),
                 doc.get("session_id"),
+                ingested_at,
             ),
         )
         await db.commit()
@@ -398,8 +403,9 @@ async def list_session_files(session_id: str) -> list[dict]:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT id, file_name, classification, topics_json, chunks_count, ingested_at "
-            "FROM ingested_documents WHERE session_id = ? ORDER BY ingested_at DESC",
+            "SELECT id, file_name, classification, topics_json, chunks_count, "
+            "ingested_at, session_id FROM ingested_documents "
+            "WHERE session_id = ? ORDER BY ingested_at DESC, rowid DESC",
             (session_id,),
         )
         rows = await cursor.fetchall()

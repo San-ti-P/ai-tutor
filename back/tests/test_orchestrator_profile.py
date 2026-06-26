@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 
 class TestResolveStudentId:
     """T-004: resolve_student_id helper in schema.py."""
@@ -19,8 +17,8 @@ class TestResolveStudentId:
 
     async def test_resolves_from_session_row(self, tmp_path):
         """Existing session row returns its student_id."""
-        from src.memory.schema import init_db, resolve_student_id
         from src.config import settings
+        from src.memory.schema import init_db, resolve_student_id
 
         db_path = tmp_path / "resolve.db"
         with patch.object(settings, "sqlite_db_path", str(db_path)):
@@ -40,8 +38,8 @@ class TestResolveStudentId:
 
     async def test_fallback_to_session_id_when_no_row(self, tmp_path):
         """No session row → fallback to session_id itself."""
-        from src.memory.schema import init_db, resolve_student_id
         from src.config import settings
+        from src.memory.schema import init_db, resolve_student_id
 
         db_path = tmp_path / "resolve_fallback.db"
         with patch.object(settings, "sqlite_db_path", str(db_path)):
