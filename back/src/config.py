@@ -48,6 +48,19 @@ class Settings(BaseSettings):
     chunk_overlap: int = 64
     retrieval_top_k: int = 5
 
+    # ── Topic Extraction ───────────────────────────────────────────────────
+    topic_segment_size: int = 6000
+    """Max chars per segment sent to LLM for topic extraction."""
+
+    topic_similarity_threshold: float = 0.6
+    """Jaccard similarity threshold for merging near-duplicate topics."""
+
+    max_topics_per_document: int = 30
+    """Maximum number of unified topics returned per document."""
+
+    topic_min_section_chars: int = 200
+    """Merge adjacent markdown sections below this character count."""
+
     # ── LLM Provider ──────────────────────────────────────────────────────
     # "ollama" | "groq" | "opencode-go" | "opencode-go-anthropic" | "openai"
     llm_provider: str = "opencode-go"

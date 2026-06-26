@@ -31,6 +31,7 @@ class IngestorState(TypedDict):
     classification: str
     classification_confidence: float
     topics: list[str]
+    topic_tree: str
     chunks_created: int
     errors: Annotated[list[str], operator.add]
     status: str
@@ -90,11 +91,17 @@ def parse_document(state: IngestorState) -> dict:
         return {"errors": [f"Parse error: {e}"], "status": "error"}
 
 
-def classify_document(state: IngestorState, config: RunnableConfig = None) -> dict:
-    """Classify document type and detect topics using LLM."""
+async def classify_document(state: IngestorState, config: RunnableConfig = None) -> dict:
+    """Classify document type and detect topics using LLM.
+
+    Runs the full-document topic extraction pipeline BEFORE the classification
+    prompt, then injects pipeline-detected topics as context for the classifier.
+    Classification itself still uses ``raw_text[:3000]`` preview.
+    """
     from pydantic import BaseModel, Field
 
     from src.config import settings
+    from src.topic_extraction import extract_topics_pipeline
 
     class Classification(BaseModel):
         classification: Literal[
@@ -111,13 +118,21 @@ def classify_document(state: IngestorState, config: RunnableConfig = None) -> di
                 "status": "rejected",
             }
 
+        # ── Run pipeline for full-document topic extraction ──────────────
+        pipeline_result = await extract_topics_pipeline(raw_text)
+        pipeline_topics = pipeline_result.get("topics", [])
+        topic_tree = pipeline_result.get("topic_tree", "{}")
+
         from src.llm import get_structured_llm
 
         structured_llm = get_structured_llm(Classification)
 
+        topics_str = ", ".join(pipeline_topics[:8]) if pipeline_topics else "(ninguno detectado)"
         prompt = f"""Analizá el siguiente texto académico y clasificalo.
 Clases posibles: apunte_teorico, examen_previo, ejercicio_resuelto, no_academico.
 Extraé también los temas principales (3-8 temas).
+
+Temas detectados en el documento completo: {topics_str}
 
 Texto:
 {raw_text[:3000]}
@@ -130,6 +145,7 @@ Texto:
                 "classification": result.classification,
                 "classification_confidence": result.confidence,
                 "topics": result.topics,
+                "topic_tree": topic_tree,
                 "errors": ["Content rejected: non-academic material"],
                 "status": "rejected_non_academic",
             }
@@ -139,6 +155,7 @@ Texto:
                 "classification": result.classification,
                 "classification_confidence": result.confidence,
                 "topics": result.topics,
+                "topic_tree": topic_tree,
                 "status": "classification_uncertain",
             }
 
@@ -146,6 +163,7 @@ Texto:
             "classification": result.classification,
             "classification_confidence": result.confidence,
             "topics": result.topics,
+            "topic_tree": topic_tree,
             "status": "classified",
         }
     except Exception as e:

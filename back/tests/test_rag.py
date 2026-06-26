@@ -91,6 +91,33 @@ class TestThematicIndex:
         assert "math" in d
         assert "algebra" in d
 
+    def test_accepts_pipeline_output_format(self):
+        """ThematicIndex works with flat topic lists from extract_topics_pipeline."""
+        ti = ThematicIndex()
+
+        # Pipeline returns flat list of topic strings — no slash separators
+        pipeline_topics = [
+            "Agentes inteligentes",
+            "Razonamiento",
+            "Planificación",
+            "Entorno de agentes",
+        ]
+        ti.add_topics(pipeline_topics)
+
+        tree = ti.to_dict()
+        for topic in pipeline_topics:
+            assert topic in tree, f"Pipeline topic '{topic}' not in ThematicIndex"
+
+        # Merge another index to confirm flat + hierarchical coexist
+        ti_hier = ThematicIndex()
+        ti_hier.add_topics(["Agentes inteligentes/Tipos/Reactivos", "Cálculo/Derivadas"])
+        ti.merge(ti_hier)
+
+        merged = ti.to_dict()
+        assert "Tipos" in merged["Agentes inteligentes"]
+        assert "Reactivos" in merged["Agentes inteligentes"]["Tipos"]
+        assert "Cálculo" in merged
+
 
 class TestEmbedAndStore:
     """Tests for embed_and_store requiring a mock embedding model."""

@@ -1,0 +1,88 @@
+"""Build hierarchical topic tree from unified list (TXR-06).
+
+- ≤5 topics: deterministic prefix grouping (no LLM cost).
+- ≥5 topics: LLM call to organize into nested hierarchy using same
+  schema-in-prompt pattern as extract.py.
+- Deterministic fallback on LLM failure.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+
+from src.llm import get_llm
+
+logger = logging.getLogger("tutor.topic_extraction.tree")
+
+# ── Regex for extracting JSON from LLM output ─────────────────────────────────
+
+_JSON_RE = re.compile(r"\{[\s\S]*\}")
+
+
+async def build_topic_tree(topics: list[str]) -> dict:
+    """Build a nested dict hierarchy from a flat topic list.
+
+    Args:
+        topics: Unified topic list from ``unify_topics()``.
+
+    Returns:
+        Nested dict like ``{"Agentes": {"Tipos": {}, "Entorno": {}}}``.
+        Always a plain ``dict``, serializable with ``json.dumps``.
+    """
+    if not topics:
+        return {}
+
+    if len(topics) <= 5:
+        # Deterministic: group by first word, each leaf is empty dict
+        tree: dict = {}
+        for topic in sorted(topics):
+            parts = topic.split()
+            first = parts[0]
+            tree.setdefault(first, {})
+        return {k: {} for k in sorted(tree)}
+
+    # ≥5 topics: LLM call
+    try:
+        llm = get_llm()
+
+        schema_desc = '{"topic_name": {"subtopic_name": {}, ...}, ...}'
+        prompt = (
+            "Organize these academic topics into a hierarchical tree. "
+            "Return ONLY a JSON object where each key is a top-level category "
+            "and each value is a nested object of subtopics (empty objects for leaves).\n\n"
+            f"Schema: {schema_desc}\n\n"
+            "Topics:\n" + "\n".join(f"- {t}" for t in topics)
+        )
+
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        messages = [
+            SystemMessage(
+                content=(
+                    "You organize academic topics into hierarchies. "
+                    "Return ONLY valid JSON matching this pattern: "
+                    f"{schema_desc}\n"
+                    "No other text. Just valid JSON."
+                )
+            ),
+            HumanMessage(content=prompt),
+        ]
+
+        response = await llm.ainvoke(messages)
+        response_text: str = response.content if hasattr(response, "content") else str(response)
+
+        match = _JSON_RE.search(response_text)
+        if match:
+            tree = json.loads(match.group(0))
+            if isinstance(tree, dict):
+                logger.debug("LLM-built topic tree: %d top-level categories", len(tree))
+                return tree
+
+        raise ValueError(f"LLM response not a valid dict: {response_text[:200]!r}")
+
+    except Exception as exc:
+        logger.warning("Topic tree LLM call failed, using flat fallback: %s", exc)
+        # Deterministic fallback: flat dict
+        return {t: {} for t in sorted(topics)}

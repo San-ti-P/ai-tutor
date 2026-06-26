@@ -21,6 +21,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     await init_db()
     get_tracer()  # eager init — triggers lazy Langfuse client creation
+
+    # Bootstrap NLTK Spanish stopwords — guard for air-gapped deploys
+    try:
+        import nltk
+
+        nltk.download("stopwords", quiet=True)
+    except Exception:
+        pass  # Air-gapped deploy: stopwords downloaded manually
+
     yield
     flush_traces()
     from src.agents.orchestrator import close_orchestrator_graph

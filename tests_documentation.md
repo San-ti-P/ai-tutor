@@ -38,7 +38,7 @@ GROQ_API_KEY=gsk_...      # only needed for groq
 
 ## Test Inventory
 
-### Integration Tests (12 tests — `-m integration`)
+### Integration Tests (13 tests — `-m integration`)
 
 | # | Test | File | Real Resource | What It Proves |
 |---|------|------|--------------|----------------|
@@ -54,13 +54,15 @@ GROQ_API_KEY=gsk_...      # only needed for groq
 | 10 | `test_evaluate_correct_answer` | `test_evaluator.py` | ChatOllama + SentenceTransformer + ChromaDB (real PDF) | PRD Case 3: correct answer scored ≥6 by real LLM with RAG backing. Verifies EVAL-SPEC-01, EVAL-SPEC-02 |
 | 11 | `test_evaluate_partially_correct` | `test_evaluator.py` | ChatOllama + SentenceTransformer + ChromaDB (real PDF) | PRD Case 8: partially correct answer scored mid-range. Verifies EVAL-SPEC-03, EVAL-SPEC-04 |
 | 12 | `test_evaluate_wrong_language` | `test_evaluator.py` | None (rule-based guard) | PRD Case 12: gibberish rejected with structured cannot_evaluate response. Verifies EVAL-SPEC-09, EVAL-SPEC-10 |
+| 13 | `test_full_pipeline_real_pdf` | `test_topic_extraction.py` | Ollama Cloud LLM + markitdown + real PDF | Epic 11 NFR: full topic extraction pipeline on real academic PDF. Verifies ≥3 topics extracted, topic_tree non-empty, segment_count > 0. Skips gracefully if Ollama Cloud API key missing or network fails. |
 
-### Unit Tests (57 tests — default)
+### Unit Tests (105 tests — default)
 
 | File | Tests | Mocks | Covers |
 |------|-------|-------|--------|
+| `test_topic_extraction.py` | 48 | `get_llm` (AsyncMock), NLTK | TXR-01 through TXR-10: Spanish NLP preprocessing, markdown segmentation, sequential LLM extraction, Jaccard unification, tree construction, full pipeline API. Edge cases: Jaccard boundary (0.59/0.60), accented Unicode, long topic strings (>200 chars). |
 | `test_exam_generator.py` | 15 | ChatGroq, retrieve_chunks, embeddings | Graph topology, state transitions, retry logic, dedup, output structure, PRD cases (mocked) |
-| `test_ingestor.py` | 12 | ChatGroq | Parse, classify, incremental ingestion, non-academic rejection, image rejection, error handling |
+| `test_ingestor.py` | 12 | ChatGroq | Parse, classify, incremental ingestion, non-academic rejection, image rejection, error handling. TXR-07 integration: classify_document → pipeline delegation. |
 | `test_rag.py` | 10 | Embedding model, ChromaDB client | Chunking, ThematicIndex (CRUD + merge), embed/store, retrieve (with topic filter) |
 | `test_evaluator.py` | 22 | ChatOllama (provider-aware mock), SentenceTransformer, retrieve_chunks | 8-node graph: state schema, evaluability guard (gibberish, language mismatch, length), structured LLM evaluation, anti-hallucination claim validation, LLM-as-judge sampling + disagreement, batch loop, DB sync, full graph E2E mocked |
 
@@ -86,6 +88,25 @@ All 12 cases from `init_PRD.md` §8. Mapping shows which test file covers each c
 | 12 | Adversarial | Answer in different language | `test_check_evaluability_rejects_gibberish` (mock) + `test_evaluate_wrong_language` (real) | Both |
 
 **Coverage status**: 7/12 with real models, 3/12 mock-only, 2/12 deferred (OCR), 0/12 not yet implemented.
+
+---
+
+## TXR Requirement Test Coverage (Epic 11)
+
+All 10 TXR requirements from `openspec/changes/epic-11-topic-extraction-refinement/specs.md` have at least one test.
+
+| TXR | Description | Tests | Real LLM? |
+|-----|-------------|-------|-----------|
+| TXR-01 | Spanish NLP: stopword removal + Snowball stemming | `TestRemoveStopwords` (4), `TestStemTopic` (6 incl. accented, ñ) | ❌ Unit |
+| TXR-02 | Markdown-aware segmentation with fallback | `TestSegmentText` (7) | ❌ Unit |
+| TXR-03 | Sequential LLM extraction per segment | `TestExtractTopicsFromSegment` (4) | ❌ Mock |
+| TXR-05 | Jaccard unification: merge, separate, canonical, cap | `TestUnifyTopics` (12 incl. boundary, accented, long strings) | ❌ Unit |
+| TXR-06 | Hierarchical tree construction | `TestBuildTopicTree` (5) | ❌ Mock |
+| TXR-07 | `classify_document` → pipeline delegation | `test_ingestor.py` (6 updated) | ❌ Mock |
+| TXR-08 | `extract_topics` tool → pipeline delegation | `test_ingestor.py` tool tests | ❌ Mock |
+| TXR-09 | Pipeline API shape (`extract_topics_pipeline`) | `TestExtractTopicsPipeline` (5) | ❌ Mock |
+| TXR-10 | Short text passthrough | `test_short_text_passthrough`, `test_single_segment_skips_unify` | ❌ Mock |
+| NFR | Full pipeline on real PDF (≥3 topics, tree non-empty) | `test_full_pipeline_real_pdf` (integration) | ✅ Ollama Cloud |
 
 ---
 

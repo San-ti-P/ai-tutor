@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -10,6 +11,16 @@ from src.agents.ingestor import (
     classify_document,
     parse_document,
 )
+
+# ── Shared mock data ─────────────────────────────────────────────────────────
+
+MOCK_PIPELINE_RESULT = {
+    "summary": "Resumen sobre álgebra lineal y espacio vectorial.",
+    "topics": ["álgebra", "vectores", "matrices", "espacio vectorial"],
+    "topic_tree": '{"álgebra": {"vectores": {}, "matrices": {}, "espacio vectorial": {}}}',
+    "segment_count": 1,
+    "failed_segments": [],
+}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # PRD Case #1 — Happy path: well-formatted PDF
@@ -37,7 +48,7 @@ class TestIngestorHappyPath:
         assert result["file_type"] == "text"
         assert "Álgebra lineal" in result["raw_text"]
 
-    def test_classify_academic_document(self, sample_txt, ingestor_state, mock_llm_response):
+    def test_classify_academic_document(self, sample_txt, ingestor_state):
         """Classification returns academic label with topics."""
         state = dict(ingestor_state)
         state["file_path"] = str(sample_txt)
@@ -45,7 +56,24 @@ class TestIngestorHappyPath:
         parsed = parse_document(state)
         state.update(parsed)
 
-        result = classify_document(state)
+        with patch(
+            "src.topic_extraction.extract_topics_pipeline",
+            new_callable=AsyncMock,
+        ) as mock_pipeline:
+            mock_pipeline.return_value = MOCK_PIPELINE_RESULT
+
+            # Mock get_structured_llm to return a callable that produces
+            # the expected classification result (works across all providers).
+            mock_result = MagicMock()
+            mock_result.classification = "apunte_teorico"
+            mock_result.confidence = 0.95
+            mock_result.topics = ["álgebra", "vectores", "matrices", "espacio vectorial"]
+            mock_chain = MagicMock()
+            mock_chain.invoke.return_value = mock_result
+
+            with patch("src.llm.get_structured_llm", return_value=mock_chain):
+                result = asyncio.run(classify_document(state))
+
         assert result["classification"] == "apunte_teorico"
         assert len(result["topics"]) >= 3
         assert result["classification_confidence"] >= 0.9
@@ -114,29 +142,28 @@ class TestIncrementalIngestion:
 class TestNonAcademicRejection:
     def test_reject_non_academic_content(self, non_academic_txt, ingestor_state):
         """PRD Case #10: Non-academic text is rejected."""
-        # Create a mock that returns non-academic classification
-        from tests.conftest import _llm_provider_module as _provider
+        mock_result = MagicMock()
+        mock_result.classification = "no_academico"
+        mock_result.confidence = 0.88
+        mock_result.topics = []
 
-        with patch(_provider()) as mock_llm:
-            mock_result = MagicMock()
-            mock_result.classification = "no_academico"
-            mock_result.confidence = 0.88
-            mock_result.topics = []
+        mock_chain = MagicMock()
+        mock_chain.invoke.return_value = mock_result
 
-            mock_structured = MagicMock()
-            mock_structured.invoke.return_value = mock_result
+        with patch(
+            "src.topic_extraction.extract_topics_pipeline",
+            new_callable=AsyncMock,
+        ) as mock_pipeline:
+            mock_pipeline.return_value = MOCK_PIPELINE_RESULT
 
-            mock_instance = MagicMock()
-            mock_instance.with_structured_output.return_value = mock_structured
-            mock_llm.return_value = mock_instance
+            with patch("src.llm.get_structured_llm", return_value=mock_chain):
+                state = dict(ingestor_state)
+                state["file_path"] = str(non_academic_txt)
 
-            state = dict(ingestor_state)
-            state["file_path"] = str(non_academic_txt)
+                parsed = parse_document(state)
+                state.update(parsed)
 
-            parsed = parse_document(state)
-            state.update(parsed)
-
-            result = classify_document(state)
+                result = asyncio.run(classify_document(state))
             assert result["status"] == "rejected_non_academic"
             assert result["classification"] == "no_academico"
             assert len(result["errors"]) > 0
@@ -153,7 +180,7 @@ class TestNonAcademicRejection:
         parsed = parse_document(state)
         state.update(parsed)
 
-        result = classify_document(state)
+        result = asyncio.run(classify_document(state))
         assert result["status"] == "rejected"
         assert len(result["errors"]) > 0
 
@@ -187,45 +214,31 @@ class TestExtractTopics:
     def test_extract_topics_from_text(self):
         """extract_topics returns structured topics from text input."""
         from src.tools import extract_topics
-        from tests.conftest import _llm_provider_module as _provider
 
-        with patch(_provider()) as mock_llm:
-            mock_result = MagicMock()
-            mock_result.summary = "Resumen sobre álgebra lineal."
-            mock_result.topics = ["álgebra", "vectores", "matrices"]
-            mock_result.topic_tree = {"álgebra": {"vectores": {}, "matrices": {}}}
+        with patch(
+            "src.topic_extraction.extract_topics_pipeline",
+            new_callable=AsyncMock,
+        ) as mock_pipeline:
+            mock_pipeline.return_value = MOCK_PIPELINE_RESULT
 
-            mock_structured = MagicMock()
-            mock_structured.invoke.return_value = mock_result
-
-            mock_instance = MagicMock()
-            mock_instance.with_structured_output.return_value = mock_structured
-            mock_llm.return_value = mock_instance
-
-            result = extract_topics.invoke({"text": "Álgebra lineal: vectores y matrices."})
-            assert result["summary"] == "Resumen sobre álgebra lineal."
-            assert len(result["topics"]) == 3
+            result = asyncio.run(
+                extract_topics.ainvoke({"text": "Álgebra lineal: vectores y matrices."})
+            )
+            assert result["summary"] == MOCK_PIPELINE_RESULT["summary"]
+            assert len(result["topics"]) == 4
             assert "topic_tree" in result
 
     def test_extract_topics_from_file(self, sample_txt):
         """extract_topics parses a TXT file and extracts topics."""
         from src.tools import extract_topics
-        from tests.conftest import _llm_provider_module as _provider
 
-        with patch(_provider()) as mock_llm:
-            mock_result = MagicMock()
-            mock_result.summary = "Material sobre álgebra lineal."
-            mock_result.topics = ["álgebra", "vectores"]
-            mock_result.topic_tree = {"álgebra": {"vectores": {}}}
+        with patch(
+            "src.topic_extraction.extract_topics_pipeline",
+            new_callable=AsyncMock,
+        ) as mock_pipeline:
+            mock_pipeline.return_value = MOCK_PIPELINE_RESULT
 
-            mock_structured = MagicMock()
-            mock_structured.invoke.return_value = mock_result
-
-            mock_instance = MagicMock()
-            mock_instance.with_structured_output.return_value = mock_structured
-            mock_llm.return_value = mock_instance
-
-            result = extract_topics.invoke({"file_path": str(sample_txt)})
+            result = asyncio.run(extract_topics.ainvoke({"file_path": str(sample_txt)}))
             assert "summary" in result
             assert len(result["topics"]) > 0
 
@@ -233,7 +246,7 @@ class TestExtractTopics:
         """extract_topics errors when neither text nor file_path given."""
         from src.tools import extract_topics
 
-        result = extract_topics.invoke({})
+        result = asyncio.run(extract_topics.ainvoke({}))
         assert "error" in result
         assert "either" in result["error"].lower()
 
@@ -241,7 +254,7 @@ class TestExtractTopics:
         """extract_topics errors gracefully on missing file."""
         from src.tools import extract_topics
 
-        result = extract_topics.invoke({"file_path": "/nonexistent/file.pdf"})
+        result = asyncio.run(extract_topics.ainvoke({"file_path": "/nonexistent/file.pdf"}))
         assert "error" in result
         assert "not found" in result["error"].lower()
 
@@ -342,9 +355,10 @@ class TestRealPDFIngestion:
             "status": "pending",
             "document_id": "",
             "chunk_ids": [],
+            "topic_tree": "",
         }
 
-        result = classify_document(state)
+        result = asyncio.run(classify_document(state))
         assert result["classification"] == "apunte_teorico", (
             f"Expected 'apunte_teorico', got '{result.get('classification')}'. "
             f"Confidence: {result.get('classification_confidence')}"

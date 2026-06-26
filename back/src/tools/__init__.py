@@ -98,6 +98,7 @@ def ingest_document(
         "classification": "",
         "classification_confidence": 0.0,
         "topics": [],
+        "topic_tree": "",
         "chunks_created": 0,
         "errors": [],
         "status": "pending",
@@ -133,16 +134,16 @@ def ingest_document(
 
 
 @tool
-def extract_topics(
+async def extract_topics(
     text: str | None = None,
     file_path: str | None = None,
 ) -> dict:
     """Extract hierarchical topics from academic content.
 
     Analyzes the provided text (or reads text from a file) and returns
-    a structured tree of topics. Use this tool to understand what topics
-    a document covers before deciding which chunks to retrieve or what
-    content to generate.
+    a structured tree of topics. Uses the full-document topic extraction
+    pipeline (heading-based segmentation → LLM extraction → NLP unification
+    → hierarchical tree).
 
     At least one of ``text`` or ``file_path`` must be provided. When both
     are given, ``text`` takes precedence.
@@ -154,23 +155,14 @@ def extract_topics(
     Returns:
         A dict with:
             - summary: one-sentence summary of the content
-            - topics: flat list of detected topic strings (3-15 items)
-            - topic_tree: nested dict representing the hierarchical topic structure
+            - topics: flat list of detected topic strings
+            - topic_tree: JSON-serialized nested topic hierarchy
+            - segment_count: number of text segments processed
+            - failed_segments: indices of segments that failed extraction
     """
     from pathlib import Path
 
-    from pydantic import BaseModel, Field
-
-    class TopicExtraction(BaseModel):
-        summary: str = Field(description="One-sentence summary of the content")
-        topics: list[str] = Field(description="Flat list of detected topics (3-15 items)")
-        topic_tree: str = Field(
-            default="",
-            description=(
-                "Hierarchical topic structure as JSON string. "
-                'Example: \'{"Math": {"Algebra": {}, "Calculus": {}}}\''
-            ),
-        )
+    from src.topic_extraction import extract_topics_pipeline
 
     # Resolve input text
     if text is not None and text.strip():
@@ -198,27 +190,15 @@ def extract_topics(
     else:
         return {"error": "Either 'text' or 'file_path' must be provided."}
 
-    # Truncate to avoid token limits
-    content_preview = content[:5000]
-
+    # Delegate to full-document pipeline
     try:
-        from src.llm import get_structured_llm
-
-        structured_llm = get_structured_llm(TopicExtraction)
-
-        prompt = (
-            "Analizá el siguiente texto académico y extraé:\n"
-            "1. Un resumen de una línea del contenido.\n"
-            "2. Una lista plana de temas principales (3-15 temas).\n"
-            "3. Un árbol de temas como texto, ejemplo: 'Matemáticas > Álgebra > Lineal'\n\n"
-            f"Texto:\n{content_preview}"
-        )
-
-        result = structured_llm.invoke(prompt)
+        result = await extract_topics_pipeline(content)
         return {
-            "summary": result.summary,
-            "topics": result.topics,
-            "topic_tree": result.topic_tree,
+            "summary": result["summary"],
+            "topics": result["topics"],
+            "topic_tree": result["topic_tree"],
+            "segment_count": result["segment_count"],
+            "failed_segments": result["failed_segments"],
         }
     except Exception as exc:
         logger.exception("extract_topics failed")

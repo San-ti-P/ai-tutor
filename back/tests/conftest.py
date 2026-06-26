@@ -155,6 +155,7 @@ def ingestor_state(sample_txt):
         raw_text="",
         classification="",
         topics=[],
+        topic_tree="",
         chunks_created=0,
         errors=[],
         status="pending",
@@ -176,10 +177,7 @@ def mock_embedding_model():
         # Make encode return real torch tensors for cos_sim/batch compatibility
         def _fake_encode(texts, **kwargs):
             return torch.tensor(
-                [
-                    [0.1 * (i + 1 + (hash(t) % 10) * 0.01) for i in range(384)]
-                    for t in texts
-                ],
+                [[0.1 * (i + 1 + (hash(t) % 10) * 0.01) for i in range(384)] for t in texts],
                 dtype=torch.float32,
             )
 
@@ -405,8 +403,7 @@ def requires_ollama():
         llm.invoke("ping")
     except Exception as exc:
         pytest.skip(
-            f"Ollama not reachable or model "
-            f"'{settings.ollama_model_name}' not available: {exc}"
+            f"Ollama not reachable or model '{settings.ollama_model_name}' not available: {exc}"
         )
 
 
@@ -605,8 +602,7 @@ def evaluator_state(sample_chunks) -> dict:
                 "question_id": "q-003",
                 "question": "¿Qué establece el Teorema Fundamental del Cálculo?",
                 "base_answer": (
-                    "Establece que la integración y la derivación son "
-                    "operaciones inversas."
+                    "Establece que la integración y la derivación son operaciones inversas."
                 ),
                 "student_answer": "asdf jkl qwerty zxcv nm",
                 "source_chunk_ids": ["chunk-math-005"],
@@ -850,7 +846,7 @@ def mock_observe():
     The decorated function executes normally — no tracing intent is
     altered, but the real Langfuse decorator is never invoked.
     """
-    with patch("langfuse.observe", lambda **kw: (lambda fn: fn)):
+    with patch("langfuse.observe", lambda **kw: lambda fn: fn):
         yield
 
 
