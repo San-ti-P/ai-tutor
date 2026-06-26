@@ -307,6 +307,7 @@ REQUISITOS:
         for mcq in result.mcq_questions:
             q = mcq.model_dump()
             q["type"] = "mcq"
+            q["prompt"] = q.pop("stem")  # map internal field to API field
             new_questions.append(q)
         for oa in result.open_questions:
             q = oa.model_dump()

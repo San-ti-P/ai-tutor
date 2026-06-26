@@ -41,6 +41,9 @@ from src.memory.schema import (
     delete_session as _delete_session,
 )
 from src.memory.schema import (
+    ensure_student_exists as _ensure_student_exists,
+)
+from src.memory.schema import (
     get_session as _get_session,
 )
 from src.memory.schema import (
@@ -139,6 +142,7 @@ def _validate_session_id(raw: str | None) -> str:
 async def create_session_endpoint(request: SessionCreate) -> ApiResponse[Session]:
     """Create a new named study session."""
     logger.info("Creating session for student %s", request.student_id)
+    await _ensure_student_exists(request.student_id)
     session = await _create_session(request.student_id, request.name, request.description)
     detail = await _get_session(session["id"])
     return ApiResponse(data=Session.model_validate(detail), error=None, trace_id=str(uuid.uuid4()))

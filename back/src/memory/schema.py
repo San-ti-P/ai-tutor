@@ -290,6 +290,17 @@ async def get_enriched_session_history(student_id: str, limit: int = 10) -> list
 # ── Session lifecycle (Epic 9) ───────────────────────────────────────────────
 
 
+async def ensure_student_exists(student_id: str) -> None:
+    """Create a student row if one does not already exist (idempotent)."""
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        await db.execute("PRAGMA foreign_keys=ON")
+        await db.execute(
+            "INSERT OR IGNORE INTO students (id) VALUES (?)",
+            (student_id,),
+        )
+        await db.commit()
+
+
 async def create_session(
     student_id: str, name: str, description: str = "", session_id: str | None = None
 ) -> dict:
