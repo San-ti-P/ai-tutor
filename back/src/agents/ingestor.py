@@ -108,7 +108,7 @@ async def classify_document(state: IngestorState, config: RunnableConfig = None)
             "apunte_teorico", "examen_previo", "ejercicio_resuelto", "no_academico"
         ]
         confidence: float = Field(ge=0.0, le=1.0)
-        topics: list[str]
+        topics: list[str] = Field(default_factory=list)
 
     try:
         raw_text = state.get("raw_text", "")
@@ -130,11 +130,10 @@ async def classify_document(state: IngestorState, config: RunnableConfig = None)
         topics_str = ", ".join(pipeline_topics[:8]) if pipeline_topics else "(ninguno detectado)"
         prompt = f"""Analizá el siguiente texto académico y clasificalo.
 Clases posibles: apunte_teorico, examen_previo, ejercicio_resuelto, no_academico.
-Extraé también los temas principales (3-8 temas).
 
 Temas detectados en el documento completo: {topics_str}
 
-Texto:
+Texto (vista previa):
 {raw_text[:3000]}
 """
         invoke_kwargs = {"config": config} if config is not None else {}
@@ -144,7 +143,7 @@ Texto:
             return {
                 "classification": result.classification,
                 "classification_confidence": result.confidence,
-                "topics": result.topics,
+                "topics": pipeline_topics,
                 "topic_tree": topic_tree,
                 "errors": ["Content rejected: non-academic material"],
                 "status": "rejected_non_academic",
@@ -154,7 +153,7 @@ Texto:
             return {
                 "classification": result.classification,
                 "classification_confidence": result.confidence,
-                "topics": result.topics,
+                "topics": pipeline_topics,
                 "topic_tree": topic_tree,
                 "status": "classification_uncertain",
             }
@@ -162,7 +161,7 @@ Texto:
         return {
             "classification": result.classification,
             "classification_confidence": result.confidence,
-            "topics": result.topics,
+            "topics": pipeline_topics,
             "topic_tree": topic_tree,
             "status": "classified",
         }
