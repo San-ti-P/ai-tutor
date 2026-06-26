@@ -156,6 +156,7 @@ def ingestor_state(sample_txt):
         raw_text="",
         classification="",
         topics=[],
+        topic_tree="",
         chunks_created=0,
         errors=[],
         status="pending",

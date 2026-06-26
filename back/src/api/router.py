@@ -126,8 +126,7 @@ async def ingest(
             tmp_path = tmp.name
 
         try:
-            result = await asyncio.to_thread(
-                _ingest_tool.invoke,
+            result = await _ingest_tool.ainvoke(
                 {"file_path": tmp_path, "session_id": effective_session_id},
             )
 
