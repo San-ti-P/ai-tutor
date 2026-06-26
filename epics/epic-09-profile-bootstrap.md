@@ -1,6 +1,6 @@
 # Epic 9: Session Lifecycle & Profile Bootstrap
 
-**Status:** Draft
+**Status:** Complete ✅ (2026-06-26)
 **Source PRD:** [../init_PRD.md](../init_PRD.md) (esp. §4.4, RNF-02)
 **Design doc:** [docs/superpowers/specs/2026-06-26-epic-09-session-lifecycle-design.md](../docs/superpowers/specs/2026-06-26-epic-09-session-lifecycle-design.md)
 **Delivery window:** Entrega 3 — extends Profile Bootstrap with full session lifecycle (named subjects, file tracking, short-term memory, session CRUD)
