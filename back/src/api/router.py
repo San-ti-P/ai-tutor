@@ -86,8 +86,7 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
         try:
             session_id = request_session_id
 
-            result = await asyncio.to_thread(
-                _ingest_tool.invoke,
+            result = await _ingest_tool.ainvoke(
                 {"file_path": tmp_path, "session_id": session_id},
             )
 
