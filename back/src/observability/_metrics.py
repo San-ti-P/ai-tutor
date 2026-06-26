@@ -72,9 +72,7 @@ def compute_aggregate_metrics(trace: Any) -> dict[str, Any]:
             # Individual observation parsing should never fail the whole loop
             continue
 
-    tool_success_rate = (
-        (tool_calls - tool_errors) / tool_calls if tool_calls > 0 else 1.0
-    )
+    tool_success_rate = (tool_calls - tool_errors) / tool_calls if tool_calls > 0 else 1.0
 
     avg_score = sum(scores) / len(scores) if scores else 0.0
 

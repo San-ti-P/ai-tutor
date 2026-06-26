@@ -52,9 +52,7 @@ class TestCosineSimEquivalence:
             f"cos_sim={result[0, 0]:.10f}, manual={manual:.10f}"
         )
 
-    @pytest.mark.parametrize(
-        "seed", list(range(100))
-    )
+    @pytest.mark.parametrize("seed", list(range(100)))
     def test_100_random_pairs(self, seed: int):
         """100 random normalized vector pairs — cos_sim ≈ manual within 1e-6."""
         import random as _random

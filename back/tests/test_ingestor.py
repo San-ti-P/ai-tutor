@@ -115,20 +115,15 @@ class TestNonAcademicRejection:
     def test_reject_non_academic_content(self, non_academic_txt, ingestor_state):
         """PRD Case #10: Non-academic text is rejected."""
         # Create a mock that returns non-academic classification
-        from tests.conftest import _llm_provider_module as _provider
-
-        with patch(_provider()) as mock_llm:
+        with patch("src.llm.get_structured_llm") as mock_gs_llm:
             mock_result = MagicMock()
             mock_result.classification = "no_academico"
             mock_result.confidence = 0.88
             mock_result.topics = []
 
-            mock_structured = MagicMock()
-            mock_structured.invoke.return_value = mock_result
-
-            mock_instance = MagicMock()
-            mock_instance.with_structured_output.return_value = mock_structured
-            mock_llm.return_value = mock_instance
+            fake_invokable = MagicMock()
+            fake_invokable.invoke.return_value = mock_result
+            mock_gs_llm.return_value = fake_invokable
 
             state = dict(ingestor_state)
             state["file_path"] = str(non_academic_txt)
@@ -187,20 +182,16 @@ class TestExtractTopics:
     def test_extract_topics_from_text(self):
         """extract_topics returns structured topics from text input."""
         from src.tools import extract_topics
-        from tests.conftest import _llm_provider_module as _provider
 
-        with patch(_provider()) as mock_llm:
+        with patch("src.llm.get_structured_llm") as mock_gs_llm:
             mock_result = MagicMock()
             mock_result.summary = "Resumen sobre álgebra lineal."
             mock_result.topics = ["álgebra", "vectores", "matrices"]
             mock_result.topic_tree = {"álgebra": {"vectores": {}, "matrices": {}}}
 
-            mock_structured = MagicMock()
-            mock_structured.invoke.return_value = mock_result
-
-            mock_instance = MagicMock()
-            mock_instance.with_structured_output.return_value = mock_structured
-            mock_llm.return_value = mock_instance
+            fake_invokable = MagicMock()
+            fake_invokable.invoke.return_value = mock_result
+            mock_gs_llm.return_value = fake_invokable
 
             result = extract_topics.invoke({"text": "Álgebra lineal: vectores y matrices."})
             assert result["summary"] == "Resumen sobre álgebra lineal."
@@ -210,20 +201,16 @@ class TestExtractTopics:
     def test_extract_topics_from_file(self, sample_txt):
         """extract_topics parses a TXT file and extracts topics."""
         from src.tools import extract_topics
-        from tests.conftest import _llm_provider_module as _provider
 
-        with patch(_provider()) as mock_llm:
+        with patch("src.llm.get_structured_llm") as mock_gs_llm:
             mock_result = MagicMock()
             mock_result.summary = "Material sobre álgebra lineal."
             mock_result.topics = ["álgebra", "vectores"]
             mock_result.topic_tree = {"álgebra": {"vectores": {}}}
 
-            mock_structured = MagicMock()
-            mock_structured.invoke.return_value = mock_result
-
-            mock_instance = MagicMock()
-            mock_instance.with_structured_output.return_value = mock_structured
-            mock_llm.return_value = mock_instance
+            fake_invokable = MagicMock()
+            fake_invokable.invoke.return_value = mock_result
+            mock_gs_llm.return_value = fake_invokable
 
             result = extract_topics.invoke({"file_path": str(sample_txt)})
             assert "summary" in result

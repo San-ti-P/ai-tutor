@@ -46,18 +46,19 @@ def _llm_provider_module() -> str:
 
 @contextmanager
 def patch_llm(fake_return: Any):
-    """Context manager that patches the current LLM provider's chat class.
+    """Context manager that patches get_structured_llm for deterministic testing.
 
-    The mock is set up with ``with_structured_output().invoke()`` returning
-    *fake_return*, matching the pattern used by all agent nodes.
+    Patches ``src.llm.get_structured_llm`` to return a callable that
+    ignores the schema and returns *fake_return* directly. This works
+    across all providers (Ollama, Groq, etc.) because it bypasses the
+    entire LLM instantiation and chain assembly.
     """
-    with patch(_llm_provider_module()) as mock_llm:
-        mock_structured = MagicMock()
-        mock_structured.invoke.return_value = fake_return
-        mock_instance = MagicMock()
-        mock_instance.with_structured_output.return_value = mock_structured
-        mock_llm.return_value = mock_instance
-        yield mock_llm
+
+    fake_invokable = MagicMock()
+    fake_invokable.invoke.return_value = fake_return
+
+    with patch("src.llm.get_structured_llm", return_value=fake_invokable) as mock_gs_llm:
+        yield mock_gs_llm
 
 
 @pytest.fixture
@@ -176,10 +177,7 @@ def mock_embedding_model():
         # Make encode return real torch tensors for cos_sim/batch compatibility
         def _fake_encode(texts, **kwargs):
             return torch.tensor(
-                [
-                    [0.1 * (i + 1 + (hash(t) % 10) * 0.01) for i in range(384)]
-                    for t in texts
-                ],
+                [[0.1 * (i + 1 + (hash(t) % 10) * 0.01) for i in range(384)] for t in texts],
                 dtype=torch.float32,
             )
 
@@ -381,16 +379,11 @@ def mock_exam_llm():
         },
     )
 
-    with patch(_llm_provider_module()) as mock_groq:
-        mock_structured = MagicMock()
-        mock_structured.invoke.return_value = fake_exam
-        mock_instance = MagicMock()
-        mock_instance.with_structured_output.return_value = mock_structured
-        mock_groq.return_value = mock_instance
-        yield mock_groq
-
-
-# ── Real-model integration fixtures (opt-in via `-m integration`) ─────────────
+    with patch("src.llm.get_structured_llm") as mock_gs_llm:
+        fake_invokable = MagicMock()
+        fake_invokable.invoke.return_value = fake_exam
+        mock_gs_llm.return_value = fake_invokable
+        yield mock_gs_llm
 
 
 @pytest.fixture
@@ -405,8 +398,7 @@ def requires_ollama():
         llm.invoke("ping")
     except Exception as exc:
         pytest.skip(
-            f"Ollama not reachable or model "
-            f"'{settings.ollama_model_name}' not available: {exc}"
+            f"Ollama not reachable or model '{settings.ollama_model_name}' not available: {exc}"
         )
 
 
@@ -526,13 +518,11 @@ def mock_exercise_llm():
         },
     )
 
-    with patch(_llm_provider_module()) as mock_groq:
-        mock_structured = MagicMock()
-        mock_structured.invoke.return_value = fake_exercise
-        mock_instance = MagicMock()
-        mock_instance.with_structured_output.return_value = mock_structured
-        mock_groq.return_value = mock_instance
-        yield mock_groq
+    with patch("src.llm.get_structured_llm") as mock_gs_llm:
+        fake_invokable = MagicMock()
+        fake_invokable.invoke.return_value = fake_exercise
+        mock_gs_llm.return_value = fake_invokable
+        yield mock_gs_llm
 
 
 # ── Orchestrator fixtures ───────────────────────────────────────────────────
@@ -605,8 +595,7 @@ def evaluator_state(sample_chunks) -> dict:
                 "question_id": "q-003",
                 "question": "¿Qué establece el Teorema Fundamental del Cálculo?",
                 "base_answer": (
-                    "Establece que la integración y la derivación son "
-                    "operaciones inversas."
+                    "Establece que la integración y la derivación son operaciones inversas."
                 ),
                 "student_answer": "asdf jkl qwerty zxcv nm",
                 "source_chunk_ids": ["chunk-math-005"],
@@ -850,7 +839,7 @@ def mock_observe():
     The decorated function executes normally — no tracing intent is
     altered, but the real Langfuse decorator is never invoked.
     """
-    with patch("langfuse.observe", lambda **kw: (lambda fn: fn)):
+    with patch("langfuse.observe", lambda **kw: lambda fn: fn):
         yield
 
 

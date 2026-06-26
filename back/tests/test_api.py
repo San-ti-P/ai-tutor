@@ -347,6 +347,104 @@ class TestTraceIdPropagation:
         """POST /api/ingest response includes trace_id."""
         pass
 
+    def test_ingest_forwards_session_id(self):
+        """GIVEN a session_id form field → THEN ingest_document receives that session_id.
+
+        Covers: ingestion spec scenario "Frontend sends session_id with upload" (task 3.2).
+        """
+        import uuid as _uuid
+        from unittest.mock import patch
+
+
+        provided_sid = str(_uuid.uuid4())
+
+        with patch("src.tools.ingest_document") as mock_tool:
+            mock_tool.invoke.return_value = {
+                "session_id": provided_sid,
+                "status": "ok",
+                "classification": "apunte_teorico",
+                "topics": ["test"],
+                "chunks_created": 3,
+                "classification_confidence": 0.9,
+                "document_id": "doc-1",
+            }
+            response = client.post(
+                "/api/ingest",
+                files=[("files", ("test.pdf", b"fake pdf content", "application/pdf"))],
+                data={"session_id": provided_sid},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["error"] is None
+        results = data["data"]
+        assert len(results) >= 1
+        # The tool should have been called with the provided session_id
+        call_kwargs = mock_tool.invoke.call_args[0][0]
+        assert call_kwargs["session_id"] == provided_sid
+
+    def test_ingest_generates_uuid_when_session_id_missing(self):
+        """GIVEN no session_id form field → THEN a UUID4 is generated.
+
+        Covers: ingestion spec scenario "Backward compatibility — no session_id provided" (task 3.2).
+        """
+        from unittest.mock import patch
+
+        with patch("src.tools.ingest_document") as mock_tool:
+            mock_tool.invoke.return_value = {
+                "session_id": "generated-uuid",
+                "status": "ok",
+                "classification": "apunte_teorico",
+                "topics": ["test"],
+                "chunks_created": 3,
+                "classification_confidence": 0.9,
+                "document_id": "doc-1",
+            }
+            response = client.post(
+                "/api/ingest",
+                files=[("files", ("test.pdf", b"fake pdf content", "application/pdf"))],
+                # No session_id in data
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        results = data["data"]
+        assert len(results) >= 1
+        # The generated session_id should be a UUID4 (36 chars, dashes)
+        sid = results[0]["sessionId"]
+        assert len(sid) == 36
+        assert sid.count("-") == 4
+
+    def test_ingest_validates_session_id_too_long(self):
+        """GIVEN session_id > 64 chars → THEN fallback to generated UUID.
+
+        Covers: design decision — Langfuse OTEL baggage drop prevention.
+        """
+        from unittest.mock import patch
+
+        with patch("src.tools.ingest_document") as mock_tool:
+            mock_tool.invoke.return_value = {
+                "session_id": "should-be-uuid",
+                "status": "ok",
+                "classification": "apunte_teorico",
+                "topics": ["test"],
+                "chunks_created": 3,
+                "classification_confidence": 0.9,
+                "document_id": "doc-1",
+            }
+            long_id = "x" * 100
+            response = client.post(
+                "/api/ingest",
+                files=[("files", ("test.pdf", b"fake pdf content", "application/pdf"))],
+                data={"session_id": long_id},
+            )
+
+        assert response.status_code == 200
+        # The effective session_id should NOT be the 100-char string
+        sid = response.json()["data"][0]["sessionId"]
+        assert len(sid) == 36  # UUID4 fallback
+        assert sid.count("-") == 4
+
     def test_evaluate_has_trace_id(self):
         """POST /api/evaluate response includes trace_id."""
         with patch("src.tools.evaluate_answer") as mock_tool:
@@ -487,3 +585,141 @@ class TestPreferencesEndpoint:
             )
 
         assert response.status_code == 200
+
+
+# ==============================================================================
+# REQ-rag-exclusive-answers: Evaluation exam question mapping (task 3.3)
+# ==============================================================================
+
+
+class TestEvaluateMapsExamQuestions:
+    """Task 3.3: /api/evaluate forwards full exam data to evaluator tool."""
+
+    def test_evaluate_maps_exam_questions(self):
+        """GIVEN examQuestions in request → THEN evaluator receives full context."""
+        with patch("src.tools.evaluate_answer") as mock_tool:
+            mock_tool.invoke.return_value = [
+                {
+                    "question_id": "q-001",
+                    "score": 8.0,
+                    "justification": "Correcto.",
+                    "conceptual_errors": [],
+                    "suggestions": [],
+                    "is_evaluable": True,
+                }
+            ]
+            response = client.post(
+                "/api/evaluate",
+                json={
+                    "session_id": "sess-ev-map",
+                    "exam_id": "exam-ev",
+                    "answers": {"q-001": "La derivada es un límite."},
+                    "examQuestions": [
+                        {
+                            "id": "q-001",
+                            "type": "open",
+                            "prompt": "¿Qué es una derivada?",
+                            "baseAnswer": "Límite del cociente incremental.",
+                            "sourceChunkIds": ["chunk-001"],
+                            "topic": "cálculo/derivadas",
+                            "difficulty": "medium",
+                        }
+                    ],
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["error"] is None
+
+        # Verify tool received populated answer entries
+        call_kwargs = mock_tool.invoke.call_args[0][0]
+        answers = call_kwargs["answers"]
+        assert len(answers) >= 1
+        ans = answers[0]
+        assert ans["question"] == "¿Qué es una derivada?"
+        assert ans["base_answer"] == "Límite del cociente incremental."
+        assert ans["topic"] == "cálculo/derivadas"
+        assert ans["difficulty"] == "medium"
+        assert ans["source_chunk_ids"] == ["chunk-001"]
+
+    def test_evaluate_maps_exam_questions_missing_id(self):
+        """GIVEN examQuestions with non-matching id → THEN empty placeholders + no crash."""
+        with patch("src.tools.evaluate_answer") as mock_tool:
+            mock_tool.invoke.return_value = [
+                {
+                    "question_id": "q-999",
+                    "score": 0.0,
+                    "justification": "N/A",
+                    "conceptual_errors": [],
+                    "suggestions": [],
+                    "is_evaluable": False,
+                    "non_evaluable_reason": "no_material",
+                }
+            ]
+            response = client.post(
+                "/api/evaluate",
+                json={
+                    "session_id": "sess-ev-map2",
+                    "exam_id": "exam-ev",
+                    "answers": {"q-999": "respuesta"},
+                    "examQuestions": [
+                        {
+                            "id": "q-001",  # Does NOT match q-999
+                            "type": "open",
+                            "prompt": "Pregunta sobre otra cosa?",
+                            "baseAnswer": "Otra respuesta.",
+                            "sourceChunkIds": ["chunk-002"],
+                            "topic": "otro/tema",
+                            "difficulty": "easy",
+                        }
+                    ],
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["error"] is None
+
+        # Answer with non-matching question_id gets empty placeholders
+        call_kwargs = mock_tool.invoke.call_args[0][0]
+        answers = call_kwargs["answers"]
+        ans = answers[0]
+        assert ans["question"] == ""
+        assert ans["base_answer"] == ""
+        assert ans["topic"] == ""
+        assert ans["source_chunk_ids"] == []
+
+    def test_evaluate_without_exam_questions_backward_compat(self):
+        """GIVEN no examQuestions → THEN backward-compatible empty placeholders."""
+        with patch("src.tools.evaluate_answer") as mock_tool:
+            mock_tool.invoke.return_value = [
+                {
+                    "question_id": "q-1",
+                    "score": 1.0,
+                    "justification": "Correcto.",
+                    "conceptual_errors": [],
+                    "suggestions": [],
+                    "is_evaluable": True,
+                }
+            ]
+            response = client.post(
+                "/api/evaluate",
+                json={
+                    "session_id": "sess-ev-legacy",
+                    "exam_id": "exam-ev",
+                    "answers": {"q-1": "2x"},
+                    # No examQuestions
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["error"] is None
+
+        # Backward compat: empty placeholders
+        call_kwargs = mock_tool.invoke.call_args[0][0]
+        answers = call_kwargs["answers"]
+        ans = answers[0]
+        assert ans["question"] == ""
+        assert ans["base_answer"] == ""

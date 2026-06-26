@@ -54,7 +54,6 @@ def _ollama_json_mode_chain(
     original task instructions intact and works across models.
     """
     import json
-    import re
 
     from langchain_core.output_parsers import StrOutputParser
     from langchain_core.prompts import ChatPromptTemplate
@@ -78,15 +77,19 @@ def _ollama_json_mode_chain(
 
     ollama = ChatOllama(**llm_kwargs)
 
-    prompt_template = ChatPromptTemplate.from_messages([
-        (
-            "system",
-            "You are a helpful assistant. Carefully follow the user's instructions "
-            "and examples, then respond with valid JSON matching the schema below. "
-            "Do not output any text outside the JSON object.",
-        ),
-        ("user", "{input}\n\nReturn valid JSON matching this schema:\n{schema}"),
-    ])
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "Sos un asistente servicial. Seguí cuidadosamente las instrucciones y "
+                "ejemplos del usuario, luego respondé con JSON válido que coincida con "
+                "el esquema de abajo. Las claves del JSON deben estar en inglés (según "
+                "el esquema), pero los valores de texto deben estar en español. No "
+                "generes ningún texto fuera del objeto JSON.",
+            ),
+            ("user", "{input}\n\nReturn valid JSON matching this schema:\n{schema}"),
+        ]
+    )
 
     def _parse(text: str) -> BaseModel:
         # Find the last complete JSON object by scanning from the end with a

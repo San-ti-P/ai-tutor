@@ -103,12 +103,14 @@ class TestValidateClaimGroundingFlagOnly:
         with patch("src.rag.get_embedding_model") as mock_embed:
             mock_embed.return_value = _make_matching_model()
 
-            result = validate_claim_grounding.invoke({
-                "claims": sample_claims,
-                "chunks": sample_chunks,
-                "mode": "flag_only",
-                "threshold": 0.1,
-            })
+            result = validate_claim_grounding.invoke(
+                {
+                    "claims": sample_claims,
+                    "chunks": sample_chunks,
+                    "mode": "flag_only",
+                    "threshold": 0.1,
+                }
+            )
 
         assert result["all_matched"] is True
         assert len(result["claim_results"]) == 2
@@ -122,16 +124,16 @@ class TestValidateClaimGroundingFlagOnly:
 
         with patch("src.rag.get_embedding_model") as mock_embed:
             # Chunks: unit vector, Claims: zero → cos_sim=0.0 < any threshold
-            mock_embed.return_value = _make_diverging_model(
-                chunk_value=1.0, claim_value=0.0
-            )
+            mock_embed.return_value = _make_diverging_model(chunk_value=1.0, claim_value=0.0)
 
-            result = validate_claim_grounding.invoke({
-                "claims": sample_claims,
-                "chunks": sample_chunks,
-                "mode": "flag_only",
-                "threshold": 0.5,
-            })
+            result = validate_claim_grounding.invoke(
+                {
+                    "claims": sample_claims,
+                    "chunks": sample_chunks,
+                    "mode": "flag_only",
+                    "threshold": 0.5,
+                }
+            )
 
         assert result["all_matched"] is False
         assert len(result["claim_results"]) == 2
@@ -150,15 +152,15 @@ class TestValidateClaimGroundingFlagOnly:
             with patch("src.rag.get_embedding_model") as mock_embed:
                 # cos_sim=1.0 < 0.99 → False (hmm, 1.0 > 0.99, still matched)
                 # cos_sim=0.0 < 0.99 → True (unmatched)
-                mock_embed.return_value = _make_diverging_model(
-                    chunk_value=1.0, claim_value=0.0
-                )
+                mock_embed.return_value = _make_diverging_model(chunk_value=1.0, claim_value=0.0)
 
-                result = validate_claim_grounding.invoke({
-                    "claims": sample_claims,
-                    "chunks": sample_chunks,
-                    "mode": "flag_only",
-                })
+                result = validate_claim_grounding.invoke(
+                    {
+                        "claims": sample_claims,
+                        "chunks": sample_chunks,
+                        "mode": "flag_only",
+                    }
+                )
 
             assert result["all_matched"] is False
         finally:
@@ -168,11 +170,13 @@ class TestValidateClaimGroundingFlagOnly:
         """Empty claims list → all_matched=True, empty results."""
         from src.tools.validate_claim_grounding import validate_claim_grounding
 
-        result = validate_claim_grounding.invoke({
-            "claims": [],
-            "chunks": sample_chunks,
-            "mode": "flag_only",
-        })
+        result = validate_claim_grounding.invoke(
+            {
+                "claims": [],
+                "chunks": sample_chunks,
+                "mode": "flag_only",
+            }
+        )
 
         assert result["all_matched"] is True
         assert result["claim_results"] == []
@@ -182,11 +186,13 @@ class TestValidateClaimGroundingFlagOnly:
         """Empty chunks list → all_matched=True, empty results."""
         from src.tools.validate_claim_grounding import validate_claim_grounding
 
-        result = validate_claim_grounding.invoke({
-            "claims": sample_claims,
-            "chunks": [],
-            "mode": "flag_only",
-        })
+        result = validate_claim_grounding.invoke(
+            {
+                "claims": sample_claims,
+                "chunks": [],
+                "mode": "flag_only",
+            }
+        )
 
         assert result["all_matched"] is True
         assert result["claim_results"] == []
@@ -203,12 +209,14 @@ class TestValidateClaimGroundingRetryTrigger:
         with patch("src.rag.get_embedding_model") as mock_embed:
             mock_embed.return_value = _make_matching_model()
 
-            result = validate_claim_grounding.invoke({
-                "claims": sample_claims,
-                "chunks": sample_chunks,
-                "mode": "retry_trigger",
-                "threshold": 0.1,
-            })
+            result = validate_claim_grounding.invoke(
+                {
+                    "claims": sample_claims,
+                    "chunks": sample_chunks,
+                    "mode": "retry_trigger",
+                    "threshold": 0.1,
+                }
+            )
 
         assert result["all_matched"] is True
         assert result["should_retry"] is False
@@ -218,16 +226,16 @@ class TestValidateClaimGroundingRetryTrigger:
         from src.tools.validate_claim_grounding import validate_claim_grounding
 
         with patch("src.rag.get_embedding_model") as mock_embed:
-            mock_embed.return_value = _make_diverging_model(
-                chunk_value=1.0, claim_value=0.0
-            )
+            mock_embed.return_value = _make_diverging_model(chunk_value=1.0, claim_value=0.0)
 
-            result = validate_claim_grounding.invoke({
-                "claims": sample_claims,
-                "chunks": sample_chunks,
-                "mode": "retry_trigger",
-                "threshold": 0.9,
-            })
+            result = validate_claim_grounding.invoke(
+                {
+                    "claims": sample_claims,
+                    "chunks": sample_chunks,
+                    "mode": "retry_trigger",
+                    "threshold": 0.9,
+                }
+            )
 
         assert result["all_matched"] is False
         assert result["should_retry"] is True
@@ -239,12 +247,14 @@ class TestValidateClaimGroundingRetryTrigger:
         with patch("src.rag.get_embedding_model") as mock_embed:
             mock_embed.return_value = _make_matching_model()
 
-            result = validate_claim_grounding.invoke({
-                "claims": sample_claims,
-                "chunks": sample_chunks,
-                "mode": "retry_trigger",
-                "threshold": 0.1,
-            })
+            result = validate_claim_grounding.invoke(
+                {
+                    "claims": sample_claims,
+                    "chunks": sample_chunks,
+                    "mode": "retry_trigger",
+                    "threshold": 0.1,
+                }
+            )
 
         for cr in result["claim_results"]:
             assert "best_chunk_id" in cr
@@ -267,12 +277,14 @@ class TestValidateClaimGroundingEdgeCases:
         with patch("src.rag.get_embedding_model") as mock_embed:
             mock_embed.return_value = _make_zero_model()
 
-            result = validate_claim_grounding.invoke({
-                "claims": [claim],
-                "chunks": [chunk],
-                "mode": "flag_only",
-                "threshold": 0.5,
-            })
+            result = validate_claim_grounding.invoke(
+                {
+                    "claims": [claim],
+                    "chunks": [chunk],
+                    "mode": "flag_only",
+                    "threshold": 0.5,
+                }
+            )
 
         # Zero-norm → similarity = 0.0 → below any positive threshold → unmatched
         assert result["all_matched"] is False
@@ -285,12 +297,14 @@ class TestValidateClaimGroundingEdgeCases:
         with patch("src.rag.get_embedding_model") as mock_embed:
             mock_embed.return_value = _make_matching_model()
 
-            result = validate_claim_grounding.invoke({
-                "claims": ["Test claim"],
-                "chunks": [{"chunk_id": "c1", "text": "Test chunk"}],
-                "mode": "flag_only",
-                "threshold": 0.5,
-            })
+            result = validate_claim_grounding.invoke(
+                {
+                    "claims": ["Test claim"],
+                    "chunks": [{"chunk_id": "c1", "text": "Test chunk"}],
+                    "mode": "flag_only",
+                    "threshold": 0.5,
+                }
+            )
 
         assert result["all_matched"] is True
         assert len(result["claim_results"]) == 1

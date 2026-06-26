@@ -53,7 +53,9 @@ class PracticalExercise(BaseModel):
 class ExerciseGeneration(BaseModel):
     """Structured output for exercise generation — single exercise per invocation."""
 
-    exercises: list[PracticalExercise] = Field(..., description="Exercise list (required, can be empty)")
+    exercises: list[PracticalExercise] = Field(
+        ..., description="Exercise list (required, can be empty)"
+    )
     metadata: dict = Field(
         default_factory=dict,
         description="{topics_covered, total_source_chunks}",
@@ -180,6 +182,7 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = No
     import logging
 
     from src.llm import get_structured_llm
+    from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT
 
     logger = logging.getLogger(__name__)
 
@@ -220,8 +223,9 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = No
             )
 
         prompt = (
+            f"{RAG_ONLY_SYSTEM_PROMPT}\n\n"
             "Generá un ejercicio práctico académico basado "
-            "EXCLUSIVAMENTE en los siguientes chunks de "
+            "en los siguientes chunks de "
             "material de estudio.\n\n"
             f"{chunk_context}\n\n"
             "PREFERENCIAS:\n"
