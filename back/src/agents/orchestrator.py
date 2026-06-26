@@ -175,7 +175,7 @@ async def load_profile(state: OrchestratorState, config: RunnableConfig = None) 
 
     try:
         student_id = await resolve_student_id(session_id, student_id_override)
-        profile = await get_student_summary(student_id)
+        profile = await get_student_summary.ainvoke({"student_id": student_id})
         if profile is None:
             return {"student_profile": {}}
         return {"student_profile": profile}
