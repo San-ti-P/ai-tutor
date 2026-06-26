@@ -37,8 +37,15 @@ export default function ChatPage() {
     setFileEntries((prev) => [...prev, ...entries]);
 
     try {
-      const res = await api.uploadDocuments(newFiles);
+      const res = await api.uploadDocuments(newFiles, sessionId);
       const results = Array.isArray(res.data) ? res.data : [res.data];
+
+      // Sync session_id if backend returned a different one
+      const STORAGE_KEY = "ai-tutor-session-id";
+      const effectiveSid = results[0]?.sessionId;
+      if (effectiveSid && effectiveSid !== sessionId) {
+        localStorage.setItem(STORAGE_KEY, effectiveSid);
+      }
 
       setFileEntries((prev) => {
         const updated = [...prev];
@@ -78,7 +85,7 @@ export default function ChatPage() {
         ),
       );
     }
-  }, []);
+  }, [sessionId]);
 
   const handleSend = useCallback(
     async (text: string) => {

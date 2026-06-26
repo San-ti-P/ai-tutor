@@ -46,9 +46,12 @@ async function apiPut<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function apiUpload<T>(path: string, files: File[]): Promise<T> {
+async function apiUpload<T>(path: string, files: File[], sessionId?: string): Promise<T> {
   const formData = new FormData();
   files.forEach((file) => formData.append("files", file));
+  if (sessionId) {
+    formData.append("session_id", sessionId);
+  }
 
   const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
@@ -64,8 +67,8 @@ export const api = {
   chat: (req: ChatRequest) =>
     apiPost<ApiResponse<ChatResponse>>("/api/chat", req),
 
-  uploadDocuments: (files: File[]) =>
-    apiUpload<ApiResponse<IngestResult[]>>("/api/ingest", files),
+  uploadDocuments: (files: File[], sessionId?: string) =>
+    apiUpload<ApiResponse<IngestResult[]>>("/api/ingest", files, sessionId),
 
   generateExam: (req: ExamRequest) =>
     apiPost<ApiResponse<Exam>>("/api/exam/generate", req),
