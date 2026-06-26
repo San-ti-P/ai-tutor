@@ -170,7 +170,9 @@ class PreferencesStatus(BaseModel):
 class SessionCreate(BaseModel):
     name: str
     description: str = ""
-    student_id: str
+    student_id: str = Field(alias="studentId")
+
+    model_config = {"populate_by_name": True}
 
 
 class Session(BaseModel):

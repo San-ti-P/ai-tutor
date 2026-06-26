@@ -18,6 +18,7 @@ const ACTIVE_SESSION_KEY = "ai-tutor-active-session";
 const STUDENT_ID_KEY = "ai-tutor-student-id";
 
 function getOrCreateStudentId(): string {
+  if (typeof window === "undefined") return "";
   let id = localStorage.getItem(STUDENT_ID_KEY);
   if (!id) {
     id = generateUUID();
@@ -40,15 +41,19 @@ export function useStudySession(): UseStudySession {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
+  const [studentId, setStudentId] = useState<string>("");
 
-  const studentId = getOrCreateStudentId();
+  // Bootstrap: load studentId from localStorage (client-only)
+  useEffect(() => {
+    setStudentId(getOrCreateStudentId());
+  }, []);
 
   const refreshSessions = useCallback(async () => {
+    if (!studentId) return;
     try {
       const res = await api.listSessions(studentId);
       setSessions(res.data);
     } catch {
-      // Session list unavailable — accept empty state
       setSessions([]);
     }
   }, [studentId]);
@@ -58,8 +63,20 @@ export function useStudySession(): UseStudySession {
     let cancelled = false;
 
     const init = async () => {
+      // Bootstrap student ID first (client-only)
+      const sid = getOrCreateStudentId();
+      if (cancelled) return;
+      setStudentId(sid);
+
       setIsLoading(true);
-      await refreshSessions();
+
+      // Load sessions
+      try {
+        const res = await api.listSessions(sid);
+        if (!cancelled) setSessions(res.data);
+      } catch {
+        if (!cancelled) setSessions([]);
+      }
 
       if (cancelled) return;
 
@@ -73,7 +90,7 @@ export function useStudySession(): UseStudySession {
 
     init();
     return () => { cancelled = true; };
-  }, [refreshSessions]);
+  }, []);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
 
