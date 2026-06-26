@@ -64,7 +64,7 @@ def retrieve_chunks(
 
 @tool
 @observe(name="ingest_document", as_type="tool")
-def ingest_document(
+async def ingest_document(
     file_path: str,
     session_id: str,
 ) -> dict:
@@ -120,7 +120,7 @@ def ingest_document(
             if handler:
                 config["callbacks"] = [handler]
                 config["metadata"] = {"langfuse_session_id": session_id}
-            result = graph.invoke(initial_state, config=config)
+            result = await graph.ainvoke(initial_state, config=config)
     finally:
         flush_traces()
 

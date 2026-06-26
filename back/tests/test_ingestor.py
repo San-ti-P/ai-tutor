@@ -48,7 +48,7 @@ class TestIngestorHappyPath:
         assert result["file_type"] == "text"
         assert "Álgebra lineal" in result["raw_text"]
 
-    def test_classify_academic_document(self, sample_txt, ingestor_state):
+    async def test_classify_academic_document(self, sample_txt, ingestor_state):
         """Classification returns academic label with topics."""
         state = dict(ingestor_state)
         state["file_path"] = str(sample_txt)
@@ -72,7 +72,7 @@ class TestIngestorHappyPath:
             mock_chain.invoke.return_value = mock_result
 
             with patch("src.llm.get_structured_llm", return_value=mock_chain):
-                result = asyncio.run(classify_document(state))
+                result = await classify_document(state)
 
         assert result["classification"] == "apunte_teorico"
         assert len(result["topics"]) >= 3
@@ -140,7 +140,7 @@ class TestIncrementalIngestion:
 
 
 class TestNonAcademicRejection:
-    def test_reject_non_academic_content(self, non_academic_txt, ingestor_state):
+    async def test_reject_non_academic_content(self, non_academic_txt, ingestor_state):
         """PRD Case #10: Non-academic text is rejected."""
         mock_result = MagicMock()
         mock_result.classification = "no_academico"
@@ -163,13 +163,13 @@ class TestNonAcademicRejection:
                 parsed = parse_document(state)
                 state.update(parsed)
 
-                result = asyncio.run(classify_document(state))
+                result = await classify_document(state)
             assert result["status"] == "rejected_non_academic"
             assert result["classification"] == "no_academico"
             assert len(result["errors"]) > 0
             assert "non-academic" in result["errors"][0].lower()
 
-    def test_empty_text_rejected(self, temp_dir, ingestor_state):
+    async def test_empty_text_rejected(self, temp_dir, ingestor_state):
         """Empty file is rejected at classification."""
         empty_file = temp_dir / "empty.txt"
         empty_file.write_text("   \n  \n  ")  # whitespace only
@@ -180,7 +180,7 @@ class TestNonAcademicRejection:
         parsed = parse_document(state)
         state.update(parsed)
 
-        result = asyncio.run(classify_document(state))
+        result = await classify_document(state)
         assert result["status"] == "rejected"
         assert len(result["errors"]) > 0
 
@@ -338,7 +338,7 @@ class TestRealPDFIngestion:
         count = collection.count()
         assert count > 0, "Ingested collection is empty"
 
-    def test_classify_real_pdf(self, requires_ollama, real_pdf_text):
+    async def test_classify_real_pdf(self, requires_ollama, real_pdf_text):
         """Real LLM classifies the PDF as academic material."""
         from src.agents.ingestor import classify_document
 
@@ -358,7 +358,7 @@ class TestRealPDFIngestion:
             "topic_tree": "",
         }
 
-        result = asyncio.run(classify_document(state))
+        result = await classify_document(state)
         assert result["classification"] == "apunte_teorico", (
             f"Expected 'apunte_teorico', got '{result.get('classification')}'. "
             f"Confidence: {result.get('classification_confidence')}"
