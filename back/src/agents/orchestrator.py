@@ -187,6 +187,15 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
                 context_parts.append(f"progreso: {progress}")
         if context_parts:
             prompt += "Contexto del estudiante: " + "; ".join(context_parts) + "\n"
+
+        history = state.get("messages_history", [])
+        if history:
+            recent = history[-10:]
+            prompt += "Últimos mensajes de la conversación:\n"
+            for h in recent:
+                role = "usuario" if h.get("role") == "user" else "asistente"
+                prompt += f"- {role}: {h.get('content', '')}\n"
+
         prompt += (
             "Respondé SOLO con un objeto JSON con claves 'intent' y 'confidence'. "
             "El output SIEMPRE debe ser en español."
@@ -596,7 +605,14 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
         text = response.content if hasattr(response, "content") else str(response)
 
         final_status = "complete" if status == "pending" else status
-        return {"response": prefix + text, "status": final_status}
+        return {
+            "response": prefix + text,
+            "status": final_status,
+            "messages_history": [
+                {"role": "user", "content": message},
+                {"role": "assistant", "content": prefix + text},
+            ],
+        }
 
     except Exception:
         logger.exception("synthesize_response LLM failed, using fallback")
