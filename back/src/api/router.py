@@ -19,9 +19,15 @@ from src.api.schemas import (
     EvaluationResult,
     Exam,
     ExamPreferences,
+    ExamQuestion,
     ExamRequest,
+    Exercise,
+    ExerciseModelSolution,
+    ExerciseRequest,
     HealthResponse,
     IngestResult,
+    PreferencesStatus,
+    PreferencesUpdate,
     StudentProfile,
 )
 
@@ -30,10 +36,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
+@router.get("/health")
+async def health() -> dict:
     logger.info("Health check requested")
-    return HealthResponse()
+    return {"status": "ok", "version": "0.1.0", "trace_id": str(uuid.uuid4())}
 
 
 @router.post("/chat", response_model=ApiResponse[ChatResponse])
@@ -57,6 +63,7 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
             exam=result.get("exam"),
         ),
         error=None,
+        trace_id=result.get("trace_id", str(uuid.uuid4())),
     )
 
 
@@ -112,20 +119,54 @@ async def ingest(files: list[UploadFile] = File(...)) -> ApiResponse[list[Ingest
     return ApiResponse(
         data=results,
         error=None,
+        trace_id=str(request_session_id),
     )
 
 
 @router.post("/exam/generate", response_model=ApiResponse[Exam])
 async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
     logger.info("Exam generation requested for topic %s", request.topic)
+
+    from src.tools import generate_exam as _gen_exam_tool
+
+    # Determine mcq_ratio from question types
+    qtypes = request.preferences.question_types
+    mcq_ratio = sum(1 for t in qtypes if t == "mcq") / max(len(qtypes), 1)
+
+    result = await asyncio.to_thread(
+        _gen_exam_tool.invoke,
+        {
+            "session_id": request.session_id,
+            "topics": [request.topic],
+            "difficulty": request.preferences.difficulty,
+            "question_count": request.preferences.question_count,
+            "mcq_ratio": mcq_ratio,
+        },
+    )
+
+    # Map tool output to Exam model
+    questions = []
+    for q in result.get("questions", []):
+        questions.append(
+            ExamQuestion(
+                id=q.get("id", str(uuid.uuid4())),
+                type=q.get("type", "open"),
+                prompt=q.get("prompt", ""),
+                options=q.get("options"),
+                baseAnswer=q.get("baseAnswer", q.get("base_answer")),
+                sourceChunkIds=q.get("sourceChunkIds", q.get("source_chunk_ids")),
+            )
+        )
+
     return ApiResponse(
         data=Exam(
-            id=str(uuid.uuid4()),
-            questions=[],
+            id=result.get("exam_id", str(uuid.uuid4())),
+            questions=questions,
             topic=request.topic,
             difficulty=request.preferences.difficulty,
         ),
         error=None,
+        trace_id=str(uuid.uuid4()),
     )
 
 
@@ -177,7 +218,7 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
             for r in results
         ]
 
-        return ApiResponse(data=evaluation_results, error=None)
+        return ApiResponse(data=evaluation_results, error=None, trace_id=str(uuid.uuid4()))
 
     except Exception as exc:
         logger.exception("Evaluation failed for exam %s", request.exam_id)
@@ -193,27 +234,46 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
                 for q_id in request.answers
             ],
             error=str(exc),
+            trace_id=str(uuid.uuid4()),
         )
 
 
 @router.get("/profile/{session_id}", response_model=ApiResponse[StudentProfile])
 async def get_profile(session_id: str) -> ApiResponse[StudentProfile]:
     logger.info("Profile requested for session %s", session_id)
+
+    from src.tools.get_student_summary import get_student_summary as _summary_tool
+
+    result = await _summary_tool.ainvoke({"student_id": session_id})
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Student '{session_id}' not found")
+
+    # Build topic_scores dict from list[dict]
+    topic_scores_dict: dict[str, list[float]] = {}
+    for ts in result.get("topic_scores", []):
+        topic = ts["topic"]
+        score = ts["score"]
+        topic_scores_dict.setdefault(topic, []).append(score)
+
+    prefs = result.get("preferences", {})
+    exam_prefs = ExamPreferences(
+        questionTypes=prefs.get("question_types", ["mcq"]),
+        difficulty=prefs.get("difficulty", "medium"),
+        questionCount=prefs.get("question_count", 5),
+        includeTopics=prefs.get("include_topics", []),
+        excludeTopics=prefs.get("exclude_topics", []),
+    )
+
     return ApiResponse(
         data=StudentProfile(
-            id="placeholder-student",
-            topic_scores={},
-            weak_topics=[],
-            preferences={
-                "questionTypes": ["mcq"],
-                "difficulty": "medium",
-                "questionCount": 5,
-                "includeTopics": [],
-                "excludeTopics": [],
-            },
-            session_count=0,
+            id=result["id"],
+            topicScores=topic_scores_dict,
+            weakTopics=result.get("weak_topics", []),
+            preferences=exam_prefs,
+            sessionCount=result.get("session_count", 0),
         ),
         error=None,
+        trace_id=str(uuid.uuid4()),
     )
 
 
@@ -227,6 +287,7 @@ async def get_dashboard(student_id: str) -> ApiResponse[StudentProfile]:
     """
     from src.memory.schema import (
         compute_weak_topics,
+        get_enriched_session_history,
         get_student_profile,
         get_topic_scores,
     )
@@ -239,6 +300,7 @@ async def get_dashboard(student_id: str) -> ApiResponse[StudentProfile]:
 
     topic_scores_list = await get_topic_scores(student_id)
     weak_topics = await compute_weak_topics(student_id)
+    enriched_sessions = await get_enriched_session_history(student_id)
 
     # Convert list[dict] to dict[str, list[float]] for StudentProfile
     topic_scores_dict: dict[str, list[float]] = {}
@@ -264,6 +326,86 @@ async def get_dashboard(student_id: str) -> ApiResponse[StudentProfile]:
             weakTopics=weak_topics,
             preferences=exam_prefs,
             sessionCount=profile.get("session_count", 0),
+            sessionHistory=enriched_sessions,
         ),
         error=None,
+        trace_id=str(uuid.uuid4()),
+    )
+
+
+@router.post("/exercise/generate", response_model=ApiResponse[Exercise])
+async def generate_exercise_endpoint(request: ExerciseRequest) -> ApiResponse[Exercise]:
+    """Generate a practice exercise via the ExerciseGenerator agent (REQ-API-004)."""
+    logger.info("Exercise generation requested for topic %s", request.topic)
+
+    from src.tools import generate_exercise as _gen_exercise_tool
+
+    result = await asyncio.to_thread(
+        _gen_exercise_tool.invoke,
+        {
+            "session_id": request.session_id,
+            "topic": request.topic,
+            "difficulty": request.difficulty,
+            "exercise_type": request.exercise_type,
+        },
+    )
+
+    ms = result.get("model_solution", {})
+    return ApiResponse(
+        data=Exercise(
+            exercise_id=result.get("exercise_id", ""),
+            statement=result.get("statement", ""),
+            given_data=result.get("given_data"),
+            question=result.get("question", ""),
+            model_solution=ExerciseModelSolution(
+                steps=ms.get("steps", []),
+                final_answer=ms.get("final_answer", ""),
+                key_concepts=ms.get("key_concepts", []),
+            ),
+            topics_covered=result.get("topics_covered", []),
+            source_chunk_ids=result.get("source_chunk_ids"),
+            topic_not_found=result.get("topic_not_found", []),
+            topic_suggestions=result.get("topic_suggestions", []),
+            status=result.get("status", ""),
+        ),
+        error=None,
+        trace_id=str(uuid.uuid4()),
+    )
+
+
+@router.put("/profile/{student_id}/preferences", response_model=ApiResponse[PreferencesStatus])
+async def update_preferences(
+    student_id: str,
+    preferences: PreferencesUpdate,
+) -> ApiResponse[PreferencesStatus]:
+    """Persist exam preferences via the Support Agent (REQ-CONFIG-003)."""
+    logger.info("Preferences update requested for student %s", student_id)
+
+    from src.tools.update_student_profile import update_student_profile as _upsert_tool
+
+    prefs_dict: dict = {
+        "question_types": preferences.question_types,
+        "difficulty": preferences.difficulty,
+        "question_count": preferences.question_count,
+        "include_topics": preferences.include_topics,
+        "exclude_topics": preferences.exclude_topics,
+    }
+
+    result = await _upsert_tool.ainvoke(
+        {
+            "student_id": student_id,
+            "topic_scores": {},
+            "preferences": prefs_dict,
+        }
+    )
+
+    return ApiResponse(
+        data=PreferencesStatus(
+            status=result.get("status", "ok"),
+            student_id=result.get("student_id", student_id),
+            upserted_topics=result.get("upserted_topics", 0),
+            errors=result.get("errors", []),
+        ),
+        error=None,
+        trace_id=str(uuid.uuid4()),
     )

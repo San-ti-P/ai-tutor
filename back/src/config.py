@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # ── Agent / Guardrails ────────────────────────────────────────────────
     max_iterations_per_task: int = 15
     ocr_confidence_threshold: float = 0.85
-    classification_confidence_threshold: float = 0.60
+    classification_confidence_threshold: float = 0.75
     anti_hallucination_threshold: float = 0.40
     judge_sample_rate: float = 0.10
     judge_disagreement_threshold: float = 2.0

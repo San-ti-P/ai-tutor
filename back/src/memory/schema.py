@@ -206,3 +206,30 @@ async def get_recent_sessions(student_id: str, limit: int = 10) -> list[dict]:
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+async def get_enriched_session_history(student_id: str, limit: int = 10) -> list[dict]:
+    """Return recent sessions enriched with questions_answered and average_score."""
+    sessions = await get_recent_sessions(student_id, limit)
+    enriched: list[dict] = []
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        db.row_factory = aiosqlite.Row
+        for ses in sessions:
+            cursor = await db.execute(
+                "SELECT COUNT(*) as cnt, AVG(score) as avg_score "
+                "FROM evaluations WHERE session_id = ? AND score IS NOT NULL",
+                (ses["id"],),
+            )
+            row = await cursor.fetchone()
+            questions_answered = row["cnt"] if row else 0
+            avg_score = round(row["avg_score"], 2) if row and row["avg_score"] is not None else None
+            enriched.append({
+                "id": ses["id"],
+                "started_at": ses["started_at"],
+                "ended_at": ses["ended_at"],
+                "intent": ses["intent"],
+                "status": ses["status"],
+                "questions_answered": questions_answered,
+                "average_score": avg_score,
+            })
+    return enriched

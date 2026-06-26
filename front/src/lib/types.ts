@@ -1,5 +1,6 @@
 const INTENT = {
   INGEST: "ingest",
+  RETRIEVE: "retrieve",
   GENERATE_EXAM: "generate_exam",
   GENERATE_EXERCISE: "generate_exercise",
   EVALUATE: "evaluate",
@@ -38,6 +39,8 @@ interface ChatMessage {
   content: string;
   timestamp: Date;
   traceId?: string;
+  exam?: Exam;
+  isError?: boolean;
 }
 
 interface ExamQuestion {
@@ -62,6 +65,8 @@ interface EvaluationResult {
   justification: string;
   conceptualErrors: string[];
   suggestions: string[];
+  isEvaluable?: boolean;
+  nonEvaluableReason?: string;
 }
 
 interface ExamPreferences {
@@ -78,9 +83,19 @@ interface StudentProfile {
   weakTopics: string[];
   preferences: ExamPreferences;
   sessionCount: number;
+  sessionHistory: Array<{
+    id: string;
+    started_at: string;
+    ended_at: string | null;
+    intent: string | null;
+    status: string;
+    questions_answered: number;
+    average_score: number | null;
+  }>;
 }
 
 interface IngestResult {
+  sessionId: string;
   status: string;
   classification: string;
   topicsDetected: string[];
@@ -90,9 +105,34 @@ interface IngestResult {
   documentId?: string;
 }
 
+interface Exercise {
+  exercise_id: string;
+  statement: string;
+  given_data?: string;
+  question: string;
+  model_solution: {
+    steps: string[];
+    final_answer: string;
+    key_concepts: string[];
+  };
+  topics_covered: string[];
+  source_chunk_ids?: string[];
+  topic_not_found: string[];
+  topic_suggestions: string[];
+  status: string;
+}
+
+interface ExerciseRequest {
+  session_id: string;
+  topic: string;
+  difficulty: Difficulty;
+  exercise_type: string;
+}
+
 interface ApiResponse<T> {
   data: T;
   error?: string;
+  trace_id?: string;
 }
 
 interface ChatRequest {
@@ -104,6 +144,7 @@ interface ChatResponse {
   response: string;
   intent: Intent;
   trace_id?: string;
+  exam?: Exam;
 }
 
 interface ExamRequest {
@@ -128,6 +169,8 @@ export type {
   ChatMessage,
   ExamQuestion,
   Exam,
+  Exercise,
+  ExerciseRequest,
   EvaluationResult,
   ExamPreferences,
   StudentProfile,

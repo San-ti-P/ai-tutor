@@ -1,6 +1,103 @@
-import { FileText, Zap } from "lucide-react";
+"use client";
+
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { FileText } from "lucide-react";
+import { useSession } from "@/hooks/useSession";
+import { api } from "@/lib/api";
+import { ExamForm } from "@/components/exam/ExamForm";
+import { ExamRenderer } from "@/components/exam/ExamRenderer";
+import { QuestionNavigator } from "@/components/exam/QuestionNavigator";
+import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
+import type { Exam, Difficulty } from "@/lib/types";
 
 export default function ExamPage() {
+  const { sessionId } = useSession();
+  const router = useRouter();
+  const [exam, setExam] = useState<Exam | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const handleGenerate = useCallback(
+    async (data: {
+      topic: string;
+      difficulty: Difficulty;
+      questionCount: number;
+      questionTypes: ("mcq" | "open")[];
+    }) => {
+      if (!sessionId) return;
+      setIsGenerating(true);
+      setError(null);
+      try {
+        const res = await api.generateExam({
+          session_id: sessionId,
+          topic: data.topic,
+          preferences: {
+            questionTypes: data.questionTypes,
+            difficulty: data.difficulty,
+            questionCount: data.questionCount,
+            includeTopics: [],
+            excludeTopics: [],
+          },
+        });
+        setExam(res.data);
+        setAnswers({});
+        setCurrentIndex(0);
+        if (res.data.questions.length === 0) {
+          setError(
+            "El examen no tiene preguntas. Intent\u00e1 con otro tema o carg\u00e1 m\u00e1s material."
+          );
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo generar el examen. Intent\u00e1 de nuevo."
+        );
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [sessionId]
+  );
+
+  const handleAnswerChange = useCallback((questionId: string, value: string) => {
+    setAnswers((prev) => ({ ...prev, [questionId]: value }));
+  }, []);
+
+  const unanswered = exam
+    ? exam.questions.filter((q) => !answers[q.id]).length
+    : 0;
+
+  const handleSubmit = useCallback(async () => {
+    if (!exam || !sessionId) return;
+    setIsSubmitting(true);
+    setShowConfirm(false);
+    try {
+      const res = await api.submitAnswers({
+        session_id: sessionId,
+        exam_id: exam.id,
+        answers,
+      });
+      // Pass evaluation results via session storage
+      sessionStorage.setItem("evaluation-results", JSON.stringify(res.data));
+      router.push(`/results?exam_id=${encodeURIComponent(exam.id)}&topic=${encodeURIComponent(exam.topic)}`);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo enviar el examen. Intent\u00e1 de nuevo."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [exam, sessionId, answers, router]);
+
   return (
     <div className="flex flex-col gap-8">
       <div>
@@ -8,89 +105,120 @@ export default function ExamPage() {
           Generar Examen
         </h1>
         <p className="mt-1 text-muted-foreground">
-          Creá exámenes personalizados basados en tu material de estudio
+          Cre\u00e1 ex\u00e1menes personalizados basados en tu material de estudio
         </p>
       </div>
 
-      <div className="rounded-lg border border-border bg-card p-6">
-        <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground text-sm">
-              Tema del examen
-            </label>
-            <input
-              type="text"
-              disabled
-              placeholder="Tema del examen"
-              className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground placeholder:text-muted-foreground/60"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground text-sm">
-              Dificultad
-            </label>
-            <div className="flex gap-2">
-              {["Fácil", "Medio", "Difícil"].map((level) => (
-                <button
-                  key={level}
-                  type="button"
-                  disabled
-                  className="rounded-md border border-border bg-muted px-4 py-1.5 text-muted-foreground text-sm"
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground text-sm">
-              Cantidad de preguntas
-            </label>
-            <input
-              type="number"
-              disabled
-              placeholder="10"
-              className="w-24 rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground text-sm">
-              Tipo de preguntas
-            </label>
-            <div className="flex flex-col gap-1">
-              {["Multiple choice", "Respuesta libre"].map((type) => (
-                <label
-                  key={type}
-                  className="inline-flex items-center gap-2 text-muted-foreground text-sm"
-                >
-                  <input type="checkbox" disabled className="opacity-50" />
-                  {type}
-                </label>
-              ))}
-            </div>
-          </div>
-
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-red-700 text-sm dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
           <button
             type="button"
-            disabled
-            className="inline-flex items-center gap-1.5 self-start rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground opacity-50"
+            onClick={() => setError(null)}
+            className="ml-2 underline"
           >
-            <Zap className="size-4" />
-            Generar Examen
+            Descartar
           </button>
         </div>
-      </div>
+      )}
 
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-accent p-4 text-accent-foreground text-sm">
-        <FileText className="size-4 shrink-0" />
-        <p>
-          Cargá material de estudio primero para generar exámenes
-          personalizados.
-        </p>
-      </div>
+      {!exam ? (
+        <div className="flex flex-col gap-6 rounded-lg border border-border bg-card p-6">
+          <ExamForm onSubmit={handleGenerate} isLoading={isGenerating} />
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <QuestionNavigator
+            total={exam.questions.length}
+            current={currentIndex}
+            answers={Object.fromEntries(
+              exam.questions.map((q, i) => [`q-${i}`, answers[q.id] ?? ""])
+            )}
+            onSelect={setCurrentIndex}
+          />
+
+          <ExamRenderer
+            question={exam.questions[currentIndex]}
+            currentIndex={currentIndex}
+            total={exam.questions.length}
+            value={answers[exam.questions[currentIndex].id] ?? ""}
+            onChange={(v) =>
+              handleAnswerChange(exam.questions[currentIndex].id, v)
+            }
+          />
+
+          <div className="flex items-center justify-between">
+            <Button
+              variant="ghost"
+              onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
+              disabled={currentIndex === 0}
+            >
+              Anterior
+            </Button>
+            {currentIndex < exam.questions.length - 1 ? (
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  setCurrentIndex((i) =>
+                    Math.min(exam.questions.length - 1, i + 1)
+                  )
+                }
+              >
+                Siguiente
+              </Button>
+            ) : (
+              <Button
+                onClick={() => setShowConfirm(true)}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Spinner size="sm" />
+                    Enviando...
+                  </>
+                ) : (
+                  "Entregar Examen"
+                )}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation dialog */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-sm rounded-lg border border-border bg-card p-6 shadow-xl">
+            <h3 className="mb-2 font-semibold text-foreground">
+              Confirmar entrega
+            </h3>
+            <p className="mb-4 text-muted-foreground text-sm">
+              {unanswered > 0
+                ? `\u00bfEst\u00e1s seguro? Ten\u00e9s ${unanswered} pregunta${unanswered !== 1 ? "s" : ""} sin responder.`
+                : "\u00bfEst\u00e1s seguro de entregar el examen?"}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => setShowConfirm(false)}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={handleSubmit}>Entregar</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!exam && !isGenerating && (
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-accent p-4 text-accent-foreground text-sm">
+          <FileText className="size-4 shrink-0" />
+          <p>
+            Carg\u00e1 material de estudio primero para generar ex\u00e1menes
+            personalizados.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

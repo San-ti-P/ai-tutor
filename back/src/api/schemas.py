@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 IntentEnum = Literal[
     "ingest",
+    "retrieve",
     "generate_exam",
     "generate_exercise",
     "evaluate",
@@ -95,6 +96,7 @@ class StudentProfile(BaseModel):
     weak_topics: list[str] = Field(alias="weakTopics")
     preferences: ExamPreferences
     session_count: int = Field(alias="sessionCount")
+    session_history: list[dict] = Field(default_factory=list, alias="sessionHistory")
 
     model_config = {"populate_by_name": True}
 
@@ -116,6 +118,52 @@ class HealthResponse(BaseModel):
     version: str = "0.1.0"
 
 
+class ExerciseRequest(BaseModel):
+    session_id: str
+    topic: str
+    difficulty: DifficultyEnum = "medium"
+    exercise_type: str = "problem_solving"
+
+
+class ExerciseModelSolution(BaseModel):
+    steps: list[str]
+    final_answer: str
+    key_concepts: list[str]
+
+
+class Exercise(BaseModel):
+    exercise_id: str = ""
+    statement: str = ""
+    given_data: str | None = None
+    question: str = ""
+    model_solution: ExerciseModelSolution = Field(default_factory=lambda: ExerciseModelSolution(
+        steps=[], final_answer="", key_concepts=[]
+    ))
+    topics_covered: list[str] = []
+    source_chunk_ids: list[str] | None = None
+    topic_not_found: list[str] = []
+    topic_suggestions: list[str] = []
+    status: str = ""
+
+
+class PreferencesUpdate(BaseModel):
+    question_types: list[QuestionTypeEnum] = Field(alias="questionTypes")
+    difficulty: DifficultyEnum
+    question_count: int = Field(alias="questionCount")
+    include_topics: list[str] = Field(alias="includeTopics")
+    exclude_topics: list[str] = Field(alias="excludeTopics")
+
+    model_config = {"populate_by_name": True}
+
+
+class PreferencesStatus(BaseModel):
+    status: str
+    student_id: str = ""
+    upserted_topics: int = 0
+    errors: list[str] = []
+
+
 class ApiResponse[T](BaseModel):
     data: T
     error: str | None = None
+    trace_id: str | None = None

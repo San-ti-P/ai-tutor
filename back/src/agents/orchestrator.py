@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
-import operator
 import os
-from typing import Annotated, Literal
+from typing import Literal
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -19,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 Intent = Literal[
     "ingest",
+    "retrieve",
     "generate_exam",
     "generate_exercise",
     "evaluate",
@@ -29,6 +29,7 @@ Intent = Literal[
 
 _SINGLE_TOOL_INTENTS: set[str] = {
     "ingest",
+    "retrieve",
     "generate_exam",
     "generate_exercise",
     "evaluate",
@@ -61,11 +62,13 @@ def _init_tool_map() -> dict[str, object]:
         generate_exam,
         generate_exercise,
         ingest_document,
+        query_material,
     )
     from src.tools.get_student_summary import get_student_summary
 
     TOOL_MAP = {
         "ingest": ingest_document,
+        "retrieve": query_material,
         "generate_exam": generate_exam,
         "generate_exercise": generate_exercise,
         "evaluate": evaluate_answer,
@@ -81,8 +84,8 @@ class OrchestratorState(TypedDict):
     confidence: float
     plan: list[str]
     current_step: int
-    results: Annotated[list[dict], operator.add]
-    errors: Annotated[list[dict], operator.add]
+    results: list[dict]
+    errors: list[dict]
     response: str
     status: str  # "pending" | "complete" | "incomplete" | "partial"
     iteration_count: int
@@ -90,7 +93,7 @@ class OrchestratorState(TypedDict):
 
 
 def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> dict:
-    """Classify user message into one of 7 intents with confidence score.
+    """Classify user message into one of 8 intents with confidence score.
 
     On low confidence (< settings.classification_confidence_threshold), forces
     general_chat. On any exception, returns general_chat with confidence=0.0.
@@ -102,21 +105,41 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
     try:
         structured = get_structured_llm(IntentClassification)
 
-        prompt = "Clasificá la siguiente consulta en una de estas categorías:\n"
-        prompt += "- ingest: subir/apuntes/documentos\n"
-        prompt += "- generate_exam: generar un examen\n"
-        prompt += "- generate_exercise: generar un ejercicio práctico\n"
-        prompt += "- evaluate: evaluar/corregir una respuesta\n"
-        prompt += "- query_profile: consultar perfil/progreso\n"
-        prompt += "- general_chat: charla general, saludo, pregunta no académica\n"
-        prompt += "- composite: múltiples tareas combinadas\n\n"
-        prompt += f"Consulta: {message}\n"
+        prompt = (
+            "Sos un clasificador de intents para un tutor académico. "
+            "Clasificá el mensaje del usuario en UNA de estas 8 categorías:\n\n"
+            "  - ingest: el usuario quiere SUBIR apuntes, PDFs, documentos\n"
+            "  - retrieve: preguntar/consultar sobre el contenido de apuntes o documentos YA SUBIDOS\n"
+            "  - generate_exam: pide generar un examen\n"
+            "  - generate_exercise: pide un ejercicio práctico\n"
+            "  - evaluate: pide que corrijan/evalúen una respuesta\n"
+            "  - query_profile: pregunta por su perfil, progreso, temas débiles\n"
+            "  - general_chat: saludos, charla casual, preguntas NO académicas, "
+            "preguntas sobre cómo usar el sistema\n"
+            "  - composite: pide VARIAS tareas distintas en el mismo mensaje\n\n"
+            "REGLAS CRÍTICAS:\n"
+            "1. Si es saludo, cortesía, o NO contiene tarea académica explícita → "
+            "general_chat con confidence >= 0.95\n"
+            "2. Ante la duda entre dos intents, elegí general_chat\n"
+            "3. ingest SOLO si el usuario quiere SUBIR un archivo; retrieve SOLO si pregunta por contenido ya subido\n"
+            "4. composite SOLO si hay 2+ tareas distintas y explícitas (no inferidas)\n\n"
+            "EJEMPLOS:\n"
+            '"Hola" → {"intent": "general_chat", "confidence": 0.99}\n'
+            '"Buenos días" → {"intent": "general_chat", "confidence": 0.99}\n'
+            '"Gracias" → {"intent": "general_chat", "confidence": 0.99}\n'
+            '"¿Qué hace esta app?" → {"intent": "general_chat", "confidence": 0.95}\n'
+            '"Quiero ver mi progreso" → {"intent": "query_profile", "confidence": 0.95}\n'
+            '"Generame un examen de derivadas" → {"intent": "generate_exam", "confidence": 0.95}\n'
+            '"Subime este PDF" → {"intent": "ingest", "confidence": 0.95}\n'
+            '"¿Qué dice el archivo sobre derivadas?" → {"intent": "retrieve", "confidence": 0.95}\n'
+            '"Generame un examen y corregilo" → {"intent": "composite", "confidence": 0.90}\n\n'
+            f"Mensaje del usuario: {message!r}\n"
+        )
         if profile:
             weak = profile.get("weak_topics", [])
             if weak:
-                prompt += f"Perfil del estudiante (temas débiles): {weak}\n"
-        prompt += "Respondé SOLO con un objeto JSON con claves 'intent' y 'confidence'. "
-        prompt += 'Ejemplo: {"intent": "general_chat", "confidence": 0.9}'
+                prompt += f"Contexto del estudiante (temas débiles): {weak}\n"
+        prompt += "Respondé SOLO con un objeto JSON con claves 'intent' y 'confidence'."
 
         invoke_kwargs = {"config": config} if config is not None else {}
         result = structured.invoke(prompt, **invoke_kwargs)
@@ -250,6 +273,9 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
     if tool_name == "ingest":
         # ingest_document needs file_path, session_id
         pass  # file_path not in orchestrator state; tool will use its own
+    elif tool_name == "retrieve":
+        args["query"] = state["user_message"]
+        args["top_k"] = 5
     elif tool_name == "generate_exam":
         args["topics"] = _extract_topics(state["user_message"])
         args["difficulty"] = _extract_difficulty(state["user_message"])
@@ -295,12 +321,14 @@ async def _invoke_tool_with_retry(tool, args: dict, step: int) -> dict:
 async def execute_step(state: OrchestratorState) -> dict:
     """Execute the current step in the plan.
 
-    Resolves tool from TOOL_MAP, builds args, invokes with one retry, appends result.
+    Resolves tool from TOOL_MAP, builds args, invokes with one retry, records result.
     Increments current_step and iteration_count. On failure, records error.
     """
     plan = state["plan"]
     current = state["current_step"]
     iteration = state["iteration_count"]
+    results = state.get("results", [])
+    errors = state.get("errors", [])
 
     tool_map = _init_tool_map()
 
@@ -314,7 +342,7 @@ async def execute_step(state: OrchestratorState) -> dict:
     if tool is None:
         logger.warning("Tool '%s' not found in TOOL_MAP", tool_name)
         return {
-            "errors": [
+            "errors": errors + [
                 {
                     "step": current,
                     "tool": tool_name,
@@ -330,14 +358,14 @@ async def execute_step(state: OrchestratorState) -> dict:
         args = _build_tool_args(tool_name, state)
         result = await _invoke_tool_with_retry(tool, args, current)
         return {
-            "results": [{"step": current, "tool": tool_name, "result": result}],
+            "results": results + [{"step": current, "tool": tool_name, "result": result}],
             "current_step": current + 1,
             "iteration_count": iteration + 1,
         }
     except Exception as exc:
         logger.warning("execute_step failed for tool '%s': %s", tool_name, exc)
         return {
-            "errors": [{"step": current, "tool": tool_name, "error": str(exc)}],
+            "errors": errors + [{"step": current, "tool": tool_name, "error": str(exc)}],
             "status": "partial",
             "current_step": current + 1,
             "iteration_count": iteration + 1,
