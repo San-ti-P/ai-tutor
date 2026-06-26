@@ -98,6 +98,69 @@ class OrchestratorState(TypedDict):
     messages_history: NotRequired[Annotated[list, operator.add]]
 
 
+async def load_session_context(state: OrchestratorState, config: RunnableConfig = None) -> dict:
+    """Load session context: uploaded files and per-session progress.
+
+    Runs after ``load_profile`` and before ``classify_intent``.
+    Populates ``session_context`` with ``files`` (from ``list_session_files``)
+    and ``progress`` (from ``get_session_profile``).
+
+    Failures are caught individually so one broken data source does not
+    block the other. A partial context is better than none.
+    """
+    from src.memory.schema import get_session_profile, list_session_files
+
+    session_id = state["session_id"]
+
+    # ── Files ────────────────────────────────────────────────────────────
+    try:
+        rows = await list_session_files(session_id)
+        files = [
+            {
+                "id": row["id"],
+                "file_name": row["file_name"],
+                "classification": row.get("classification") or "",
+                "topics_json": row.get("topics_json"),
+                "chunks_count": row.get("chunks_count", 0),
+                "ingested_at": row["ingested_at"],
+                "session_id": row.get("session_id", session_id),
+            }
+            for row in rows
+        ]
+    except Exception:
+        logger.exception("Failed to load session files for %s", session_id)
+        files = []
+
+    # ── Progress ─────────────────────────────────────────────────────────
+    try:
+        profile = await get_session_profile(session_id)
+        progress = (
+            {
+                "topic_scores": profile.get("topic_scores", {}),
+                "weak_topics": profile.get("weak_topics", []),
+                "exam_count": profile.get("exam_count", 0),
+                "average_score": profile.get("average_score"),
+            }
+            if profile
+            else {
+                "topic_scores": {},
+                "weak_topics": [],
+                "exam_count": 0,
+                "average_score": None,
+            }
+        )
+    except Exception:
+        logger.exception("Failed to load session progress for %s", session_id)
+        progress = {
+            "topic_scores": {},
+            "weak_topics": [],
+            "exam_count": 0,
+            "average_score": None,
+        }
+
+    return {"session_context": {"files": files, "progress": progress}}
+
+
 async def load_profile(state: OrchestratorState, config: RunnableConfig = None) -> dict:
     """Load the student profile at session bootstrap.
 
@@ -499,6 +562,60 @@ def _is_academic_question(message: str) -> bool:
     return False
 
 
+def _build_enrichment_context(state: OrchestratorState) -> str:
+    """Build a context block with profile, session_context, and messages_history.
+
+    Returns an empty string when no enrichment data is available so the
+    prompt stays lean for first-use / empty sessions.
+    """
+    parts: list[str] = []
+
+    profile = state.get("student_profile")
+    if profile:
+        weak = profile.get("weak_topics", [])
+        if weak:
+            parts.append(f"Los temas más débiles del estudiante son: {', '.join(weak)}.")
+        prefs = profile.get("preferences")
+        if prefs:
+            parts.append(f"Preferencias del estudiante: {prefs}.")
+
+    session_context = state.get("session_context")
+    if session_context:
+        files = session_context.get("files", [])
+        if files:
+            names = [f.get("file_name", "?") for f in files]
+            parts.append(f"Archivos cargados en esta sesión: {', '.join(names)}.")
+            topics = {topic for f in files for topic in (f.get("topics") or [])}
+            if topics:
+                parts.append(f"Temas cubiertos por los archivos: {', '.join(sorted(topics))}.")
+        progress = session_context.get("progress")
+        if progress:
+            weak = progress.get("weak_topics", [])
+            if weak:
+                parts.append(f"Temas débiles en esta sesión: {', '.join(weak)}.")
+            avg = progress.get("average_score")
+            if avg is not None:
+                parts.append(f"Nota promedio en esta sesión: {avg:.1f}/10.")
+            exam_count = progress.get("exam_count", 0)
+            if exam_count:
+                parts.append(f"Exámenes realizados en esta sesión: {exam_count}.")
+
+    history = state.get("messages_history", [])
+    if history:
+        recent = history[-6:]  # last 3 exchanges
+        if recent:
+            lines = []
+            for h in recent:
+                role = "Estudiante" if h.get("role") == "user" else "Tutor"
+                lines.append(f"- {role}: {h.get('content', '')}")
+            parts.append("Últimos mensajes de la conversación:\n" + "\n".join(lines))
+
+    if not parts:
+        return ""
+
+    return "\n\n".join(parts)
+
+
 def synthesize_response(state: OrchestratorState, config: RunnableConfig = None) -> dict:
     """Combine results from agent executions into a final response.
 
@@ -575,19 +692,31 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
                         "status": "complete",
                     }
             else:
+                enrichment = _build_enrichment_context(state)
                 prompt = (
                     f'El usuario preguntó: "{message}"\n'
                     "Respondé SIEMPRE en español, de forma clara y educativa."
                 )
+                if enrichment:
+                    prompt = (
+                        "Contexto adicional sobre el estudiante y la sesión:\n"
+                        f"{enrichment}\n\n"
+                    ) + prompt
         else:
             results_str = json.dumps(results, ensure_ascii=False, indent=2)
             errors_str = json.dumps(errors, ensure_ascii=False, indent=2) if errors else "ninguno"
+            enrichment = _build_enrichment_context(state)
 
             prompt = (
                 f'Consulta original del usuario: "{message}"\n\n'
                 f"Resultados de las herramientas ejecutadas:\n{results_str}\n\n"
                 f"Errores encontrados:\n{errors_str}\n\n"
             )
+            if enrichment:
+                prompt = (
+                    "Contexto adicional sobre el estudiante y la sesión:\n"
+                    f"{enrichment}\n\n"
+                ) + prompt
             if status == "partial":
                 prompt += (
                     "Algunas tareas no se completaron exitosamente. "
@@ -654,13 +783,15 @@ def build_orchestrator() -> StateGraph:
     builder = StateGraph(OrchestratorState)
 
     builder.add_node("load_profile", load_profile)
+    builder.add_node("load_session_context", load_session_context)
     builder.add_node("classify_intent", classify_intent)
     builder.add_node("plan_composite", plan_composite)
     builder.add_node("execute_step", execute_step)
     builder.add_node("synthesize_response", synthesize_response)
 
     builder.add_edge(START, "load_profile")
-    builder.add_edge("load_profile", "classify_intent")
+    builder.add_edge("load_profile", "load_session_context")
+    builder.add_edge("load_session_context", "classify_intent")
     builder.add_conditional_edges(
         "classify_intent",
         route_to_agent,
