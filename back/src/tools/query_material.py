@@ -9,6 +9,7 @@ from langfuse import observe
 
 from src.llm import get_llm
 from src.rag import retrieve as _rag_retrieve
+from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT, no_material_message
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +43,7 @@ def query_material(
 
     if not chunks:
         return {
-            "answer": (
-                "No encontré material relevante en esta sesión para responder "
-                "esa pregunta. Si querés que analice un documento, subilo primero."
-            ),
+            "answer": no_material_message(),
             "sources": [],
             "chunks_found": 0,
         }
@@ -56,10 +54,7 @@ def query_material(
     )
 
     prompt = (
-        "Sos un tutor académico. Respondé la pregunta del estudiante usando "
-        "SOLO la información de los fragmentos proporcionados. Si la información "
-        "no está en los fragmentos, decí que no podés responder con el material "
-        "disponible.\n\n"
+        f"{RAG_ONLY_SYSTEM_PROMPT}\n\n"
         f"Fragmentos del material:\n{context}\n\n"
         f"Pregunta: {query}\n\n"
         "Respondé de forma clara y concisa en español."

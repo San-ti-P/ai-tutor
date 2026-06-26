@@ -180,6 +180,7 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = No
     import logging
 
     from src.llm import get_structured_llm
+    from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT
 
     logger = logging.getLogger(__name__)
 
@@ -220,8 +221,9 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = No
             )
 
         prompt = (
+            f"{RAG_ONLY_SYSTEM_PROMPT}\n\n"
             "Generá un ejercicio práctico académico basado "
-            "EXCLUSIVAMENTE en los siguientes chunks de "
+            "en los siguientes chunks de "
             "material de estudio.\n\n"
             f"{chunk_context}\n\n"
             "PREFERENCIAS:\n"

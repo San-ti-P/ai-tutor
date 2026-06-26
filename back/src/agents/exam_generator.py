@@ -206,6 +206,7 @@ def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None)
     import logging
 
     from src.llm import get_structured_llm
+    from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT
 
     logger = logging.getLogger(__name__)
 
@@ -265,10 +266,7 @@ def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None)
                 f"Errores anteriores: {'; '.join(validation_errors[-5:])}"
             )
 
-        header = (
-            "Generá un examen académico basado EXCLUSIVAMENTE en "
-            "los siguientes chunks de material de estudio."
-        )
+        header = RAG_ONLY_SYSTEM_PROMPT
         req_open = (
             "- Para open-answer: prompts que requieran explicación "
             "(no sí/no), incluir base_answer y 3-5 key_points."

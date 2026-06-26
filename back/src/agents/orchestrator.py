@@ -372,6 +372,70 @@ async def execute_step(state: OrchestratorState) -> dict:
         }
 
 
+def _is_academic_question(message: str) -> bool:
+    """Determine whether *message* looks like an academic question.
+
+    Uses deterministic regex/heuristics — no LLM call — to avoid
+    probing retrieval for greetings, casual chat, or how-to-use-app
+    questions.
+
+    Returns True when:
+    - Message length >= 10 characters.
+    - Contains question-like patterns in Spanish (¿, ?, qué es, explica,
+      definí, cómo se, cuál, etc.).
+    - Does NOT match typical greeting/courtesy patterns.
+    - Does NOT match meta/how-to-use-app patterns.
+    """
+    import re
+
+    if not message or len(message.strip()) < 10:
+        return False
+
+    msg = message.strip().lower()
+
+    # Exclude greetings, thanks, farewells
+    greeting_patterns = [
+        r"^(hola|buenos\s+d[ií]as|buenas\s+(tardes|noches)|chau|adios|gracias)",
+        r"^(ok|okey|entendido|perfecto|genial|bien|bueno)[\s\!\.]*$",
+        r"^(c[oó]mo\s+(est[aá]s|andas|va|andan))",
+    ]
+    for pat in greeting_patterns:
+        if re.search(pat, msg):
+            return False
+
+    # Exclude meta / how-to-use-app questions
+    meta_patterns = [
+        r"c[oó]mo\s+(funciona|uso|subo|hago|puedo|se\s+usa)",
+        r"qu[eé]\s+(puedes|pod[eé]s|hac[eé]s|sabes|sab[eé]s)\s+hacer",
+        r"para\s+qu[eé]\s+(sirve|sirven|funciona)",
+        r"ayuda|help|comando",
+    ]
+    for pat in meta_patterns:
+        if re.search(pat, msg):
+            return False
+
+    # Academic question signals
+    academic_signals = [
+        r"[¿\?]",                    # Contains question marks
+        r"qu[eé]\s+(es|son|significa)",  # "qué es/son/significa"
+        r"explic[aá]",               # "explica/explicá"
+        r"defin[ií]",                # "definí/define"
+        r"c[oó]mo\s+(se\s+)?(calcula|resuelve|determina|obtiene|halla)",
+        r"cu[aá]l\s+(es|son)",       # "cuál es/son"
+        r"diferencia\s+entre",
+        r"qu[eé]\s+(dice|dice\s+el|habla|trata|contiene)",
+        r"en\s+qu[eé]\s+(consiste|se\s+basa)",
+        r"mencion[aá]",              # "menciona/mencioná"
+        r"describ[ií]",              # "describe/describí"
+        r"caracter[ií]sticas?\s+de",
+    ]
+    for pat in academic_signals:
+        if re.search(pat, msg):
+            return True
+
+    return False
+
+
 def synthesize_response(state: OrchestratorState, config: RunnableConfig = None) -> dict:
     """Combine results from agent executions into a final response.
 
@@ -382,6 +446,8 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
     - On LLM failure: hardcoded Spanish apology + raw results.
     """
     import json
+
+    from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT, no_material_message
 
     intent = state["intent"]
     message = state["user_message"]
@@ -410,9 +476,46 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
         llm = _get_llm()
 
         if intent == "general_chat" and not results:
-            prompt = (
-                f'El usuario preguntó: "{message}"\nRespondé de forma clara y educativa en español.'
-            )
+            # Academic probe: check if this looks like an academic question
+            if _is_academic_question(message):
+                from src.tools import query_material as _query_material
+
+                try:
+                    qm_result = _query_material.invoke({
+                        "query": message,
+                        "session_id": state["session_id"],
+                        "top_k": 3,  # lighter probe
+                    })
+
+                    if qm_result.get("chunks_found", 0) > 0:
+                        # RAG-grounded: synthesize with chunks
+                        chunks_text = "\n\n".join(
+                            qm_result.get("sources", [])
+                        )
+                        prompt = (
+                            f"{RAG_ONLY_SYSTEM_PROMPT}\n\n"
+                            f"Fragmentos del material:\n{chunks_text}\n\n"
+                            f"Pregunta del estudiante: {message}\n\n"
+                            "Respondé de forma clara y educativa en español, "
+                            "citando los fragmentos relevantes."
+                        )
+                    else:
+                        # No chunks — return canonical no-material message
+                        return {
+                            "response": no_material_message(),
+                            "status": "complete",
+                        }
+                except Exception as exc:
+                    logger.warning("Academic probe retrieval failed: %s", exc)
+                    return {
+                        "response": no_material_message(),
+                        "status": "complete",
+                    }
+            else:
+                prompt = (
+                    f'El usuario preguntó: "{message}"\n'
+                    "Respondé de forma clara y educativa en español."
+                )
         else:
             results_str = json.dumps(results, ensure_ascii=False, indent=2)
             errors_str = json.dumps(errors, ensure_ascii=False, indent=2) if errors else "ninguno"
