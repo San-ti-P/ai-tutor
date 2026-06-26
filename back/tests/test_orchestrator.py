@@ -581,7 +581,7 @@ class TestSynthesizeResponse:
         state = {
             **orchestrator_state,
             "intent": "general_chat",
-            "user_message": "¿Qué es un vector?",
+            "user_message": "Hola, ¿cómo estás?",
             "plan": [],
             "results": [],
             "errors": [],
@@ -590,11 +590,11 @@ class TestSynthesizeResponse:
 
         with patch(
             "src.agents.orchestrator._get_llm",
-            return_value=_FakeDirectLLM("Un vector es un elemento de un espacio vectorial."),
+            return_value=_FakeDirectLLM("Hola, soy tu tutor académico."),
         ):
             result = synthesize_response(state)
 
-        assert "vector" in result["response"]
+        assert "tutor" in result["response"]
         assert result["status"] == "complete"
 
     def test_composite_aggregation(self, orchestrator_state):
@@ -1734,3 +1734,143 @@ class TestRealOrchestratorIntegration:
         assert len(result2.get("results", [])) == 0, (
             "General-chat turns should not carry results from previous turns"
         )
+
+
+# ==============================================================================
+# RAG-exclusive answers: orchestrator academic probe tests (task 3.5)
+# ==============================================================================
+
+
+class TestOrchestratorAcademicProbe:
+    """Task 3.5: synthesise_response probes retrieval for academic questions."""
+
+    def test_academic_question_triggers_query_material(self, orchestrator_state):
+        """GIVEN academic-looking message → THEN query_material is called.
+
+        Covers: orchestration spec "Academic question detected — probe retrieval".
+        """
+        from unittest.mock import patch
+
+        from src.agents.orchestrator import synthesize_response
+
+        state = {
+            **orchestrator_state,
+            "intent": "general_chat",
+            "user_message": "¿Qué dice el apunte sobre derivadas?",
+            "results": [],
+            "errors": [],
+            "status": "pending",
+        }
+
+        fake_qm_result = {
+            "answer": "Las derivadas se definen como el límite del cociente incremental.",
+            "sources": ["chunk1 text"],
+            "chunks_found": 1,
+        }
+
+        with patch("src.agents.orchestrator._get_llm") as mock_llm:
+            mock_llm.return_value.invoke.return_value = type(
+                "FakeMsg", (), {"content": "RESPUESTA: Las derivadas..."}
+            )()
+            with patch("src.tools.query_material") as mock_qm:
+                mock_qm.invoke.return_value = fake_qm_result
+                result = synthesize_response(state)
+
+        # query_material should have been called
+        mock_qm.invoke.assert_called_once()
+        call_args = mock_qm.invoke.call_args[0][0]
+        assert call_args["query"] == "¿Qué dice el apunte sobre derivadas?"
+        assert call_args["top_k"] == 3  # lighter probe
+
+        assert "derivadas" in result["response"].lower()
+        assert result["status"] == "complete"
+
+    def test_greeting_skips_probe(self, orchestrator_state):
+        """GIVEN a greeting → THEN query_material is NOT called.
+
+        Covers: orchestration spec "Greeting — no probe".
+        """
+        from unittest.mock import patch
+
+        from src.agents.orchestrator import synthesize_response
+
+        state = {
+            **orchestrator_state,
+            "intent": "general_chat",
+            "user_message": "Hola, buenos días",
+            "results": [],
+            "errors": [],
+            "status": "pending",
+        }
+
+        with (
+            patch("src.agents.orchestrator._get_llm") as mock_llm,
+            patch("src.tools.query_material") as mock_qm,
+        ):
+            mock_llm.return_value.invoke.return_value = type(
+                "FakeMsg", (), {"content": "¡Hola! Soy tu tutor."}
+            )()
+            result = synthesize_response(state)
+
+        # query_material should NOT have been called for a greeting
+        mock_qm.invoke.assert_not_called()
+        assert "Hola" in result["response"]
+        assert result["status"] == "complete"
+
+    def test_academic_question_no_chunks_returns_no_material(self, orchestrator_state):
+        """GIVEN academic question + no chunks → THEN no_material_message is returned.
+
+        Covers: orchestration spec "Probe finds no chunks — no-material message".
+        """
+        from unittest.mock import patch
+
+        from src.agents.orchestrator import synthesize_response
+        from src.rag.policy import no_material_message
+
+        state = {
+            **orchestrator_state,
+            "intent": "general_chat",
+            "user_message": "¿Qué es la mecánica cuántica?",
+            "results": [],
+            "errors": [],
+            "status": "pending",
+        }
+
+        fake_empty = {"answer": "", "sources": [], "chunks_found": 0}
+
+        with patch("src.tools.query_material") as mock_qm:
+            mock_qm.invoke.return_value = fake_empty
+            result = synthesize_response(state)
+
+        assert no_material_message() in result["response"]
+        assert result["status"] == "complete"
+
+    def test_meta_question_skips_probe(self, orchestrator_state):
+        """GIVEN a how-to-use-app question → THEN probe not triggered.
+
+        Covers: orchestration spec "Meta-question about the app — no probe".
+        """
+        from unittest.mock import patch
+
+        from src.agents.orchestrator import synthesize_response
+
+        state = {
+            **orchestrator_state,
+            "intent": "general_chat",
+            "user_message": "¿Cómo subo un archivo?",
+            "results": [],
+            "errors": [],
+            "status": "pending",
+        }
+
+        with (
+            patch("src.agents.orchestrator._get_llm") as mock_llm,
+            patch("src.tools.query_material") as mock_qm,
+        ):
+            mock_llm.return_value.invoke.return_value = type(
+                "FakeMsg", (), {"content": "Para subir un archivo, usá el botón de upload."}
+            )()
+            result = synthesize_response(state)
+
+        mock_qm.invoke.assert_not_called()
+        assert result["status"] == "complete"

@@ -10,6 +10,44 @@ import pytest
 from src.rag import ThematicIndex, chunk_text, embed_and_store, retrieve
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# RAG policy module tests (rag-exclusive-answers, task 3.1)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestRagPolicy:
+    """Unit tests for the shared RAG-only policy module."""
+
+    def test_rag_only_system_prompt_exists(self):
+        """RAG_ONLY_SYSTEM_PROMPT is a non-empty string that forbids parametric knowledge."""
+        from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT
+
+        assert isinstance(RAG_ONLY_SYSTEM_PROMPT, str)
+        assert len(RAG_ONLY_SYSTEM_PROMPT) > 50
+        # Must explicitly forbid parametric knowledge
+        assert "ÚNICAMENTE" in RAG_ONLY_SYSTEM_PROMPT or "SOLO" in RAG_ONLY_SYSTEM_PROMPT
+        assert "no inventes" in RAG_ONLY_SYSTEM_PROMPT.lower() or "no" in RAG_ONLY_SYSTEM_PROMPT.lower()
+
+    def test_no_material_message_returns_string(self):
+        """no_material_message() returns a Spanish string with actionable guidance."""
+        from src.rag.policy import no_material_message
+
+        msg = no_material_message()
+        assert isinstance(msg, str)
+        assert len(msg) > 20
+        # Must contain material-related guidance in Spanish
+        lower = msg.lower()
+        assert "material" in lower or "subí" in lower or "cargado" in lower
+
+    def test_no_material_message_is_deterministic(self):
+        """Multiple calls return the same message string."""
+        from src.rag.policy import no_material_message
+
+        msg1 = no_material_message()
+        msg2 = no_material_message()
+        assert msg1 == msg2
+
+
 class TestChunkText:
     def test_chunks_short_text(self):
         docs = chunk_text("Hello world.")
