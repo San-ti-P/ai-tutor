@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     judge_sample_rate: float = 0.30
     judge_disagreement_threshold: float = 2.0
 
+    # ── E2E Testing ───────────────────────────────────────────────────────
+    e2e_test_mode: bool = False
+    e2e_live_llm: bool = False
+    e2e_record_mode: bool = False
+
     # ── RAG / Embedding ───────────────────────────────────────────────────
     embedding_model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
     chunk_size: int = 512

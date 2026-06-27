@@ -51,6 +51,7 @@ class ExamRequest(BaseModel):
     session_id: str
     topic: str
     preferences: ExamPreferences
+    student_id: str | None = Field(default=None, alias="studentId")
 
 
 class ExamQuestion(BaseModel):
@@ -75,6 +76,7 @@ class Exam(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     topic_not_found: list[str] = Field(default_factory=list, alias="topicNotFound")
     topic_suggestions: list[str] = Field(default_factory=list, alias="topicSuggestions")
+    topic_distribution: dict[str, int] = Field(default_factory=dict, alias="topicDistribution")
 
     model_config = {"populate_by_name": True}
 

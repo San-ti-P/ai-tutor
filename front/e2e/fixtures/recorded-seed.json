@@ -1,0 +1,122 @@
+[
+  {
+    "prompt_hash": "292fef4f757d",
+    "label": "Fragmento de texto (1 de 19):\n\n| Cap´ıtulo |              | 1          |",
+    "response": "```json\n{\n  \"topics\": [\n    \"Definiciones de agentes inteligentes\",\n    \"Sistemas computacionales autónomos\",\n    \"Propiedades de reactividad y proactividad\",\n    \"Interacción agente-ambiente\",\n    \"Sensores y actuadores en inteligencia artificial\",\n    \"Habilidad social en agentes inteligentes\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "4a31202d18a7",
+    "label": "Fragmento de texto (2 de 19):\n\n| CAPITULO ´ | 1.  | AGENTES | INTELIGENTES |",
+    "response": "```json\n{\n  \"topics\": [\n    \"Definiciones de agentes inteligentes\",\n    \"Autonomía en agentes de software\",\n    \"Interacción y habilidad social de agentes\",\n    \"Ciclo de percepción y acción en agentes\",\n    \"Sensores y actuadores en entornos físicos\",\n    \"Modelado de estados del entorno\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "3aa77fabcfb0",
+    "label": "Fragmento de texto (3 de 19):\n\n´\nCAPITULO 1. AGENTES INTELIGENTES - APUNTE IA 20",
+    "response": "```json\n{\n  \"topics\": [\n    \"Definición de agentes inteligentes\",\n    \"Ciclo de percepción y acción\",\n    \"Concepto de autonomía en agentes\",\n    \"Aprendizaje a partir de la experiencia\",\n    \"Sistemas de control y seguridad\",\n    \"Interacción agente-ambiente\",\n    \"Actuadores y sensores en inteligencia artificial\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "b0e03c00cb5d",
+    "label": "Fragmento de texto (4 de 19):\n\n| CAPITULO | ´       | 1.           | AGENTES | I",
+    "response": "```json\n{\n  \"topics\": [\n    \"Definición de agentes inteligentes\",\n    \"Autonomía y capacidad de aprendizaje en agentes\",\n    \"Racionalidad y acciones correctas en IA\",\n    \"Medidas de performance para evaluar agentes\",\n    \"Percepción del ambiente y secuencias de percepciones\",\n    \"Diseño de capacidades de agentes inteligentes\",\n    \"Diferencia entre ambientes conocidos y desconocidos\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "b8ebb0a50b97",
+    "label": "Fragmento de texto (5 de 19):\n\n´\nCAPITULO 1. AGENTES INTELIGENTES - APUNTE IA 20",
+    "response": "```json\n{\n  \"topics\": [\n    \"Diseño de agentes inteligentes\",\n    \"Relación entre el agente y su ambiente\",\n    \"Ambientes totalmente observables vs. parcialmente observables\",\n    \"Ambientes deterministas vs. estocásticos\",\n    \"Percepción de sensores en agentes inteligentes\",\n    \"Clasificación de ambientes según Russell & Norvig\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "8c6ff18b799e",
+    "label": "Fragmento de texto (6 de 19):\n\n´\nCAPITULO 1. AGENTES INTELIGENTES - APUNTE IA 20",
+    "response": "```json\n{\n  \"topics\": [\n    \"Ambientes episódicos frente a secuenciales\",\n    \"Ambientes estáticos y dinámicos\",\n    \"Entornos discretos y continuos\",\n    \"Agentes individuales y sistemas multiagente\",\n    \"Clasificación de entornos para agentes inteligentes\",\n    \"Percepción y acción en inteligencia artificial\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "f8decc7b7100",
+    "label": "Fragmento de texto (7 de 19):\n\n´\nCAPITULO 1. AGENTES INTELIGENTES - APUNTE IA 20",
+    "response": "```json\n{\n  \"topics\": [\n    \"Sistemas multiagente\",\n    \"Cooperación y competencia entre agentes\",\n    \"Ambientes observables y parcialmente observables\",\n    \"Ambientes determinísticos y estocásticos\",\n    \"Entornos dinámicos y procesos concurrentes\",\n    \"Control parcial en entornos complejos\",\n    \"Clasificación de entornos abiertos en IA\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "5a3398789122",
+    "label": "Fragmento de texto (8 de 19):\n\n| CAPITULO | ´   | 1.  | AGENTES |     | INTELIGE",
+    "response": "```json\n{\n  \"topics\": [\n    \"Definición de agentes inteligentes\",\n    \"Características de los ambientes de agentes\",\n    \"Ambientes parcialmente accesibles\",\n    \"Ambientes estocásticos y deterministas\",\n    \"Ambientes secuenciales y dinámicos\",\n    \"Espacios de estado continuos\",\n    \"Sistemas multiagentes y colaboración\",\n    \"Competencia entre agentes\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "700d6c2ef203",
+    "label": "Fragmento de texto (9 de 19):\n\n| CAPITULO ´ | 1.        | AGENTES | INTELIGENTES",
+    "response": "```json\n{\n  \"topics\": [\n    \"Definición de agentes inteligentes\",\n    \"Secuencias de percepciones y comportamiento\",\n    \"Medida de performance de los agentes\",\n    \"Relación funcional entre percepciones y acciones\",\n    \"Interacción agente-ambiente\",\n    \"Sensores y estados del ambiente\",\n    \"Representación del conocimiento interno en agentes\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "71d0e71af88b",
+    "label": "Fragmento de texto (10 de 19):\n\n| CAPITULO | ´   | 1. AGENTES |     |     | INTE",
+    "response": "```json\n{\n  \"topics\": [\n    \"Definición de agentes inteligentes\",\n    \"Interacción agente-ambiente\",\n    \"Percepciones y acciones de un agente\",\n    \"Objetivos de diseño de agentes\",\n    \"Condiciones de aplicación de acciones\",\n    \"Modelado de agentes-aspiradora\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "2037e39e6ed6",
+    "label": "Fragmento de texto (11 de 19):\n\n| CAPITULO ´ | 1. AGENTES |     | INTELIGENTES |",
+    "response": "```json\n{\n  \"topics\": [\n    \"Definición de agentes inteligentes\",\n    \"Mecanismos de toma de decisiones en agentes\",\n    \"Programación Orientada a Objetos (POO)\",\n    \"Diferencias entre agentes y objetos computacionales\",\n    \"Concepto de autonomía en sistemas multiagentes\",\n    \"Sistemas multiagentes y colaboración\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "ccca86b4c9d7",
+    "label": "Fragmento de texto (12 de 19):\n\n| CAPITULO ´ |     | 1. AGENTES |     | INTELIGE",
+    "response": "```json\n{\n  \"topics\": [\n    \"Definición de agentes inteligentes\",\n    \"Diferencias entre agentes y programación orientada a objetos\",\n    \"Comportamiento reactivo, proactivo y social de los agentes\",\n    \"Sistemas de control y concurrencia en agentes\",\n    \"Medidas de performance en agentes inteligentes\",\n    \"Concepto de función de utilidad en IA\",\n    \"Maximización de la utilidad en estados del entorno\",\n    \"Diseño de tareas para agentes autónomos\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "ecef91684ffe",
+    "label": "Fragmento de texto (13 de 19):\n\n| CAPITULO ´ | 1.            | AGENTES      | IN",
+    "response": "```json\n{\n  \"topics\": [\n    \"Definición y ejecución de agentes inteligentes\",\n    \"Maximización de la función de utilidad\",\n    \"Relación entre percepciones y acciones\",\n    \"Arquitectura del agente y programa del agente\",\n    \"Representación de tareas mediante metas\",\n    \"Gestión de memoria y estado interno del agente\",\n    \"Interacción entre el agente y el ambiente\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "45d10cd70f4c",
+    "label": "Fragmento de texto (14 de 19):\n\n| CAPITULO | ´   | 1.  | AGENTES |      | INTELI",
+    "response": "```json\n{\n  \"topics\": [\n    \"Arquitecturas de software para agentes inteligentes\",\n    \"Sistemas de toma de decisión embebidos\",\n    \"Arquitecturas híbridas de agentes\",\n    \"Agentes reactivos simples\",\n    \"Agentes reactivos basados en modelos\",\n    \"Agentes basados en objetivos\",\n    \"Agentes basados en utilidad\",\n    \"Agentes con capacidad de aprendizaje\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "02a70e517adc",
+    "label": "Fragmento de texto (15 de 19):\n\n| CAPITULO ´ |          | 1. AGENTES |        |",
+    "response": "```json\n{\n  \"topics\": [\n    \"Agentes reactivos simples\",\n    \"Arquitectura de agentes inteligentes\",\n    \"Función de actuación en agentes\",\n    \"Omnisciencia y habilidad perceptual\",\n    \"Agentes reactivos basados en modelo\",\n    \"Estado interno de los agentes\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "c8be3063a822",
+    "label": "Fragmento de texto (16 de 19):\n\n| CAPITULO ´ |     | 1. AGENTES     |     | INTE",
+    "response": "```json\n{\n  \"topics\": [\n    \"Definición de agentes inteligentes\",\n    \"Agentes reactivos basados en modelo\",\n    \"Estados internos de los agentes\",\n    \"Agentes basados en objetivos\",\n    \"Toma de decisiones en agentes\",\n    \"Función de utilidad en inteligencia artificial\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "b90cda047821",
+    "label": "Fragmento de texto (17 de 19):\n\n| CAPITULO ´ | 1. AGENTES | INTELIGENTES | - APU",
+    "response": "```json\n{\n  \"topics\": [\n    \"Agentes reactivos\",\n    \"Agentes basados en objetivos\",\n    \"Algoritmos de búsqueda y planificación\",\n    \"Secuencias de acciones en agentes inteligentes\",\n    \"Agentes basados en utilidad\",\n    \"Funciones de utilidad en inteligencia artificial\",\n    \"Medidas de performance de agentes\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "c6cf92968623",
+    "label": "Fragmento de texto (18 de 19):\n\n´\nCAPITULO 1. AGENTES INTELIGENTES - APUNTE IA 2",
+    "response": "```json\n{\n  \"topics\": [\n    \"Arquitectura de agentes inteligentes\",\n    \"Agentes basados en utilidad\",\n    \"Mecanismos de aprendizaje en agentes\",\n    \"Sistemas de retroalimentación y crítica\",\n    \"Generación de reglas basadas en experiencia\",\n    \"Optimización del comportamiento del agente\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "8e81fcb84cd4",
+    "label": "Fragmento de texto (19 de 19):\n\n| CAPITULO | ´   | 1. AGENTES |        | INTELIG",
+    "response": "```json\n{\n  \"topics\": [\n    \"Agentes inteligentes que aprenden\",\n    \"Mecanismos de selección de acciones\",\n    \"Componentes generadores de problemas en agentes\",\n    \"Exploración y optimización de acciones\",\n    \"Definición de percepciones, acciones y metas\",\n    \"Caracterización de ambientes de agentes\"\n  ]\n}\n```",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "7ba0107bba86",
+    "label": "Organizá estos temas académicos en un árbol jerárquico. IMPORTANTE: Creá entre 3",
+    "response": "```json\n{\n  \"Tipologías de Agentes Inteligentes\": {\n    \"Agentes reactivos simples\": {},\n    \"Agentes reactivos basados en modelos\": {},\n    \"Agentes basados en objetivos\": {},\n    \"Agentes basados en utilidad\": {},\n    \"Arquitecturas de software para agentes inteligentes\": {}\n  },\n  \"Interacción y Entornos\": {\n    \"Interacción agente-ambiente\": {},\n    \"Ambientes deterministas vs. estocásticos\": {},\n    \"Ambientes totalmente observables vs. parcialmente observables\": {},\n    \"Modelado de estados del entorno\": {},\n    \"Sensores y actuadores en entornos físicos\": {},\n    \"Sensores y actuadores en inteligencia artificial\": {}\n  },\n  \"Mecanismos de Operación y Control\": {\n    \"Ciclo de percepción y acción en agentes\": {},\n    \"Relación funcional entre percepciones y acciones\": {},\n    \"Estados internos de los agentes\": {},\n    \"Mecanismos de toma de decisiones en agentes\": {},\n    \"Sistemas de control y seguridad\": {}\n  },\n  \"Autonomía y Cognición\": {\n    \"Concepto de autonomía en agentes\": {},\n    \"Autonomía en agentes de software\": {},\n    \"Propiedades de reactividad y proactividad\": {},\n    \"Sistemas computacionales autónomos\": {},\n    \"Racionalidad y acciones correctas en IA\": {}\n  },\n  \"Aprendizaje y Performance\": {\n    \"Aprendizaje a partir de la experiencia\": {},\n    \"Autonomía y capacidad de aprendizaje en agentes\": {},\n    \"Funciones de utilidad en inteligencia artificial\": {},\n    \"Medidas de performance en agentes inteligentes\": {}\n  },\n  \"Sistemas Multiagentes y Socialidad\": {\n    \"Sistemas multiagentes y colaboración\": {},\n    \"Cooperación y competencia entre agentes\": {},\n    \"Interacción y habilidad social de agentes\": {}\n  },\n  \"Fundamentos y Diseño\": {\n    \"Definición y ejecución de agentes inteligentes\": {},\n    \"Diseño de capacidades de agentes inteligentes\": {}\n  }\n}\n```",
+    "tool_calls": []
+  }
+]

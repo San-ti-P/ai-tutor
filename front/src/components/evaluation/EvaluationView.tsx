@@ -76,7 +76,7 @@ export function EvaluationView({
   return (
     <div className="flex flex-col gap-6">
       {/* Summary */}
-      <div className="rounded-lg border border-border bg-card p-6 text-center">
+      <div data-testid="total-score" className="rounded-lg border border-border bg-card p-6 text-center">
         <h3 className="font-bold text-2xl text-foreground">
           {totalScore.toFixed(0)} / {maxScore.toFixed(0)}
           <span

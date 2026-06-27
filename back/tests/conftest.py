@@ -281,6 +281,7 @@ def exam_generator_state(sample_chunks) -> dict:
         "retry_count": 0,
         "topic_not_found": [],
         "topic_suggestions": [],
+        "topic_distribution": {},
         "exam": {},
         "status": "pending",
     }

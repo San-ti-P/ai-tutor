@@ -77,6 +77,7 @@ class ExamGeneratorState(TypedDict):
     retry_count: int
     topic_not_found: list[str]
     topic_suggestions: list[str]
+    topic_distribution: dict[str, int]
     exam: dict
     status: str
 
@@ -229,6 +230,7 @@ def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None)
         if not chunks:
             return {
                 "generated_questions": [],
+                "topic_distribution": {},
                 "status": "no_material",
             }
 
@@ -275,6 +277,63 @@ def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None)
             weak = student_profile.get("weak_topics", [])
             if weak:
                 prefs_lines.append(f"Prioritize weak topics: {', '.join(weak)}")
+
+        # ── Compute topic distribution: weak-topic bias or uniform ──
+        available_topics: set[str] = set()
+        for c in chunks:
+            meta = c.get("metadata", {})
+            if isinstance(meta, dict) and meta.get("topic"):
+                available_topics.add(meta["topic"])
+        if not available_topics:
+            available_topics = set(state.get("topics", []))
+
+        weak_topics_set: set[str] = set()
+        if student_profile and isinstance(student_profile, dict):
+            weak_topics_set = {
+                wt for wt in student_profile.get("weak_topics", [])
+                if wt in available_topics
+            }
+
+        topic_distribution: dict[str, int] = {}
+        if weak_topics_set and available_topics:
+            # ≥60% to weak topics
+            weak_list = sorted(weak_topics_set)
+            strong_list = sorted(available_topics - weak_topics_set)
+            weak_quota = max(1, round(target_count * 0.6))
+            weak_quota = min(weak_quota, target_count)
+
+            # Distribute weak quota evenly across weak topics
+            per_weak = weak_quota // len(weak_list)
+            weak_rem = weak_quota % len(weak_list)
+            for i, wt in enumerate(weak_list):
+                topic_distribution[wt] = per_weak + (1 if i < weak_rem else 0)
+
+            # Distribute remaining across strong topics
+            strong_quota = target_count - weak_quota
+            if strong_list and strong_quota > 0:
+                per_strong = strong_quota // len(strong_list)
+                strong_rem = strong_quota % len(strong_list)
+                for i, st in enumerate(strong_list):
+                    topic_distribution[st] = per_strong + (1 if i < strong_rem else 0)
+            elif not strong_list:
+                # All available topics are weak — spread remaining evenly
+                extra_per = strong_quota // len(weak_list)
+                extra_rem = strong_quota % len(weak_list)
+                for i, wt in enumerate(weak_list):
+                    topic_distribution[wt] += extra_per + (1 if i < extra_rem else 0)
+        elif available_topics:
+            # Uniform distribution across all available topics
+            topic_list = sorted(available_topics)
+            per_topic = target_count // len(topic_list)
+            rem = target_count % len(topic_list)
+            for i, t in enumerate(topic_list):
+                topic_distribution[t] = per_topic + (1 if i < rem else 0)
+
+        if topic_distribution:
+            dist_lines = ["Topic distribution:"]
+            for t, count in topic_distribution.items():
+                dist_lines.append(f"  - {t}: {count} question(s)")
+            prefs_lines.extend(dist_lines)
 
         # Retry instructions
         retry_instructions = ""
@@ -348,6 +407,7 @@ REQUISITOS:
         return {
             "generated_questions": final_questions,
             "retry_count": next_retry,
+            "topic_distribution": topic_distribution,
             "status": "generated",
         }
 
@@ -565,6 +625,13 @@ def format_exam(state: ExamGeneratorState) -> dict:
             dict.fromkeys(q.get("topic", "") for q in final_questions if q.get("topic"))
         )
 
+        # Compute actual topic distribution from final questions
+        topic_distribution: dict[str, int] = {}
+        for q in final_questions:
+            qtopic = q.get("topic", "")
+            if qtopic:
+                topic_distribution[qtopic] = topic_distribution.get(qtopic, 0) + 1
+
         # Determine status
         if not final_questions:
             exam_status = "no_material"
@@ -583,6 +650,7 @@ def format_exam(state: ExamGeneratorState) -> dict:
             "total_questions": len(final_questions),
             "questions": final_questions,
             "topics_covered": topics_covered,
+            "topic_distribution": topic_distribution,
             "source_chunks_total": len(state.get("retrieved_chunks", [])),
             "omitted_count": len(omitted_indices),
             "topic_not_found": topic_not_found,

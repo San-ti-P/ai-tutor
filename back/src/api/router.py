@@ -370,6 +370,27 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
 
     from src.tools import generate_exam as _gen_exam_tool
 
+    # ── Resolve student_id: request override → session lookup → session_id fallback ──
+    student_id = request.student_id
+    if not student_id:
+        session_detail = await _get_session(request.session_id)
+        student_id = session_detail["student_id"] if session_detail else request.session_id
+    logger.info("Resolved student_id=%s for session=%s", student_id, request.session_id)
+
+    # Load student profile for weak-topic prioritization
+    student_profile = None
+    if student_id:
+        from src.tools.get_student_summary import get_student_summary as _summary_tool
+
+        profile = await _summary_tool.ainvoke({"student_id": student_id})
+        if profile is not None:
+            student_profile = profile
+            logger.info(
+                "Loaded student profile: weak_topics=%s, session_count=%d",
+                profile.get("weak_topics", []),
+                profile.get("session_count", 0),
+            )
+
     # Determine mcq_ratio from question types
     qtypes = request.preferences.question_types
     mcq_ratio = sum(1 for t in qtypes if t == "mcq") / max(len(qtypes), 1)
@@ -382,6 +403,7 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
             "difficulty": request.preferences.difficulty,
             "question_count": request.preferences.question_count,
             "mcq_ratio": mcq_ratio,
+            "student_profile": student_profile,
         },
     )
 
@@ -421,6 +443,7 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
             warnings=result.get("warnings", []),
             topic_not_found=result.get("topic_not_found", []),
             topic_suggestions=result.get("topic_suggestions", []),
+            topic_distribution=result.get("topic_distribution", {}),
         ),
         error=None,
         trace_id=str(uuid.uuid4()),

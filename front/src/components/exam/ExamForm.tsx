@@ -126,6 +126,7 @@ export function ExamForm({ onSubmit, isLoading, defaultTopic }: ExamFormProps) {
       <Button
         type="submit"
         disabled={isLoading || !topic.trim() || types.size === 0}
+        data-testid="submit-exam-btn"
         className="self-start"
       >
         {isLoading ? (

@@ -46,7 +46,7 @@ export function UploadDropzone({
             : "border-border hover:border-primary/50 hover:bg-muted/50"
         }`}
       >
-        <input {...getInputProps()} />
+        <input {...getInputProps()} data-testid="file-upload-input" />
         <Upload className="mx-auto mb-3 size-8 text-muted-foreground" />
         <p className="font-medium text-foreground text-sm">
           {isDragActive

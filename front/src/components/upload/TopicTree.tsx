@@ -89,7 +89,7 @@ export function TopicTree({ tree, maxDepth = 3 }: TopicTreeProps) {
   const roots = Object.entries(tree);
 
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div data-testid="topic-tree" className="rounded-lg border bg-card p-4">
       <h3 className="mb-3 font-semibold text-foreground text-sm">
         Índice Temático
       </h3>

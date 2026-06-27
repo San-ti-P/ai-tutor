@@ -95,6 +95,8 @@ export function SessionSidebar({
                 return (
                   <div
                     key={s.id}
+                    data-testid="session-item"
+                    data-session-id={s.id}
                     className={`group flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
                       isActive
                         ? "bg-primary/15 text-primary font-medium"
@@ -172,6 +174,7 @@ export function SessionSidebar({
             <button
               type="button"
               onClick={() => setShowCreate(true)}
+              data-testid="new-session-btn"
               className="w-full rounded-md bg-primary text-primary-foreground text-sm py-1.5 hover:bg-primary/90 transition-colors"
             >
               + Nueva sesión
@@ -239,6 +242,7 @@ function SessionCreateModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ej: Cálculo I"
+              data-testid="session-name-input"
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               autoFocus
               onKeyDown={(e) => {
@@ -279,6 +283,7 @@ function SessionCreateModal({
               type="button"
               onClick={handleSubmit}
               disabled={submitting || !name.trim()}
+              data-testid="session-create-confirm"
               className="rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm hover:bg-primary/90 disabled:opacity-50"
             >
               {submitting ? "Creando..." : "Crear"}

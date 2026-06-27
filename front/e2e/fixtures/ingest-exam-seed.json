@@ -1,0 +1,32 @@
+[
+  {
+    "prompt_hash": "000000000000",
+    "label": "classify_document",
+    "response": "{\"classification\": \"apunte_teorico\", \"confidence\": 0.95}",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "000000000001",
+    "label": "generate_exam",
+    "response": "{\"exam\": {\"topic\": \"Cálculo\", \"difficulty\": \"medium\", \"questions\": [{\"id\": \"q1\", \"prompt\": \"¿Cuál es la derivada de x²?\", \"type\": \"mcq\", \"options\": [\"x\", \"2x\", \"x²\", \"2\"], \"correctAnswer\": \"2x\"}, {\"id\": \"q2\", \"prompt\": \"Define el concepto de límite\", \"type\": \"open\", \"options\": null}, {\"id\": \"q3\", \"prompt\": \"¿Cuál es la integral de 1/x?\", \"type\": \"mcq\", \"options\": [\"ln|x| + C\", \"e^x + C\", \"1/x² + C\", \"x + C\"], \"correctAnswer\": \"ln|x| + C\"}], \"status\": \"complete\"}}",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "000000000002",
+    "label": "evaluate_answer",
+    "response": "{\"results\": [{\"questionId\": \"q1\", \"score\": 10, \"isEvaluable\": true, \"justification\": \"Respuesta correcta.\", \"conceptualErrors\": [], \"suggestions\": []}]}",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "000000000003",
+    "label": "orchestrate_chat",
+    "response": "{\"response\": \"He generado un examen de 3 preguntas sobre Cálculo. Podés encontrarlo en el panel de examen.\", \"action\": \"exam_generated\"}",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "000000000004",
+    "label": "get_student_summary",
+    "response": "{\"studentId\": \"student-1\", \"sessionCount\": 3, \"topicScores\": {\"Cálculo/Derivadas\": [8, 7, 9], \"Álgebra/Matrices\": [5, 6, 4]}, \"weakTopics\": [\"Álgebra/Matrices\"]}",
+    "tool_calls": []
+  }
+]

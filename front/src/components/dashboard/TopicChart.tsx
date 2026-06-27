@@ -37,6 +37,7 @@ export function TopicChart({ data }: TopicChartProps) {
       <h3 className="mb-4 font-semibold text-foreground text-sm">
         Puntajes por tema
       </h3>
+      <div data-testid="topic-chart">
       <ResponsiveContainer width="100%" height={250}>
         <BarChart
           data={data}
@@ -71,6 +72,7 @@ export function TopicChart({ data }: TopicChartProps) {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+      </div>
     </div>
   );
 }

@@ -61,7 +61,7 @@ export function ExamWidget({
 
       <div className="flex flex-col gap-3">
         {exam.questions.map((q, i) => (
-          <div key={q.id} className="rounded-md border border-border p-3">
+          <div key={q.id} data-testid="exam-question" className="rounded-md border border-border p-3">
             <p className="mb-2 font-medium text-foreground text-sm">
               {i + 1}. {q.prompt}
             </p>
@@ -113,6 +113,7 @@ export function ExamWidget({
             type="button"
             onClick={handleSubmit}
             disabled={unanswered > 0}
+            data-testid="submit-exam-btn"
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             Entregar Examen

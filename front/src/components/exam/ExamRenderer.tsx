@@ -20,7 +20,7 @@ export function ExamRenderer({
 }: ExamRendererProps) {
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg border border-border bg-card p-6">
+      <div data-testid="exam-question" className="rounded-lg border border-border bg-card p-6">
         <div className="mb-4 flex items-center justify-between">
           <span className="font-semibold text-foreground text-sm">
             Pregunta {currentIndex + 1} de {total}

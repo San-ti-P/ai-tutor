@@ -62,6 +62,9 @@ export function UploadFileList({ files }: UploadFileListProps) {
               <div className="flex shrink-0 items-center gap-2">
                 {entry.status === "uploading" && <Spinner size="sm" />}
                 <Badge variant={badge.variant}>{badge.text}</Badge>
+                {entry.status === "uploading" && (
+                  <span data-testid="upload-progress" className="sr-only">Uploading</span>
+                )}
               </div>
             </div>
             <span className="text-muted-foreground text-xs">

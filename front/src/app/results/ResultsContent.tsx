@@ -75,13 +75,13 @@ export function ResultsContent() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div data-testid="results-container" className="flex flex-col gap-8">
       <div>
         <h1 className="font-bold text-3xl text-foreground tracking-tight">
           Resultados
         </h1>
         <p className="mt-1 text-muted-foreground">
-          {examId ? `Examen: ${examId}` : "Revis\u00e1 tu desempe\u00f1o"}
+          {examId ? `Examen: ${examId}` : "Revisá tu desempeño"}
         </p>
       </div>
 

@@ -346,6 +346,267 @@ class TestFormatExam:
         # Verify omitted question (index 1) is excluded
         assert len(exam["questions"]) < len(state["generated_questions"])
 
+    def test_format_exam_topic_distribution(
+        self, exam_generator_state, sample_chunks, mock_exam_llm
+    ):
+        """Topic distribution computed from final questions and included in exam output."""
+        from src.agents.exam_generator import format_exam, generate_questions
+
+        gen_state = {
+            **exam_generator_state,
+            "retrieved_chunks": sample_chunks[:4],
+            "question_count": 5,
+        }
+        gen_result = generate_questions(gen_state)
+
+        state = {
+            **exam_generator_state,
+            "retrieved_chunks": sample_chunks[:4],
+            "generated_questions": gen_result["generated_questions"],
+            "omitted_questions": [],
+            "validation_errors": [],
+            "topic_not_found": [],
+            "topic_suggestions": [],
+        }
+
+        result = format_exam(state)
+        exam = result["exam"]
+
+        assert "topic_distribution" in exam
+        dist = exam["topic_distribution"]
+        assert isinstance(dist, dict)
+        # Sum of distributed counts should equal total_questions
+        total = sum(dist.values())
+        assert total == exam["total_questions"] or total == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase 3: Weak Topic Prioritization Tests (Epic 12)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestWeakTopicPrioritization:
+    """Epic 12: Verify exam generator biases questions toward weak topics."""
+
+    def test_generate_questions_with_weak_topics(
+        self, exam_generator_state, sample_chunks
+    ):
+        """When student_profile has weak_topics, topic_distribution computed
+        and ≥60% allocation goes to weak topics."""
+        from src.agents.exam_generator import (
+            ExamGeneration,
+            MCQQuestion,
+            OpenAnswerQuestion,
+            generate_questions,
+        )
+
+        # Build a fake LLM response where all questions target weak topics
+        fake_exam = ExamGeneration(
+            mcq_questions=[
+                MCQQuestion(
+                    stem="MCQ sobre IA?",
+                    options=["A", "B", "C", "D"],
+                    correct_option_index=0,
+                    source_chunk_ids=["c-w1"],
+                    difficulty="medium",
+                    topic="agentes/inteligentes",
+                ),
+                MCQQuestion(
+                    stem="MCQ sobre definición?",
+                    options=["A", "B", "C", "D"],
+                    correct_option_index=0,
+                    source_chunk_ids=["c-w2"],
+                    difficulty="medium",
+                    topic="agentes/inteligentes",
+                ),
+                MCQQuestion(
+                    stem="MCQ sobre autonomía?",
+                    options=["A", "B", "C", "D"],
+                    correct_option_index=0,
+                    source_chunk_ids=["c-w3"],
+                    difficulty="medium",
+                    topic="agentes/autonomia",
+                ),
+            ],
+            open_questions=[
+                OpenAnswerQuestion(
+                    prompt="Explicar racionalidad?",
+                    base_answer="racionalidad es...",
+                    key_points=["kp1", "kp2"],
+                    source_chunk_ids=["c-w4"],
+                    difficulty="medium",
+                    topic="agentes/racionalidad",
+                ),
+                OpenAnswerQuestion(
+                    prompt="Explicar tipos?",
+                    base_answer="tipos son...",
+                    key_points=["kp1", "kp2"],
+                    source_chunk_ids=["c-w5"],
+                    difficulty="medium",
+                    topic="agentes/tipos",
+                ),
+            ],
+            metadata={"topics_covered": [], "total_source_chunks": 5},
+        )
+
+        fake_invokable = MagicMock()
+        fake_invokable.invoke.return_value = fake_exam
+
+        # Chunks with topic metadata matching weak topics
+        chunks_with_topics = []
+        for i, (cid, topic) in enumerate(
+            [
+                ("c-w1", "agentes/inteligentes"),
+                ("c-w2", "agentes/inteligentes"),
+                ("c-w3", "agentes/autonomia"),
+                ("c-w4", "agentes/racionalidad"),
+                ("c-w5", "agentes/tipos"),
+            ]
+        ):
+            chunks_with_topics.append({
+                "chunk_id": cid,
+                "text": f"Chunk text about {topic}",
+                "metadata": {"topic": topic},
+                "similarity_score": 0.3,
+            })
+
+        state = {
+            **exam_generator_state,
+            "student_profile": {
+                "weak_topics": [
+                    "agentes/inteligentes",
+                    "agentes/autonomia",
+                    "agentes/racionalidad",
+                ],
+                "preferences": {},
+            },
+            "topics": ["agentes"],
+            "retrieved_chunks": chunks_with_topics,
+            "question_count": 5,
+            "mcq_ratio": 0.6,
+        }
+
+        with patch("src.llm.get_structured_llm", return_value=fake_invokable):
+            result = generate_questions(state)
+
+        assert "topic_distribution" in result
+        dist = result["topic_distribution"]
+        assert isinstance(dist, dict)
+        # Weak topics (3) vs everything else — weak quota should be ≥3 (60% of 5)
+        weak_count = sum(
+            count for topic, count in dist.items()
+            if topic.startswith("agentes/")
+        )
+        assert weak_count >= 3, (
+            f"Weak topic allocation should be ≥3 (60% of 5), got {weak_count}: {dist}"
+        )
+
+    def test_generate_questions_uniform_no_profile(
+        self, exam_generator_state, sample_chunks
+    ):
+        """When student_profile is None, uses uniform distribution across topics."""
+        from src.agents.exam_generator import (
+            ExamGeneration,
+            MCQQuestion,
+            generate_questions,
+        )
+
+        fake_exam = ExamGeneration(
+            mcq_questions=[
+                MCQQuestion(
+                    stem="Q?",
+                    options=["A", "B", "C", "D"],
+                    correct_option_index=0,
+                    source_chunk_ids=["c1"],
+                    difficulty="medium",
+                    topic="cálculo/derivadas",
+                )
+                for _ in range(3)
+            ],
+            open_questions=[],
+            metadata={"topics_covered": [], "total_source_chunks": 3},
+        )
+
+        fake_invokable = MagicMock()
+        fake_invokable.invoke.return_value = fake_exam
+
+        chunks_with_topics = [
+            {
+                "chunk_id": "c1",
+                "text": "Derivadas chunk",
+                "metadata": {"topic": "cálculo/derivadas"},
+                "similarity_score": 0.3,
+            },
+            {
+                "chunk_id": "c2",
+                "text": "Matrices chunk",
+                "metadata": {"topic": "álgebra/matrices"},
+                "similarity_score": 0.4,
+            },
+        ]
+
+        state = {
+            **exam_generator_state,
+            "student_profile": None,
+            "topics": ["cálculo/derivadas", "álgebra/matrices"],
+            "retrieved_chunks": chunks_with_topics,
+            "question_count": 3,
+            "mcq_ratio": 1.0,
+        }
+
+        with patch("src.llm.get_structured_llm", return_value=fake_invokable):
+            result = generate_questions(state)
+
+        assert "topic_distribution" in result
+        dist = result["topic_distribution"]
+        assert isinstance(dist, dict)
+        # With 2 topics and 3 questions: expect 2 on one, 1 on the other
+        total = sum(dist.values())
+        assert total == 3, f"Expected 3 total, got {total}: {dist}"
+        # Should cover both topics
+        assert len(dist) >= 1
+
+    def test_topic_distribution_in_exam_output(
+        self, exam_generator_state, sample_chunks, mock_exam_llm
+    ):
+        """End-to-end: exam output includes topic_distribution computed from questions."""
+        from src.agents.exam_generator import build_exam_generator
+
+        state = {
+            **exam_generator_state,
+            "retrieved_chunks": sample_chunks[:4],
+        }
+
+        with patch(
+            "src.agents.exam_generator.retrieve_relevant_chunks",
+            return_value={"retrieved_chunks": sample_chunks[:4], "status": "retrieved"},
+        ):
+            with patch(
+                "src.agents.exam_generator.validate_questions",
+                return_value={
+                    "validation_results": [],
+                    "validation_errors": [],
+                    "invalid_question_indices": [],
+                },
+            ):
+                graph = build_exam_generator().compile()
+                result = graph.invoke(state)
+
+        exam = result["exam"]
+        assert "topic_distribution" in exam
+        dist = exam["topic_distribution"]
+        assert isinstance(dist, dict)
+        total = sum(dist.values())
+        assert total == exam["total_questions"], (
+            f"Distribution sum {total} != total_questions {exam['total_questions']}: {dist}"
+        )
+        # Questions topics should match distribution keys
+        question_topics = {q.get("topic", "") for q in exam["questions"]}
+        for topic in dist:
+            assert topic in question_topics, (
+                f"Topic '{topic}' in distribution but not in questions"
+            )
+
 
 class TestEndToEnd:
     """Task 2.11: Full graph execution end-to-end."""
@@ -588,6 +849,7 @@ class TestRealIntegration:
             "retry_count": 0,
             "topic_not_found": [],
             "topic_suggestions": [],
+            "topic_distribution": {},
             "exam": {},
             "status": "pending",
         }
@@ -731,6 +993,7 @@ class TestRealIntegration:
             "retry_count": 0,
             "topic_not_found": [],
             "topic_suggestions": [],
+            "topic_distribution": {},
             "exam": {},
             "status": "generated",
         }

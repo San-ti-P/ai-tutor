@@ -12,7 +12,7 @@ interface StatsCardsProps {
 
 export function StatsCards({ stats }: StatsCardsProps) {
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div data-testid="stats-cards" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       {stats.map(({ label, value, icon: Icon }) => (
         <div
           key={label}

@@ -7,32 +7,37 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:e2e": "npx playwright test",
+    "test:e2e:live": "E2E_LIVE_LLM=true npx playwright test --grep @live",
+    "test:e2e:record": "E2E_LIVE_LLM=true E2E_RECORD_MODE=true npx playwright test --grep @live",
+    "test:e2e:mock": "npx playwright test --grep-invert @live"
   },
   "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "katex": "^0.16.21",
+    "lucide-react": "^0.474.0",
     "next": "^15.3.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "tailwind-merge": "^3.0.0",
-    "lucide-react": "^0.474.0",
-    "katex": "^0.16.21",
-    "recharts": "^2.15.0",
     "react-dropzone": "^14.3.0",
     "react-markdown": "^9.0.0",
-    "remark-gfm": "^4.0.0"
+    "recharts": "^2.15.0",
+    "remark-gfm": "^4.0.0",
+    "tailwind-merge": "^3.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@tailwindcss/postcss": "^4.1.0",
+    "@types/katex": "^0.16.7",
     "@types/node": "^22.0.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "@types/katex": "^0.16.7",
-    "typescript": "^5.7.0",
-    "tailwindcss": "^4.1.0",
-    "@tailwindcss/postcss": "^4.1.0",
-    "postcss": "^8.5.0",
     "eslint": "^9.0.0",
-    "eslint-config-next": "^15.3.0"
+    "eslint-config-next": "^15.3.0",
+    "postcss": "^8.5.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.7.0"
   }
 }

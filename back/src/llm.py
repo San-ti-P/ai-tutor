@@ -28,6 +28,15 @@ def get_llm(
     Reads ``settings.llm_kwargs`` and instantiates the appropriate
     chat model class. Supports all configured providers.
 
+    E2E modes (checked in priority order):
+    1. ``E2E_RECORD_MODE=true`` + ``E2E_LIVE_LLM=true``:
+       real LLM wrapped in RecordingLLM — saves responses to seed file.
+    2. ``E2E_TEST_MODE=true`` + ``E2E_LIVE_LLM`` not true:
+       MockLLM — replays pre-recorded seeds.
+    3. ``E2E_LIVE_LLM=true``:
+       real LLM passthrough (no recording).
+    4. Otherwise: real LLM (normal operation).
+
     Args:
         callbacks: Optional list of LangChain callbacks (e.g. Langfuse
             CallbackHandler) injected into the LLM config.
@@ -35,8 +44,31 @@ def get_llm(
     Returns:
         A configured BaseChatModel ready for .invoke() calls.
     """
+    import os
+
+    e2e_record = os.getenv("E2E_RECORD_MODE", "").lower() == "true"
+    e2e_test = os.getenv("E2E_TEST_MODE", "").lower() == "true"
+    e2e_live = os.getenv("E2E_LIVE_LLM", "").lower() == "true"
+
+    # Priority 1: Record mode — real LLM + response capture
+    if e2e_record and e2e_live:
+        llm_cls, llm_kwargs = settings.llm_kwargs
+        if callbacks:
+            llm_kwargs = {**llm_kwargs, "callbacks": callbacks}
+        real_llm = llm_cls(**llm_kwargs)
+
+        from src.llm_test import get_recording_llm
+
+        return get_recording_llm(real_llm)  # type: ignore[return-value]
+
+    # Priority 2: Mock mode — replay from seeds
+    if e2e_test and not e2e_live:
+        from src.llm_test import get_mock_llm
+
+        return get_mock_llm()  # type: ignore[return-value]
+
+    # Priority 3 & 4: Live LLM or normal operation
     llm_cls, llm_kwargs = settings.llm_kwargs
-    # Merge callbacks into kwargs if provided
     if callbacks:
         llm_kwargs = {**llm_kwargs, "callbacks": callbacks}
     return llm_cls(**llm_kwargs)
