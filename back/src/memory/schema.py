@@ -36,6 +36,10 @@ async def _run_migrations(db: aiosqlite.Connection) -> None:
             "ALTER TABLE ingested_documents ADD COLUMN session_id TEXT "
             "REFERENCES sessions(id)"
         )
+    if not await _column_exists(db, "ingested_documents", "topic_tree_json"):
+        await db.execute(
+            "ALTER TABLE ingested_documents ADD COLUMN topic_tree_json TEXT DEFAULT '{}'"
+        )
 
 
 async def init_db() -> None:
@@ -386,6 +390,30 @@ async def delete_session(session_id: str) -> None:
         logger.warning("Could not drop ChromaDB collection for session %s", session_id)
 
 
+async def rename_session(session_id: str, name: str, description: str | None = None) -> dict | None:
+    """Rename a session and optionally update its description. Returns updated row or None."""
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        db.row_factory = aiosqlite.Row
+        if description is not None:
+            await db.execute(
+                "UPDATE sessions SET name = ?, description = ? WHERE id = ?",
+                (name, description, session_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE sessions SET name = ? WHERE id = ?",
+                (name, session_id),
+            )
+        await db.commit()
+        cursor = await db.execute(
+            "SELECT id, student_id, name, description, started_at as created_at, status "
+            "FROM sessions WHERE id = ?",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
 async def insert_ingested_document(doc: dict) -> None:
     """Persist file metadata after a successful ingest."""
     ingested_at = doc.get("ingested_at") or datetime.now(UTC).isoformat()
@@ -393,14 +421,15 @@ async def insert_ingested_document(doc: dict) -> None:
         await db.execute(
             """
             INSERT INTO ingested_documents
-            (id, file_name, classification, topics_json, chunks_count, session_id, ingested_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (id, file_name, classification, topics_json, topic_tree_json, chunks_count, session_id, ingested_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 doc["id"],
                 doc["file_name"],
                 doc.get("classification"),
                 doc.get("topics_json"),
+                doc.get("topic_tree_json", "{}"),
                 doc.get("chunks_count", 0),
                 doc.get("session_id"),
                 ingested_at,
@@ -414,7 +443,7 @@ async def list_session_files(session_id: str) -> list[dict]:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT id, file_name, classification, topics_json, chunks_count, "
+            "SELECT id, file_name, classification, topics_json, topic_tree_json, chunks_count, "
             "ingested_at, session_id FROM ingested_documents "
             "WHERE session_id = ? ORDER BY ingested_at DESC, rowid DESC",
             (session_id,),

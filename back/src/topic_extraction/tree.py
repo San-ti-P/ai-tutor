@@ -47,9 +47,12 @@ async def build_topic_tree(topics: list[str]) -> dict:
     try:
         llm = get_llm()
 
-        schema_desc = '{"nombre_tema": {"nombre_subtema": {}, ...}, ...}'
+        schema_desc = '{"Categoría Principal": {"Subtema": {}, ...}, ...}'
         prompt = (
             "Organizá estos temas académicos en un árbol jerárquico. "
+            "IMPORTANTE: Creá entre 3 y 7 categorías principales (raíces). "
+            "No pongas todo bajo una sola categoría. Agrupá por áreas conceptuales distintas. "
+            "Cada categoría principal debe contener subtemas anidados.\n\n"
             "Devolvé ÚNICAMENTE un objeto JSON donde cada clave es una categoría "
             "de nivel superior y cada valor es un objeto anidado de subtemas "
             "(objetos vacíos para las hojas).\n\n"
@@ -62,7 +65,8 @@ async def build_topic_tree(topics: list[str]) -> dict:
         messages = [
             SystemMessage(
                 content=(
-                    "Organizás temas académicos en jerarquías. "
+                    "Sos un experto en taxonomía académica. Organizás temas en jerarquías. "
+                    "Siempre creás entre 3 y 7 categorías raíz, nunca una sola. "
                     "Devolvé ÚNICAMENTE JSON válido que coincida con este patrón: "
                     f"{schema_desc}\n"
                     "Ningún otro texto. Solo JSON válido."

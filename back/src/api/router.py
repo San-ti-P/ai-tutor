@@ -30,6 +30,7 @@ from src.api.schemas import (
     PreferencesUpdate,
     Session,
     SessionCreate,
+    SessionRename,
     SessionFile,
     SessionProfile,
     StudentProfile,
@@ -54,6 +55,9 @@ from src.memory.schema import (
 )
 from src.memory.schema import (
     list_sessions as _list_sessions,
+)
+from src.memory.schema import (
+    rename_session as _rename_session,
 )
 
 logger = logging.getLogger(__name__)
@@ -181,6 +185,19 @@ async def delete_session_endpoint(session_id: str) -> ApiResponse[dict]:
     return ApiResponse(data={"deleted": session_id}, error=None, trace_id=str(uuid.uuid4()))
 
 
+@router.patch("/sessions/{session_id}", response_model=ApiResponse[Session])
+async def rename_session_endpoint(session_id: str, body: SessionRename) -> ApiResponse[Session]:
+    """Rename a session and optionally update its description."""
+    logger.info("Renaming session %s to %s", session_id, body.name)
+    detail = await _get_session(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+    updated = await _rename_session(session_id, body.name, body.description)
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found after rename")
+    return ApiResponse(data=Session.model_validate(updated), error=None, trace_id=str(uuid.uuid4()))
+
+
 @router.get("/sessions/{session_id}/files", response_model=ApiResponse[list[SessionFile]])
 async def get_session_files(session_id: str) -> ApiResponse[list[SessionFile]]:
     """List files uploaded to a session."""
@@ -197,12 +214,19 @@ async def get_session_files(session_id: str) -> ApiResponse[list[SessionFile]]:
                 topics = json.loads(row["topics_json"])
             except Exception:
                 topics = []
+        topic_tree = None
+        if row.get("topic_tree_json"):
+            try:
+                topic_tree = json.loads(row["topic_tree_json"])
+            except Exception:
+                pass
         files.append(
             SessionFile(
                 id=row["id"],
                 fileName=row["file_name"],
                 classification=row.get("classification", ""),
                 topics=topics,
+                topicTree=topic_tree,
                 chunksCount=row.get("chunks_count", 0),
                 ingestedAt=row["ingested_at"],
             )
@@ -274,6 +298,7 @@ async def ingest(
                         "file_name": file.filename or "unknown",
                         "classification": result.get("classification"),
                         "topics_json": json.dumps(result.get("topics", [])),
+                        "topic_tree_json": result.get("topic_tree", "{}"),
                         "chunks_count": result.get("chunks_created", 0),
                         "session_id": effective_session_id,
                     }
@@ -281,12 +306,22 @@ async def ingest(
             except Exception:
                 logger.exception("Failed to persist file metadata for %s", file.filename)
 
+            # Parse topic_tree from JSON string to dict for API response
+            topic_tree_raw = result.get("topic_tree", "{}")
+            topic_tree = None
+            if topic_tree_raw and topic_tree_raw != "{}":
+                try:
+                    topic_tree = json.loads(topic_tree_raw)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             results.append(
                 IngestResult(
                     sessionId=effective_session_id,
                     status=result.get("status", "unknown"),
                     classification=result.get("classification", ""),
                     topicsDetected=result.get("topics", []),
+                    topicTree=topic_tree,
                     chunksCreated=result.get("chunks_created", 0),
                     classificationConfidence=result.get("classification_confidence"),
                     documentId=document_id,
@@ -345,14 +380,26 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
     # Map tool output to Exam model
     questions = []
     for q in result.get("questions", []):
+        qtype = q.get("type", "open")
+        if qtype == "open_answer":
+            qtype = "open"
+        # Compute base_answer for MCQ from correct_option_index
+        base_answer = q.get("baseAnswer", q.get("base_answer"))
+        if qtype == "mcq" and not base_answer:
+            options = q.get("options", [])
+            correct_idx = q.get("correct_option_index")
+            if isinstance(correct_idx, int) and 0 <= correct_idx < len(options):
+                base_answer = options[correct_idx]
         questions.append(
             ExamQuestion(
                 id=q.get("id", str(uuid.uuid4())),
-                type=q.get("type", "open"),
+                type=qtype,
                 prompt=q.get("prompt", ""),
                 options=q.get("options"),
-                baseAnswer=q.get("baseAnswer", q.get("base_answer")),
+                baseAnswer=base_answer,
                 sourceChunkIds=q.get("sourceChunkIds", q.get("source_chunk_ids")),
+                topic=q.get("topic", ""),
+                difficulty=q.get("difficulty", "medium"),
             )
         )
 
@@ -362,6 +409,10 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
             questions=questions,
             topic=request.topic,
             difficulty=request.preferences.difficulty,
+            status=result.get("status", "complete"),
+            warnings=result.get("warnings", []),
+            topic_not_found=result.get("topic_not_found", []),
+            topic_suggestions=result.get("topic_suggestions", []),
         ),
         error=None,
         trace_id=str(uuid.uuid4()),
@@ -590,6 +641,7 @@ async def generate_exercise_endpoint(request: ExerciseRequest) -> ApiResponse[Ex
                 steps=ms.get("steps", []),
                 final_answer=ms.get("final_answer", ""),
                 key_concepts=ms.get("key_concepts", []),
+                source_chunk_ids=ms.get("source_chunk_ids", []),
             ),
             topics_covered=result.get("topics_covered", []),
             source_chunk_ids=result.get("source_chunk_ids"),
