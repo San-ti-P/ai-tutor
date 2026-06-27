@@ -115,18 +115,28 @@ async def load_session_context(state: OrchestratorState, config: RunnableConfig 
     # ── Files ────────────────────────────────────────────────────────────
     try:
         rows = await list_session_files(session_id)
-        files = [
-            {
-                "id": row["id"],
-                "file_name": row["file_name"],
-                "classification": row.get("classification") or "",
-                "topics_json": row.get("topics_json"),
-                "chunks_count": row.get("chunks_count", 0),
-                "ingested_at": row["ingested_at"],
-                "session_id": row.get("session_id", session_id),
-            }
-            for row in rows
-        ]
+        files = []
+        for row in rows:
+            topics: list[str] = []
+            topics_json = row.get("topics_json")
+            if topics_json:
+                try:
+                    import json as _json
+
+                    topics = _json.loads(topics_json)
+                except Exception:
+                    pass
+            files.append(
+                {
+                    "id": row["id"],
+                    "file_name": row["file_name"],
+                    "classification": row.get("classification") or "",
+                    "topics": topics,
+                    "chunks_count": row.get("chunks_count", 0),
+                    "ingested_at": row["ingested_at"],
+                    "session_id": row.get("session_id", session_id),
+                }
+            )
     except Exception:
         logger.exception("Failed to load session files for %s", session_id)
         files = []
@@ -284,7 +294,10 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
         elapsed = (time.monotonic() - t0) * 1000
         logger.info(
             "[classify_intent] COMPLETE | session=%s | intent=%s | confidence=%.2f | %dms",
-            state["session_id"], intent, confidence, int(elapsed),
+            state["session_id"],
+            intent,
+            confidence,
+            int(elapsed),
         )
         return {"intent": intent, "confidence": confidence, "plan": plan}
 
@@ -309,7 +322,9 @@ def route_to_agent(state: OrchestratorState) -> str:
         target = "execute_step"
     logger.info(
         "[route] %s | session=%s | intent=%s",
-        target, state.get("session_id", "?"), intent,
+        target,
+        state.get("session_id", "?"),
+        intent,
     )
     return target
 
@@ -353,7 +368,9 @@ def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> d
         elapsed = (time.monotonic() - t0) * 1000
         logger.info(
             "[plan_composite] COMPLETE | session=%s | steps=%s | %dms",
-            state["session_id"], valid_plan, int(elapsed),
+            state["session_id"],
+            valid_plan,
+            int(elapsed),
         )
         return {"plan": valid_plan}
 
@@ -365,8 +382,9 @@ def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> d
 def _extract_topics(message: str) -> list[str]:
     """Extract topic keywords from user message using simple heuristics.
 
-    Looks for phrases like 'sobre X', 'acerca de X', 'de X', 'temas de X'.
-    Falls back to ['general'] if no topics detected.
+    Looks for phrases like 'sobre X', 'acerca de X', 'de X'.
+    Returns ['general'] if no topics detected — caller should enrich
+    from session context when available.
     """
     import re
 
@@ -379,11 +397,30 @@ def _extract_topics(message: str) -> list[str]:
         if match:
             topic_text = match.group(1).strip().rstrip(".")
             if topic_text and len(topic_text) > 2:
-                # Split on ' y ', ' e ', ', ' for multiple topics
                 topics = re.split(r"\s+(?:y|e)\s+|,\s*", topic_text)
                 return [t.strip() for t in topics if len(t.strip()) > 2]
 
     return ["general"]
+
+
+def _get_session_topics(session_context: dict | None) -> list[str]:
+    """Extract all topics from ingested files in session context."""
+    if not session_context:
+        return []
+    files = session_context.get("files", [])
+    all_topics: list[str] = []
+    for f in files:
+        file_topics = f.get("topics", [])
+        if isinstance(file_topics, list):
+            all_topics.extend(file_topics)
+    # Deduplicate preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for t in all_topics:
+        if t not in seen:
+            seen.add(t)
+            unique.append(t)
+    return unique
 
 
 def _extract_difficulty(message: str) -> str:
@@ -422,19 +459,25 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
         args["query"] = state["user_message"]
         args["top_k"] = 5
     elif tool_name == "generate_exam":
-        args["topics"] = _extract_topics(state["user_message"])
+        topics = _extract_topics(state["user_message"])
+        # When user doesn't specify a topic, enrich from session files
+        if topics == ["general"]:
+            session_topics = _get_session_topics(state.get("session_context"))
+            if session_topics:
+                topics = session_topics[:20]  # Cap at 20 for token budget
+        args["topics"] = topics
         args["difficulty"] = _extract_difficulty(state["user_message"])
         args["question_count"] = _extract_question_count(state["user_message"])
         args["mcq_ratio"] = 0.5
         if profile:
             args["student_profile"] = profile
     elif tool_name == "generate_exercise":
-        msg_topics = _extract_topics(state["user_message"])
-        args["topic"] = (
-            msg_topics[0]
-            if msg_topics
-            else (profile.get("weak_topics", ["general"])[0] if profile else "general")
-        )
+        topics = _extract_topics(state["user_message"])
+        if topics == ["general"]:
+            session_topics = _get_session_topics(state.get("session_context"))
+            if session_topics:
+                topics = session_topics[:5]
+        args["topic"] = topics[0] if topics else "general"
         args["difficulty"] = _extract_difficulty(state["user_message"])
         args["exercise_type"] = "problem_solving"
         if profile:
@@ -490,7 +533,10 @@ async def execute_step(state: OrchestratorState) -> dict:
     t0 = time.monotonic()
     logger.info(
         "[execute_step] START | session=%s | step=%d/%d | tool=%s",
-        state["session_id"], current + 1, len(plan), tool_name,
+        state["session_id"],
+        current + 1,
+        len(plan),
+        tool_name,
     )
 
     if tool is None:
@@ -515,7 +561,10 @@ async def execute_step(state: OrchestratorState) -> dict:
         elapsed = (time.monotonic() - t0) * 1000
         logger.info(
             "[execute_step] COMPLETE | session=%s | step=%d | tool=%s | %dms",
-            state["session_id"], current + 1, tool_name, int(elapsed),
+            state["session_id"],
+            current + 1,
+            tool_name,
+            int(elapsed),
         )
         return {
             "results": results + [{"step": current, "tool": tool_name, "result": result}],
@@ -526,7 +575,10 @@ async def execute_step(state: OrchestratorState) -> dict:
         elapsed = (time.monotonic() - t0) * 1000
         logger.warning(
             "execute_step failed for tool '%s' at step %d (%dms): %s",
-            tool_name, current, int(elapsed), exc,
+            tool_name,
+            current,
+            int(elapsed),
+            exc,
         )
         return {
             "errors": errors + [{"step": current, "tool": tool_name, "error": str(exc)}],
@@ -677,7 +729,10 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
 
     logger.info(
         "[synthesize_response] START | session=%s | intent=%s | results=%d | errors=%d",
-        state["session_id"], intent, len(results), len(errors),
+        state["session_id"],
+        intent,
+        len(results),
+        len(errors),
     )
 
     # Detect cap hit: iteration_count >= max but steps not all done
@@ -729,7 +784,8 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
                         elapsed = (time.monotonic() - t0) * 1000
                         logger.info(
                             "[synthesize_response] COMPLETE | session=%s | no_material | %dms",
-                            state["session_id"], int(elapsed),
+                            state["session_id"],
+                            int(elapsed),
                         )
                         return {
                             "response": no_material_message(),
@@ -740,7 +796,8 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
                     elapsed = (time.monotonic() - t0) * 1000
                     logger.info(
                         "[synthesize_response] COMPLETE | session=%s | probe_failed | %dms",
-                        state["session_id"], int(elapsed),
+                        state["session_id"],
+                        int(elapsed),
                     )
                     return {
                         "response": no_material_message(),
@@ -754,8 +811,7 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
                 )
                 if enrichment:
                     prompt = (
-                        "Contexto adicional sobre el estudiante y la sesión:\n"
-                        f"{enrichment}\n\n"
+                        f"Contexto adicional sobre el estudiante y la sesión:\n{enrichment}\n\n"
                     ) + prompt
         else:
             results_str = json.dumps(results, ensure_ascii=False, indent=2)
@@ -769,8 +825,7 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
             )
             if enrichment:
                 prompt = (
-                    "Contexto adicional sobre el estudiante y la sesión:\n"
-                    f"{enrichment}\n\n"
+                    f"Contexto adicional sobre el estudiante y la sesión:\n{enrichment}\n\n"
                 ) + prompt
             if status == "partial":
                 prompt += (
@@ -792,7 +847,9 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
         elapsed = (time.monotonic() - t0) * 1000
         logger.info(
             "[synthesize_response] COMPLETE | session=%s | status=%s | %dms",
-            state["session_id"], final_status, int(elapsed),
+            state["session_id"],
+            final_status,
+            int(elapsed),
         )
         return {
             "response": prefix + text,
@@ -808,7 +865,8 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
         elapsed = (time.monotonic() - t0) * 1000
         logger.info(
             "[synthesize_response] COMPLETE | session=%s | fallback | %dms",
-            state["session_id"], int(elapsed),
+            state["session_id"],
+            int(elapsed),
         )
         results_str = json.dumps(
             {"results": results, "errors": errors},
@@ -843,13 +901,15 @@ def check_iteration_limit(state: OrchestratorState) -> Literal["continue", "term
     if state["iteration_count"] >= settings.max_iterations_per_task:
         logger.info(
             "[check_iteration_limit] terminate | session=%s | reason=iteration_limit | iter=%d",
-            state["session_id"], state["iteration_count"],
+            state["session_id"],
+            state["iteration_count"],
         )
         return "terminate"
     if state["current_step"] >= len(state["plan"]):
         logger.info(
             "[check_iteration_limit] terminate | session=%s | reason=plan_complete | steps=%d",
-            state["session_id"], state["current_step"],
+            state["session_id"],
+            state["current_step"],
         )
         return "terminate"
     return "continue"
