@@ -6,10 +6,10 @@ Usage:
 Runs key API calls against the running backend, which records LLM responses
 to seed files. After recording, E2E tests can run in mock mode.
 """
+
 import asyncio
 import json
 import os
-import sys
 from pathlib import Path
 
 # Ensure E2E env vars are set
@@ -20,15 +20,15 @@ os.environ["E2E_LIVE_LLM"] = "true"
 async def main():
     import httpx
 
-    BASE = "http://localhost:8000"
-    STUDENT_ID = "e2e-test-student"
+    base_url = "http://localhost:8000"
+    student_id = "e2e-test-student"
 
     async with httpx.AsyncClient(timeout=180.0) as client:
         # ── 1. Create session ──
         print("1. Creating session...")
         r = await client.post(
-            f"{BASE}/api/sessions",
-            json={"name": "E2E Seed Recording", "student_id": STUDENT_ID},
+            f"{base_url}/api/sessions",
+            json={"name": "E2E Seed Recording", "student_id": student_id},
         )
         r.raise_for_status()
         session = r.json()["data"]
@@ -37,18 +37,13 @@ async def main():
 
         # ── 2. Upload PDF ──
         print("2. Uploading PDF...")
-        pdf_path = (
-            Path(__file__).parent.parent
-            / "tests"
-            / "fixtures"
-            / "apunteAgentes_IA2007.pdf"
-        )
+        pdf_path = Path(__file__).parent.parent / "tests" / "fixtures" / "apunteAgentes_IA2007.pdf"
         if not pdf_path.exists():
             print(f"   ⚠️  PDF not found at {pdf_path}, skipping ingest")
         else:
             with open(pdf_path, "rb") as f:
                 r = await client.post(
-                    f"{BASE}/api/ingest",
+                    f"{base_url}/api/ingest",
                     files={"files": ("apunte.pdf", f, "application/pdf")},
                     data={"session_id": session_id},
                 )
@@ -60,13 +55,13 @@ async def main():
         # ── 3. Generate exam (records classify_document + generate_exam) ──
         print("3. Generating exam...")
         r = await client.post(
-            f"{BASE}/api/exam/generate",
+            f"{base_url}/api/exam/generate",
             json={
                 "session_id": session_id,
                 "topic": "Agentes inteligentes",
                 "question_count": 3,
                 "question_types": ["mcq"],
-                "studentId": STUDENT_ID,
+                "studentId": student_id,
                 "preferences": {
                     "difficulty": "medium",
                     "questionTypes": ["mcq"],
@@ -91,13 +86,13 @@ async def main():
             answers[q["id"]] = options[0] if options else "respuesta de prueba"
 
         r = await client.post(
-            f"{BASE}/api/evaluate",
+            f"{base_url}/api/evaluate",
             json={
                 "session_id": session_id,
                 "exam_id": exam_id,
                 "answers": answers,
                 "examQuestions": questions,
-                "studentId": STUDENT_ID,
+                "studentId": student_id,
             },
         )
         r.raise_for_status()
@@ -108,7 +103,7 @@ async def main():
 
         # ── 5. Verify dashboard ──
         print("5. Checking dashboard...")
-        r = await client.get(f"{BASE}/api/students/{STUDENT_ID}/dashboard")
+        r = await client.get(f"{base_url}/api/students/{student_id}/dashboard")
         r.raise_for_status()
         dash = r.json()["data"]
         print(f"   sessionCount: {dash.get('sessionCount', '?')}")

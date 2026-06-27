@@ -290,8 +290,7 @@ def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None)
         weak_topics_set: set[str] = set()
         if student_profile and isinstance(student_profile, dict):
             weak_topics_set = {
-                wt for wt in student_profile.get("weak_topics", [])
-                if wt in available_topics
+                wt for wt in student_profile.get("weak_topics", []) if wt in available_topics
             }
 
         topic_distribution: dict[str, int] = {}

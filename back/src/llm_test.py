@@ -57,8 +57,7 @@ class MockLLM:
             result = {"role": kind, "content": content}
             if hasattr(m, "tool_calls") and m.tool_calls:
                 result["tool_calls"] = [
-                    tc.model_dump() if hasattr(tc, "model_dump") else str(tc)
-                    for tc in m.tool_calls
+                    tc.model_dump() if hasattr(tc, "model_dump") else str(tc) for tc in m.tool_calls
                 ]
             return result
         return {"content": str(m)}
@@ -111,11 +110,10 @@ class MockLLM:
 
         messages = prompt if isinstance(prompt, list) else [prompt]
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
             return asyncio.run(self.ainvoke(messages, **kwargs))
         # Running loop exists (e.g. inside FastAPI) — use thread-safe approach
-        import concurrent.futures
         import threading
 
         result_container: list[MockResponse] = []
@@ -176,8 +174,7 @@ class RecordingLLM:
             result = {"role": kind, "content": content}
             if hasattr(m, "tool_calls") and m.tool_calls:
                 result["tool_calls"] = [
-                    tc.model_dump() if hasattr(tc, "model_dump") else str(tc)
-                    for tc in m.tool_calls
+                    tc.model_dump() if hasattr(tc, "model_dump") else str(tc) for tc in m.tool_calls
                 ]
             return result
         return {"content": str(m)}
@@ -242,16 +239,10 @@ class RecordingLLM:
 
         return self._record_and_return(messages, prompt_hash, response)
 
-    def _record_and_return(
-        self, messages: list, prompt_hash: str, response: Any
-    ) -> MockResponse:
+    def _record_and_return(self, messages: list, prompt_hash: str, response: Any) -> MockResponse:
 
         # Extract content and tool_calls
-        content = (
-            response.content
-            if hasattr(response, "content")
-            else str(response)
-        )
+        content = response.content if hasattr(response, "content") else str(response)
         tool_calls = []
         if hasattr(response, "tool_calls") and response.tool_calls:
             for tc in response.tool_calls:
@@ -303,6 +294,7 @@ class RecordingLLM:
 
 def _import_threading_lock():
     import threading
+
     return threading.Lock()
 
 

@@ -98,21 +98,39 @@ ai-tutor/
 ## Testing
 
 ```bash
+# ── Backend ──────────────────────────────────────────
 cd back
-uv run pytest tests/ -v                    # Full suite (unit tests only)
+uv run pytest tests/ -v                    # Unit tests (fast, no external deps)
 uv run pytest tests/ -v -k "test_ingest"   # Per module
 uv run pytest tests/ -v --cov=src          # With coverage
-uv run pytest tests/ -v -m integration     # Integration tests (needs LLM)
+uv run pytest tests/ -v -m integration     # Integration tests (needs real LLM)
+
+# ── Frontend ─────────────────────────────────────────
+cd front
+npx playwright test                       # E2E mock mode (fast, deterministic, CI)
+E2E_LIVE_LLM=true npx playwright test --grep @live   # E2E live mode (real LLM, pre-defense)
+npx playwright test --grep-invert @live   # E2E mock only (skip live)
+npx playwright test --list                # List all 16 E2E tests
+
+# ── Record E2E seeds ─────────────────────────────────
+# Start backend in record mode, then run:
+cd back
+E2E_RECORD_MODE=true E2E_LIVE_LLM=true uv run python scripts/record_e2e_seeds.py
+# Seeds saved to front/e2e/fixtures/recorded-seed.json
 ```
 
 ### Test Tiers
 
-| Tier | Marker | Runs on | Requires |
-|------|--------|---------|----------|
-| Unit | *(default)* | Every commit | Nothing external — LLMs/embeddings mocked |
-| Integration | `@pytest.mark.integration` | Manually or CI with secrets | Real LLM (Ollama/Groq) + real embeddings + real PDF |
+| Tier | Command | Runs on | Requires |
+|------|---------|---------|----------|
+| Unit | `pytest tests/ -v` | Every commit | Nothing external — LLMs/embeddings mocked |
+| Integration | `pytest tests/ -v -m integration` | Manually or CI with secrets | Real LLM (Ollama/Groq) + real embeddings + real PDF |
+| **E2E Mock** | `npx playwright test` | Every commit | Backend + Frontend running — LLM calls mocked via seeds |
+| **E2E Live** | `E2E_LIVE_LLM=true npx playwright test --grep @live` | Pre-defense, nightly | Real LLM (Ollama/Groq) + backend + frontend |
 
-**Integration tests** are any test that uses a real external resource: real LLM calls, real SentenceTransformer embeddings, real ChromaDB with pre-ingested data, or real PDF files. They are skipped by default (`addopts = "-m 'not integration'"` in `pyproject.toml`).
+**Integration tests** use real external resources: real LLM calls, real SentenceTransformer embeddings, real ChromaDB, or real PDF files. Skipped by default (`addopts = "-m 'not integration'"` in `pyproject.toml`).
+
+**E2E tests** (Playwright) exercise the full stack: browser → frontend → API → agents. Mock mode replays pre-recorded LLM seeds (sub-40s, deterministic). Live mode calls real LLMs with tolerance-based assertions (catches response-quality bugs).
 
 ### Test Documentation
 
