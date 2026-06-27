@@ -13,15 +13,15 @@ interface EvaluationViewProps {
 }
 
 function scoreColor(score: number): "success" | "warning" | "error" {
-  if (score >= 0.8) return "success";
-  if (score >= 0.5) return "warning";
+  if (score >= 7) return "success";
+  if (score >= 5) return "warning";
   return "error";
 }
 
 function renderSuggestionWithLinks(
   text: string,
   knownTopics: string[],
-  index: number
+  index: number,
 ): React.ReactNode {
   if (knownTopics.length === 0) {
     return text;
@@ -29,7 +29,7 @@ function renderSuggestionWithLinks(
 
   // Find known topics that appear in the suggestion text (case-insensitive)
   const matchingTopics = knownTopics.filter((t) =>
-    text.toLowerCase().includes(t.toLowerCase())
+    text.toLowerCase().includes(t.toLowerCase()),
   );
 
   if (matchingTopics.length === 0) {
@@ -38,14 +38,14 @@ function renderSuggestionWithLinks(
 
   // Build a regex that matches any of the matching topics (case-insensitive)
   const escaped = matchingTopics.map((t) =>
-    t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
   );
   const pattern = new RegExp(`(${escaped.join("|")})`, "gi");
   const parts = text.split(pattern);
 
   return parts.map((part, i) => {
     const isTopic = matchingTopics.some(
-      (t) => t.toLowerCase() === part.toLowerCase()
+      (t) => t.toLowerCase() === part.toLowerCase(),
     );
     if (isTopic) {
       return (
@@ -62,10 +62,13 @@ function renderSuggestionWithLinks(
   });
 }
 
-export function EvaluationView({ results, knownTopics = [] }: EvaluationViewProps) {
+export function EvaluationView({
+  results,
+  knownTopics = [],
+}: EvaluationViewProps) {
   const evaluable = results.filter((r) => r.isEvaluable !== false);
   const totalScore = evaluable.reduce((sum, r) => sum + r.score, 0);
-  const maxScore = evaluable.length;
+  const maxScore = evaluable.length * 10;
   const nonEvaluableCount = results.length - evaluable.length;
   const percentage =
     maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
@@ -75,7 +78,7 @@ export function EvaluationView({ results, knownTopics = [] }: EvaluationViewProp
       {/* Summary */}
       <div className="rounded-lg border border-border bg-card p-6 text-center">
         <h3 className="font-bold text-2xl text-foreground">
-          {totalScore.toFixed(1)} / {maxScore.toFixed(1)}
+          {totalScore.toFixed(0)} / {maxScore.toFixed(0)}
           <span
             className={cn(
               "ml-2 text-lg",
@@ -83,7 +86,7 @@ export function EvaluationView({ results, knownTopics = [] }: EvaluationViewProp
                 ? "text-green-600"
                 : percentage >= 50
                   ? "text-amber-600"
-                  : "text-red-600"
+                  : "text-red-600",
             )}
           >
             ({percentage}%)
@@ -108,7 +111,7 @@ export function EvaluationView({ results, knownTopics = [] }: EvaluationViewProp
             </span>
             {r.isEvaluable !== false ? (
               <Badge variant={scoreColor(r.score)}>
-                {r.score.toFixed(1)} / 1.0
+                {r.score.toFixed(0)} / 10
               </Badge>
             ) : (
               <Badge variant="default">No evaluable</Badge>
@@ -132,7 +135,10 @@ export function EvaluationView({ results, knownTopics = [] }: EvaluationViewProp
               </h4>
               <ul className="flex flex-col gap-1">
                 {r.conceptualErrors.map((err, j) => (
-                  <li key={j} className="text-red-700 dark:text-red-300 text-sm">
+                  <li
+                    key={j}
+                    className="text-red-700 dark:text-red-300 text-sm"
+                  >
                     {err}
                   </li>
                 ))}

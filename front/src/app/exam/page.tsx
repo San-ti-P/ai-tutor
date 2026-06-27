@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { FileText } from "lucide-react";
-import { useSession } from "@/hooks/useSession";
+import { useSessionContext } from "@/hooks/SessionProvider";
 import { api } from "@/lib/api";
 import { ExamForm } from "@/components/exam/ExamForm";
 import { ExamRenderer } from "@/components/exam/ExamRenderer";
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import type { Exam, Difficulty } from "@/lib/types";
 
 export default function ExamPage() {
-  const { sessionId } = useSession();
+  const { sessionId, activeSession } = useSessionContext();
   const router = useRouter();
   const [exam, setExam] = useState<Exam | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -50,25 +50,28 @@ export default function ExamPage() {
         setCurrentIndex(0);
         if (res.data.questions.length === 0) {
           setError(
-            "El examen no tiene preguntas. Intent\u00e1 con otro tema o carg\u00e1 m\u00e1s material."
+            "El examen no tiene preguntas. Intent\u00e1 con otro tema o carg\u00e1 m\u00e1s material.",
           );
         }
       } catch (err) {
         setError(
           err instanceof Error
             ? err.message
-            : "No se pudo generar el examen. Intent\u00e1 de nuevo."
+            : "No se pudo generar el examen. Intent\u00e1 de nuevo.",
         );
       } finally {
         setIsGenerating(false);
       }
     },
-    [sessionId]
+    [sessionId],
   );
 
-  const handleAnswerChange = useCallback((questionId: string, value: string) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: value }));
-  }, []);
+  const handleAnswerChange = useCallback(
+    (questionId: string, value: string) => {
+      setAnswers((prev) => ({ ...prev, [questionId]: value }));
+    },
+    [],
+  );
 
   const unanswered = exam
     ? exam.questions.filter((q) => !answers[q.id]).length
@@ -83,15 +86,18 @@ export default function ExamPage() {
         session_id: sessionId,
         exam_id: exam.id,
         answers,
+        examQuestions: exam.questions,
       });
       // Pass evaluation results via session storage
       sessionStorage.setItem("evaluation-results", JSON.stringify(res.data));
-      router.push(`/results?exam_id=${encodeURIComponent(exam.id)}&topic=${encodeURIComponent(exam.topic)}`);
+      router.push(
+        `/results?exam_id=${encodeURIComponent(exam.id)}&topic=${encodeURIComponent(exam.topic)}`,
+      );
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "No se pudo enviar el examen. Intent\u00e1 de nuevo."
+          : "No se pudo enviar el examen. Intent\u00e1 de nuevo.",
       );
     } finally {
       setIsSubmitting(false);
@@ -105,7 +111,16 @@ export default function ExamPage() {
           Generar Examen
         </h1>
         <p className="mt-1 text-muted-foreground">
-          Cre\u00e1 ex\u00e1menes personalizados basados en tu material de estudio
+          Creá exámenes personalizados basados en tu material de estudio
+          {activeSession && (
+            <>
+              {" "}
+              &middot; Sesión:{" "}
+              <span className="font-medium text-foreground">
+                {activeSession.name}
+              </span>
+            </>
+          )}
         </p>
       </div>
 
@@ -132,12 +147,13 @@ export default function ExamPage() {
             total={exam.questions.length}
             current={currentIndex}
             answers={Object.fromEntries(
-              exam.questions.map((q, i) => [`q-${i}`, answers[q.id] ?? ""])
+              exam.questions.map((q, i) => [`q-${i}`, answers[q.id] ?? ""]),
             )}
             onSelect={setCurrentIndex}
           />
 
           <ExamRenderer
+            key={exam.questions[currentIndex].id}
             question={exam.questions[currentIndex]}
             currentIndex={currentIndex}
             total={exam.questions.length}
@@ -160,7 +176,7 @@ export default function ExamPage() {
                 variant="ghost"
                 onClick={() =>
                   setCurrentIndex((i) =>
-                    Math.min(exam.questions.length - 1, i + 1)
+                    Math.min(exam.questions.length - 1, i + 1),
                   )
                 }
               >
@@ -198,10 +214,7 @@ export default function ExamPage() {
                 : "\u00bfEst\u00e1s seguro de entregar el examen?"}
             </p>
             <div className="flex justify-end gap-2">
-              <Button
-                variant="secondary"
-                onClick={() => setShowConfirm(false)}
-              >
+              <Button variant="secondary" onClick={() => setShowConfirm(false)}>
                 Cancelar
               </Button>
               <Button onClick={handleSubmit}>Entregar</Button>

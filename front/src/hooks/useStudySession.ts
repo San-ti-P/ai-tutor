@@ -31,7 +31,13 @@ interface UseStudySession {
   sessions: Session[];
   activeSession: Session | null;
   isLoading: boolean;
+  studentId: string;
   createSession: (name: string, description?: string) => Promise<Session>;
+  renameSession: (
+    id: string,
+    name: string,
+    description?: string,
+  ) => Promise<void>;
   switchSession: (id: string) => void;
   deleteSession: (id: string) => Promise<void>;
   refreshSessions: () => Promise<void>;
@@ -89,7 +95,9 @@ export function useStudySession(): UseStudySession {
     };
 
     init();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
@@ -111,6 +119,20 @@ export function useStudySession(): UseStudySession {
       return session;
     },
     [studentId],
+  );
+
+  const renameSession = useCallback(
+    async (id: string, name: string, description?: string) => {
+      await api.renameSession(id, name, description);
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === id
+            ? { ...s, name, description: description ?? s.description }
+            : s,
+        ),
+      );
+    },
+    [],
   );
 
   const switchSession = useCallback((id: string) => {
@@ -140,7 +162,9 @@ export function useStudySession(): UseStudySession {
     sessions,
     activeSession,
     isLoading,
+    studentId,
     createSession,
+    renameSession,
     switchSession,
     deleteSession,
     refreshSessions,

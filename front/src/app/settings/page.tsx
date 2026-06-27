@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Settings, Save } from "lucide-react";
-import { useSession } from "@/hooks/useSession";
+import { useSessionContext } from "@/hooks/SessionProvider";
 import { api } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -17,14 +17,14 @@ const DIFFICULTY_OPTIONS = [
 ];
 
 export default function SettingsPage() {
-  const { sessionId } = useSession();
+  const { studentId, activeSession } = useSessionContext();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [questionTypes, setQuestionTypes] = useState<Set<"mcq" | "open">>(
-    new Set(["mcq"])
+    new Set(["mcq"]),
   );
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [questionCount, setQuestionCount] = useState(5);
@@ -33,10 +33,10 @@ export default function SettingsPage() {
 
   // Load existing preferences on mount
   useEffect(() => {
-    if (!sessionId) return;
+    if (!studentId) return;
     setIsLoading(true);
     api
-      .getProfile(sessionId)
+      .getProfile(studentId)
       .then((res) => {
         const prefs = res.data.preferences;
         if (prefs) {
@@ -51,7 +51,7 @@ export default function SettingsPage() {
         // No existing profile — use defaults
       })
       .finally(() => setIsLoading(false));
-  }, [sessionId]);
+  }, [studentId]);
 
   const toggleType = (t: "mcq" | "open") => {
     setQuestionTypes((prev) => {
@@ -66,13 +66,13 @@ export default function SettingsPage() {
   };
 
   const handleSave = async () => {
-    if (!sessionId) return;
+    if (!studentId) return;
     setIsSaving(true);
     setSaved(false);
     setError(null);
 
     try {
-      await api.updatePreferences(sessionId, {
+      await api.updatePreferences(studentId, {
         questionTypes: Array.from(questionTypes) as ("mcq" | "open")[],
         difficulty,
         questionCount,
@@ -91,7 +91,7 @@ export default function SettingsPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "No se pudieron guardar las preferencias. Intent\u00e1 de nuevo."
+          : "No se pudieron guardar las preferencias. Intent\u00e1 de nuevo.",
       );
     } finally {
       setIsSaving(false);
@@ -184,7 +184,7 @@ export default function SettingsPage() {
               value={questionCount}
               onChange={(e) =>
                 setQuestionCount(
-                  Math.min(20, Math.max(1, Number(e.target.value) || 1))
+                  Math.min(20, Math.max(1, Number(e.target.value) || 1)),
                 )
               }
               className="w-24"

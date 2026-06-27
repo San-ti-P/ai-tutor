@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { TopicTree } from "./TopicTree";
 import type { SessionFile } from "@/lib/types";
 
 interface SessionFileListProps {
@@ -78,7 +79,8 @@ export function SessionFileList({ sessionId }: SessionFileListProps) {
           Sin archivos en esta sesión
         </p>
         <p className="text-muted-foreground text-xs">
-          Arrastrá archivos al dropzone para subir apuntes, exámenes o soluciones.
+          Arrastrá archivos al dropzone para subir apuntes, exámenes o
+          soluciones.
         </p>
       </div>
     );
@@ -94,7 +96,7 @@ export function SessionFileList({ sessionId }: SessionFileListProps) {
         return (
           <div
             key={f.id}
-            className="flex flex-col gap-1 rounded-md border border-border bg-background p-3 text-sm"
+            className="flex flex-col gap-2 rounded-md border border-border bg-background p-3 text-sm"
           >
             <div className="flex items-center justify-between gap-2">
               <span className="truncate font-medium text-foreground">
@@ -102,13 +104,24 @@ export function SessionFileList({ sessionId }: SessionFileListProps) {
               </span>
               <Badge variant={badge.variant}>{badge.text}</Badge>
             </div>
-            <div className="flex flex-wrap items-center gap-1">
-              {f.topics.map((t) => (
-                <Badge key={t} variant="default">
-                  {t}
-                </Badge>
-              ))}
-            </div>
+
+            {f.topicTree ? (
+              <TopicTree tree={f.topicTree} maxDepth={3} />
+            ) : (
+              <div className="flex flex-wrap items-center gap-1">
+                {f.topics.slice(0, 8).map((t) => (
+                  <Badge key={t} variant="default">
+                    {t}
+                  </Badge>
+                ))}
+                {f.topics.length > 8 && (
+                  <span className="text-muted-foreground text-xs">
+                    +{f.topics.length - 8} más
+                  </span>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center gap-3 text-muted-foreground text-xs">
               <span>{f.chunksCount} chunks</span>
               <span>{formatDate(f.ingestedAt)}</span>

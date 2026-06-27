@@ -57,6 +57,10 @@ interface Exam {
   questions: ExamQuestion[];
   topic: string;
   difficulty: Difficulty;
+  status?: string;
+  warnings?: string[];
+  topicNotFound?: string[];
+  topicSuggestions?: string[];
 }
 
 interface EvaluationResult {
@@ -99,10 +103,18 @@ interface IngestResult {
   status: string;
   classification: string;
   topicsDetected: string[];
+  topicTree?: Record<string, Record<string, unknown>> | null;
   chunksCreated: number;
   classificationConfidence?: number;
   lowConfidenceOcr?: { expression: string; confidence: number }[];
   documentId?: string;
+}
+
+interface ExerciseStep {
+  stepNumber: number;
+  description: string;
+  result: string;
+  sourceChunkIds: string[];
 }
 
 interface Exercise {
@@ -111,9 +123,10 @@ interface Exercise {
   given_data?: string;
   question: string;
   model_solution: {
-    steps: string[];
-    final_answer: string;
-    key_concepts: string[];
+    steps: ExerciseStep[];
+    finalAnswer: string;
+    keyConcepts: string[];
+    sourceChunkIds?: string[];
   };
   topics_covered: string[];
   source_chunk_ids?: string[];
@@ -157,6 +170,7 @@ interface EvaluationRequest {
   session_id: string;
   exam_id: string;
   answers: Record<string, string>;
+  examQuestions?: ExamQuestion[];
 }
 
 interface Session {
@@ -176,6 +190,7 @@ interface SessionFile {
   fileName: string;
   classification: string;
   topics: string[];
+  topicTree?: Record<string, Record<string, unknown>> | null;
   chunksCount: number;
   ingestedAt: string;
 }
@@ -205,6 +220,7 @@ export type {
   ExamQuestion,
   Exam,
   Exercise,
+  ExerciseStep,
   ExerciseRequest,
   EvaluationResult,
   ExamPreferences,

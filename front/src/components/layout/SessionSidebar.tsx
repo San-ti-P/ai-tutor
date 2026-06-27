@@ -7,6 +7,7 @@ interface SessionSidebarProps {
   sessions: Session[];
   activeSession: Session | null;
   onCreate: (name: string, description?: string) => Promise<Session>;
+  onRename: (id: string, name: string) => Promise<void>;
   onSwitch: (id: string) => void;
   onDelete: (id: string) => Promise<void>;
 }
@@ -15,12 +16,36 @@ export function SessionSidebar({
   sessions,
   activeSession,
   onCreate,
+  onRename,
   onSwitch,
   onDelete,
 }: SessionSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [renaming, setRenaming] = useState(false);
+
+  const handleRename = useCallback(
+    async (id: string) => {
+      const trimmed = editName.trim();
+      if (!trimmed || trimmed === sessions.find((s) => s.id === id)?.name) {
+        setEditingId(null);
+        return;
+      }
+      setRenaming(true);
+      try {
+        await onRename(id, trimmed);
+        setEditingId(null);
+      } catch {
+        // keep editing state on error
+      } finally {
+        setRenaming(false);
+      }
+    },
+    [editName, onRename, sessions],
+  );
 
   const handleDelete = useCallback(
     async (id: string) => {
@@ -62,43 +87,78 @@ export function SessionSidebar({
         {!collapsed && (
           <div className="flex flex-col flex-1 overflow-y-auto p-2 gap-1">
             {sessions.length === 0 ? (
-              <p className="text-xs text-muted-foreground p-2">
-                Sin sesiones
-              </p>
+              <p className="text-xs text-muted-foreground p-2">Sin sesiones</p>
             ) : (
               sessions.map((s) => {
                 const isActive = activeSession?.id === s.id;
+                const isEditing = editingId === s.id;
                 return (
                   <div
                     key={s.id}
-                    className={`group flex items-center justify-between rounded-md px-2 py-1.5 text-sm cursor-pointer transition-colors ${
+                    className={`group flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
                       isActive
                         ? "bg-primary/15 text-primary font-medium"
                         : "hover:bg-accent text-foreground"
                     }`}
                   >
-                    <button
-                      type="button"
-                      onClick={() => onSwitch(s.id)}
-                      className="flex-1 text-left truncate"
-                      title={s.name}
-                    >
-                      {s.name}
-                    </button>
-                    {isActive && (
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleRename(s.id);
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        onBlur={() => handleRename(s.id)}
+                        disabled={renaming}
+                        autoFocus
+                        className="flex-1 bg-transparent border-b border-primary outline-none text-sm px-1 py-0 min-w-0"
+                      />
+                    ) : (
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(s.id);
+                        onClick={() => onSwitch(s.id)}
+                        onDoubleClick={() => {
+                          setEditingId(s.id);
+                          setEditName(s.name);
                         }}
-                        disabled={deleting === s.id}
-                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive text-xs ml-1 px-1"
-                        title="Eliminar sesión"
+                        className="flex-1 text-left truncate"
+                        title={`${s.name} — doble clic para renombrar`}
                       >
-                        {deleting === s.id ? "…" : "✕"}
+                        {s.name}
                       </button>
                     )}
+                    <div className="flex items-center ml-1">
+                      {isActive && !isEditing && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingId(s.id);
+                            setEditName(s.name);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground text-xs px-1"
+                          title="Renombrar"
+                        >
+                          ✎
+                        </button>
+                      )}
+                      {isActive && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(s.id);
+                          }}
+                          disabled={deleting === s.id}
+                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive text-xs px-1"
+                          title="Eliminar sesión"
+                        >
+                          {deleting === s.id ? "…" : "✕"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })
@@ -204,9 +264,7 @@ function SessionCreateModal({
             />
           </div>
 
-          {error && (
-            <p className="text-xs text-destructive">{error}</p>
-          )}
+          {error && <p className="text-xs text-destructive">{error}</p>}
 
           <div className="flex gap-2 justify-end mt-2">
             <button
