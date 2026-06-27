@@ -124,7 +124,7 @@ class TestShortTermMemoryAcrossTurns:
         config = {"configurable": {"thread_id": session_id}}
 
         with patch("src.agents.orchestrator._get_llm") as mock_llm_factory:
-            mock_llm = AsyncMock()
+            mock_llm = MagicMock()
             mock_llm.invoke.return_value = type(
                 "R", (), {"content": "Respuesta del turno 1"}
             )()

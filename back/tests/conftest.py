@@ -70,6 +70,25 @@ def temp_dir():
         yield Path(d)
 
 
+@pytest.fixture(autouse=True)
+async def _init_test_db(tmp_path, monkeypatch):
+    """Ensure the test DB schema exists before any DB-touching test.
+
+    Patches settings.sqlite_db_path to a temp location and runs init_db().
+    This fixes the 9+ test failures caused by module-level TestClient(app)
+    importing the app before per-test DB path patches are applied.
+    """
+    from src.config import settings
+    from src.memory.schema import init_db
+
+    db_path = tmp_path / "test_tutor.db"
+    monkeypatch.setattr(settings, "sqlite_db_path", str(db_path))
+    # Also patch chroma_persist_directory to a temp dir so ChromaDB
+    # doesn't try to use the real persist directory during tests.
+    monkeypatch.setattr(settings, "chroma_persist_directory", str(tmp_path / "chroma_test"))
+    await init_db()
+
+
 @pytest.fixture
 def sample_pdf(temp_dir) -> Path:
     """Generate a valid minimal PDF for testing parse_document.

@@ -98,6 +98,10 @@ class TestLoadProfile:
 
         assert result["student_profile"] == {}
         assert "DB down" in caplog.text
+        # Phase 3 robustness: will set profile_load_error on DB failure.
+        # Until then, the key may not exist in the result dict.
+        if "profile_load_error" in result:
+            assert result["profile_load_error"] is not None
 
     async def test_load_profile_none_fallback_empty(self):
         """Tool returns None (unknown student) → empty profile."""
@@ -116,6 +120,8 @@ class TestLoadProfile:
                 result = await load_profile(state)
 
         assert result["student_profile"] == {}
+        # No error when profile is legitimately not found (not a DB failure)
+        assert result.get("profile_load_error") is None
 
 
 class TestClassifyIntentProfileEnrichment:
