@@ -68,6 +68,7 @@ def _init_tool_map() -> dict[str, object]:
         query_material,
     )
     from src.tools.get_student_summary import get_student_summary
+    from src.tools.update_student_profile import update_student_profile
 
     TOOL_MAP = {
         "ingest": ingest_document,
@@ -76,6 +77,7 @@ def _init_tool_map() -> dict[str, object]:
         "generate_exercise": generate_exercise,
         "evaluate": evaluate_answer,
         "query_profile": get_student_summary,
+        "update_student_profile": update_student_profile,
     }
     return TOOL_MAP
 
@@ -187,8 +189,8 @@ async def load_profile(state: OrchestratorState, config: RunnableConfig = None) 
         student_id = await resolve_student_id(session_id, student_id_override)
         profile = await get_student_summary.ainvoke({"student_id": student_id})
         if profile is None:
-            return {"student_profile": {}}
-        return {"student_profile": profile}
+            return {"student_profile": {}, "student_id": student_id}
+        return {"student_profile": profile, "student_id": student_id}
     except Exception:
         logger.exception(
             "Failed to load profile for session %s, falling back to empty profile",
@@ -485,9 +487,18 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
     elif tool_name == "evaluate":
         args["exam_id"] = ""
         args["answers"] = []
-        args["student_id"] = ""
+        resolved_sid = state.get("student_id") or state["session_id"]
+        args["student_id"] = resolved_sid
+    elif tool_name == "update_student_profile":
+        resolved_sid = state.get("student_id") or state["session_id"]
+        args["student_id"] = resolved_sid
+        args["topic_scores"] = {}
+        args["preferences"] = None
+        if profile:
+            prefs = profile.get("preferences", {})
+            args["preferences"] = prefs
     elif tool_name == "query_profile":
-        args["student_id"] = state.get("session_id", "unknown")
+        args["student_id"] = state.get("student_id") or state.get("session_id", "unknown")
 
     return args
 

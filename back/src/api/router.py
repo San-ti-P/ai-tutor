@@ -479,13 +479,23 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
                 }
             )
 
+    # ── Resolve student_id: request override → session lookup → session_id fallback ──
+    student_id = request.student_id
+    if not student_id:
+        session_detail = await _get_session(request.session_id)
+        student_id = session_detail["student_id"] if session_detail else request.session_id
+    logger.info("Resolved student_id=%s for session=%s", student_id, request.session_id)
+
+    # Ensure the student row exists so FK constraints on topic_scores pass
+    await _ensure_student_exists(student_id)
+
     try:
         results = _evaluate_tool.invoke(
             {
                 "session_id": request.session_id,
                 "exam_id": request.exam_id,
                 "answers": answers_list,
-                "student_id": "",
+                "student_id": student_id,
             }
         )
 

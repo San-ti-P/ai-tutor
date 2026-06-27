@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -258,3 +258,131 @@ class TestSessionApiEndpoints:
             response = client.delete("/api/sessions/s1")
 
         assert response.status_code == 200
+
+    def test_evaluate_endpoint_resolves_student_id_from_session(self, tmp_path):
+        """POST /api/evaluate resolves student_id from session when not provided."""
+        mock_get_session = AsyncMock(
+            return_value={
+                "id": "s-eval-1",
+                "name": "Eval Session",
+                "description": "",
+                "student_id": "stu-eval-1",
+                "created_at": "2026-06-26T12:00:00",
+                "file_count": 0,
+                "exam_count": 0,
+                "average_score": None,
+            }
+        )
+        mock_ensure_student = AsyncMock(return_value=None)
+
+        mock_eval_results = [
+            {
+                "question_id": "q-1",
+                "score": 8.0,
+                "justification": "Correcta comprensión del concepto.",
+                "conceptual_errors": [],
+                "suggestions": [],
+                "is_evaluable": True,
+                "non_evaluable_reason": "",
+                "requires_review": False,
+            }
+        ]
+
+        # Patch the evaluator graph compilation to return mock results
+        mock_graph = MagicMock()
+        mock_graph.invoke.return_value = {"evaluation_results": mock_eval_results}
+
+        with (
+            patch("src.api.router._get_session", mock_get_session),
+            patch("src.api.router._ensure_student_exists", mock_ensure_student),
+            patch(
+                "src.tools._get_or_compile",
+                return_value=mock_graph,
+            ) as mock_get_or_compile,
+        ):
+            from src.main import app
+            from fastapi.testclient import TestClient
+
+            client = TestClient(app)
+            response = client.post(
+                "/api/evaluate",
+                json={
+                    "session_id": "s-eval-1",
+                    "exam_id": "exam-1",
+                    "answers": {"q-1": "La derivada es el límite..."},
+                    "exam_questions": [
+                        {
+                            "id": "q-1",
+                            "type": "open",
+                            "prompt": "Define derivada.",
+                            "topic": "cálculo",
+                            "difficulty": "medium",
+                            "baseAnswer": "Límite del cociente incremental.",
+                        }
+                    ],
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["error"] is None
+        assert len(data["data"]) == 1
+        # Verify graph was invoked with resolved student_id, not ""
+        call_args = mock_graph.invoke.call_args[0][0]
+        assert call_args["student_id"] == "stu-eval-1"
+
+    def test_evaluate_endpoint_uses_explicit_student_id(self, tmp_path):
+        """POST /api/evaluate uses explicit studentId when provided in request."""
+        mock_get_session = AsyncMock(
+            return_value={
+                "id": "s-eval-2",
+                "name": "Eval Session 2",
+                "description": "",
+                "student_id": "stu-from-session",
+                "created_at": "2026-06-26T12:00:00",
+                "file_count": 0,
+                "exam_count": 0,
+                "average_score": None,
+            }
+        )
+        mock_ensure_student = AsyncMock(return_value=None)
+
+        mock_eval_results = [
+            {
+                "question_id": "q-1",
+                "score": 7.0,
+                "justification": "Bien pero incompleto.",
+                "conceptual_errors": [],
+                "suggestions": [],
+                "is_evaluable": True,
+                "non_evaluable_reason": "",
+                "requires_review": False,
+            }
+        ]
+
+        mock_graph = MagicMock()
+        mock_graph.invoke.return_value = {"evaluation_results": mock_eval_results}
+
+        with (
+            patch("src.api.router._get_session", mock_get_session),
+            patch("src.api.router._ensure_student_exists", mock_ensure_student),
+            patch("src.tools._get_or_compile", return_value=mock_graph),
+        ):
+            from src.main import app
+            from fastapi.testclient import TestClient
+
+            client = TestClient(app)
+            response = client.post(
+                "/api/evaluate",
+                json={
+                    "session_id": "s-eval-2",
+                    "exam_id": "exam-2",
+                    "answers": {"q-1": "La derivada es..."},
+                    "studentId": "stu-explicit",
+                },
+            )
+
+        assert response.status_code == 200
+        # Explicit student_id must win over session's student_id
+        call_args = mock_graph.invoke.call_args[0][0]
+        assert call_args["student_id"] == "stu-explicit"

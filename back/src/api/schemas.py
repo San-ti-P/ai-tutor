@@ -98,6 +98,7 @@ class EvaluationRequest(BaseModel):
     exam_id: str
     answers: dict[str, str]
     exam_questions: list[ExamQuestion] | None = Field(default=None, alias="examQuestions")
+    student_id: str | None = Field(default=None, alias="studentId")
 
 
 class StudentProfile(BaseModel):

@@ -1874,3 +1874,83 @@ class TestOrchestratorAcademicProbe:
 
         mock_qm.invoke.assert_not_called()
         assert result["status"] == "complete"
+
+
+class TestOrchestratorToolMap:
+    """Verify TOOL_MAP includes all required tools (Epic 12 Phase 1)."""
+
+    def test_tool_map_includes_update_student_profile(self):
+        """update_student_profile is registered so orchestrator can trigger profile syncs."""
+        from src.agents.orchestrator import _init_tool_map
+
+        tool_map = _init_tool_map()
+        assert "update_student_profile" in tool_map
+        assert tool_map["update_student_profile"] is not None
+
+    def test_build_tool_args_resolves_student_id_for_evaluate(self):
+        """_build_tool_args resolves student_id from state for evaluate tool."""
+        from src.agents.orchestrator import _build_tool_args
+
+        state: dict = {
+            "session_id": "sess-test-1",
+            "user_message": "evaluate",
+            "intent": "evaluate",
+            "confidence": 0.95,
+            "plan": ["evaluate"],
+            "current_step": 0,
+            "results": [],
+            "errors": [],
+            "response": "",
+            "status": "pending",
+            "iteration_count": 0,
+            "student_profile": {},
+            "student_id": "stu-resolved-1",
+        }
+        args = _build_tool_args("evaluate", state)
+        assert args["student_id"] == "stu-resolved-1"
+
+    def test_build_tool_args_falls_back_to_session_id(self):
+        """_build_tool_args uses session_id when student_id is not set."""
+        from src.agents.orchestrator import _build_tool_args
+
+        state: dict = {
+            "session_id": "sess-fallback-1",
+            "user_message": "eval",
+            "intent": "evaluate",
+            "confidence": 0.9,
+            "plan": ["evaluate"],
+            "current_step": 0,
+            "results": [],
+            "errors": [],
+            "response": "",
+            "status": "pending",
+            "iteration_count": 0,
+            "student_profile": {},
+        }
+        args = _build_tool_args("evaluate", state)
+        assert args["student_id"] == "sess-fallback-1"
+
+    def test_build_tool_args_for_update_student_profile(self):
+        """_build_tool_args builds correct args for update_student_profile tool."""
+        from src.agents.orchestrator import _build_tool_args
+
+        state: dict = {
+            "session_id": "sess-up",
+            "user_message": "actualiza perfil",
+            "intent": "query_profile",
+            "confidence": 0.9,
+            "plan": ["update_student_profile"],
+            "current_step": 0,
+            "results": [],
+            "errors": [],
+            "response": "",
+            "status": "pending",
+            "iteration_count": 0,
+            "student_profile": {
+                "preferences": {"difficulty": "hard", "question_types": ["open"]},
+            },
+            "student_id": "stu-up-1",
+        }
+        args = _build_tool_args("update_student_profile", state)
+        assert args["student_id"] == "stu-up-1"
+        assert args["preferences"] == {"difficulty": "hard", "question_types": ["open"]}
