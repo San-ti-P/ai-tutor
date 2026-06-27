@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # ── LLM Timeout ───────────────────────────────────────────────────────
+    llm_timeout_seconds: int = 60
+
     # ── Agent / Guardrails ────────────────────────────────────────────────
     max_iterations_per_task: int = 15
     ocr_confidence_threshold: float = 0.85
