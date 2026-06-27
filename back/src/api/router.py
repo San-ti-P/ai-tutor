@@ -30,9 +30,9 @@ from src.api.schemas import (
     PreferencesUpdate,
     Session,
     SessionCreate,
-    SessionRename,
     SessionFile,
     SessionProfile,
+    SessionRename,
     StudentProfile,
 )
 from src.memory.schema import (
@@ -91,7 +91,9 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
     elapsed = (time.monotonic() - t0) * 1000
     logger.info(
         "Chat complete | session=%s | intent=%s | %dms",
-        request.session_id, result["intent"], int(elapsed),
+        request.session_id,
+        result["intent"],
+        int(elapsed),
     )
     return ApiResponse(
         data=ChatResponse(
@@ -194,7 +196,9 @@ async def rename_session_endpoint(session_id: str, body: SessionRename) -> ApiRe
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
     updated = await _rename_session(session_id, body.name, body.description)
     if updated is None:
-        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found after rename")
+        raise HTTPException(
+            status_code=404, detail=f"Session '{session_id}' not found after rename"
+        )
     return ApiResponse(data=Session.model_validate(updated), error=None, trace_id=str(uuid.uuid4()))
 
 
@@ -347,7 +351,11 @@ async def ingest(
     fail = len(results) - ok
     logger.info(
         "Ingest complete | session=%s | files=%d | ok=%d | fail=%d | %dms",
-        effective_session_id, len(files), ok, fail, int(elapsed),
+        effective_session_id,
+        len(files),
+        ok,
+        fail,
+        int(elapsed),
     )
     return ApiResponse(
         data=results,

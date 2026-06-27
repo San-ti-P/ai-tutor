@@ -16,7 +16,10 @@ interface UploadDropzoneProps {
   activeSessionId?: string;
 }
 
-export function UploadDropzone({ onFilesSelected, activeSessionId }: UploadDropzoneProps) {
+export function UploadDropzone({
+  onFilesSelected,
+  activeSessionId,
+}: UploadDropzoneProps) {
   const onDrop = useCallback(
     (accepted: File[]) => {
       if (accepted.length > 0) {

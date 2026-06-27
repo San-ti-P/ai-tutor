@@ -26,15 +26,12 @@ async def _column_exists(db: aiosqlite.Connection, table: str, column: str) -> b
 async def _run_migrations(db: aiosqlite.Connection) -> None:
     """Apply additive schema migrations idempotently."""
     if not await _column_exists(db, "sessions", "name"):
-        await db.execute(
-            "ALTER TABLE sessions ADD COLUMN name TEXT NOT NULL DEFAULT ''"
-        )
+        await db.execute("ALTER TABLE sessions ADD COLUMN name TEXT NOT NULL DEFAULT ''")
     if not await _column_exists(db, "sessions", "description"):
         await db.execute("ALTER TABLE sessions ADD COLUMN description TEXT DEFAULT ''")
     if not await _column_exists(db, "ingested_documents", "session_id"):
         await db.execute(
-            "ALTER TABLE ingested_documents ADD COLUMN session_id TEXT "
-            "REFERENCES sessions(id)"
+            "ALTER TABLE ingested_documents ADD COLUMN session_id TEXT REFERENCES sessions(id)"
         )
     if not await _column_exists(db, "ingested_documents", "topic_tree_json"):
         await db.execute(
@@ -116,9 +113,7 @@ async def resolve_student_id(session_id: str, student_id: str | None = None) -> 
 
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT student_id FROM sessions WHERE id = ?", (session_id,)
-        )
+        cursor = await db.execute("SELECT student_id FROM sessions WHERE id = ?", (session_id,))
         row = await cursor.fetchone()
         return row["student_id"] if row else session_id
 
@@ -421,7 +416,8 @@ async def insert_ingested_document(doc: dict) -> None:
         await db.execute(
             """
             INSERT INTO ingested_documents
-            (id, file_name, classification, topics_json, topic_tree_json, chunks_count, session_id, ingested_at)
+            (id, file_name, classification, topics_json, topic_tree_json,
+             chunks_count, session_id, ingested_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -465,16 +461,13 @@ async def get_session_profile(session_id: str) -> dict | None:
             return None
 
         cursor = await db.execute(
-            "SELECT COUNT(*) as cnt, AVG(score) as avg_score "
-            "FROM evaluations WHERE session_id = ?",
+            "SELECT COUNT(*) as cnt, AVG(score) as avg_score FROM evaluations WHERE session_id = ?",
             (session_id,),
         )
         summary = await cursor.fetchone()
         exam_count = summary["cnt"] if summary else 0
         average_score = (
-            round(summary["avg_score"], 2)
-            if summary and summary["avg_score"] is not None
-            else None
+            round(summary["avg_score"], 2) if summary and summary["avg_score"] is not None else None
         )
 
         cursor = await db.execute(
@@ -499,8 +492,7 @@ async def get_session_profile(session_id: str) -> dict | None:
             latest_score[topic] = score
 
     weak_topics = [
-        topic for topic, score in sorted(latest_score.items(), key=lambda x: x[1])
-        if score < 6.0
+        topic for topic, score in sorted(latest_score.items(), key=lambda x: x[1]) if score < 6.0
     ][:3]
 
     return {

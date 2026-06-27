@@ -138,6 +138,7 @@ class ExerciseRequest(BaseModel):
 
 class ExerciseStepSchema(BaseModel):
     """A single step in the multi-step model solution (mirrors agent ExerciseStep)."""
+
     step_number: int = Field(alias="stepNumber")
     description: str
     result: str

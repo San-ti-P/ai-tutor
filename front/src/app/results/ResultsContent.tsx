@@ -66,8 +66,8 @@ export function ResultsContent() {
         <div className="flex flex-col items-center gap-4 rounded-lg border border-border bg-card p-12">
           <BarChart3 className="size-12 text-muted-foreground/40" />
           <p className="text-center text-muted-foreground text-sm">
-            No se encontraron resultados para este examen. Complet\u00e1 un examen
-            para ver tus resultados.
+            No se encontraron resultados para este examen. Complet\u00e1 un
+            examen para ver tus resultados.
           </p>
         </div>
       </div>

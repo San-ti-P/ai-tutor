@@ -18,7 +18,8 @@ export function QuestionNavigator({
   return (
     <div className="flex items-center justify-center gap-2 py-4">
       {Array.from({ length: total }, (_, i) => {
-        const isAnswered = answers[`q-${i}`] !== undefined && answers[`q-${i}`] !== "";
+        const isAnswered =
+          answers[`q-${i}`] !== undefined && answers[`q-${i}`] !== "";
         const isCurrent = i === current;
         return (
           <button
@@ -31,7 +32,7 @@ export function QuestionNavigator({
                 ? "bg-primary text-primary-foreground"
                 : isAnswered
                   ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80",
             )}
             title={`Pregunta ${i + 1}${isAnswered ? " (respondida)" : ""}`}
           >

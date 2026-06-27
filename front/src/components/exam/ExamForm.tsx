@@ -94,7 +94,9 @@ export function ExamForm({ onSubmit, isLoading, defaultTopic }: ExamFormProps) {
           min={1}
           max={20}
           value={count}
-          onChange={(e) => setCount(Math.min(20, Math.max(1, Number(e.target.value) || 1)))}
+          onChange={(e) =>
+            setCount(Math.min(20, Math.max(1, Number(e.target.value) || 1)))
+          }
           className="w-24"
         />
       </div>

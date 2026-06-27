@@ -38,9 +38,7 @@ export function Navbar() {
         <nav className="flex items-center gap-1">
           {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
             const isActive =
-              href === "/"
-                ? pathname === "/"
-                : pathname.startsWith(href);
+              href === "/" ? pathname === "/" : pathname.startsWith(href);
 
             return (
               <Link
@@ -50,7 +48,7 @@ export function Navbar() {
                   "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
                   isActive
                     ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
+                    : "text-muted-foreground hover:bg-secondary hover:text-secondary-foreground",
                 )}
               >
                 <Icon className="size-4" />

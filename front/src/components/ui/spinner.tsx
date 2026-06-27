@@ -13,7 +13,7 @@ export function Spinner({ size = "md", className }: SpinnerProps) {
         size === "sm" && "size-4",
         size === "md" && "size-5",
         size === "lg" && "size-8",
-        className
+        className,
       )}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"

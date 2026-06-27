@@ -74,9 +74,7 @@ export function SessionHistory({ sessions }: SessionHistoryProps) {
               <th className="pb-2 pr-3 font-medium">Fecha</th>
               <th className="pb-2 pr-3 font-medium">Tipo</th>
               <th className="pb-2 pr-3 font-medium">Estado</th>
-              <th className="pb-2 pr-3 font-medium text-right">
-                Preguntas
-              </th>
+              <th className="pb-2 pr-3 font-medium text-right">Preguntas</th>
               <th className="pb-2 font-medium text-right">Promedio</th>
             </tr>
           </thead>

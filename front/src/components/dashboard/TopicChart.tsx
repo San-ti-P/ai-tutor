@@ -38,7 +38,10 @@ export function TopicChart({ data }: TopicChartProps) {
         Puntajes por tema
       </h3>
       <ResponsiveContainer width="100%" height={250}>
-        <BarChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 40 }}>
+        <BarChart
+          data={data}
+          margin={{ top: 5, right: 20, left: 0, bottom: 40 }}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
           <XAxis
             dataKey="topic"
@@ -48,7 +51,11 @@ export function TopicChart({ data }: TopicChartProps) {
             interval={0}
             stroke="hsl(var(--muted-foreground))"
           />
-          <YAxis domain={[0, 10]} tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+          <YAxis
+            domain={[0, 10]}
+            tick={{ fontSize: 11 }}
+            stroke="hsl(var(--muted-foreground))"
+          />
           <Tooltip
             contentStyle={{
               background: "hsl(var(--card))",
