@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shutil
 import tempfile
@@ -27,7 +28,36 @@ from src.api.schemas import (
     IngestResult,
     PreferencesStatus,
     PreferencesUpdate,
+    Session,
+    SessionCreate,
+    SessionFile,
+    SessionProfile,
+    SessionRename,
     StudentProfile,
+)
+from src.memory.schema import (
+    create_session as _create_session,
+)
+from src.memory.schema import (
+    delete_session as _delete_session,
+)
+from src.memory.schema import (
+    ensure_student_exists as _ensure_student_exists,
+)
+from src.memory.schema import (
+    get_session as _get_session,
+)
+from src.memory.schema import (
+    insert_ingested_document as _insert_ingested_document,
+)
+from src.memory.schema import (
+    list_session_files as _list_session_files,
+)
+from src.memory.schema import (
+    list_sessions as _list_sessions,
+)
+from src.memory.schema import (
+    rename_session as _rename_session,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,13 +84,16 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
         {
             "messages": [{"role": "user", "content": request.message}],
             "thread_id": request.session_id,
+            "student_id": request.student_id,
         }
     )
 
     elapsed = (time.monotonic() - t0) * 1000
     logger.info(
         "Chat complete | session=%s | intent=%s | %dms",
-        request.session_id, result["intent"], int(elapsed),
+        request.session_id,
+        result["intent"],
+        int(elapsed),
     )
     return ApiResponse(
         data=ChatResponse(
@@ -111,6 +144,116 @@ def _validate_session_id(raw: str | None) -> str:
     return str(uuid.uuid4())
 
 
+@router.post("/sessions", response_model=ApiResponse[Session])
+async def create_session_endpoint(request: SessionCreate) -> ApiResponse[Session]:
+    """Create a new named study session."""
+    logger.info("Creating session for student %s", request.student_id)
+    await _ensure_student_exists(request.student_id)
+    session = await _create_session(request.student_id, request.name, request.description)
+    detail = await _get_session(session["id"])
+    return ApiResponse(data=Session.model_validate(detail), error=None, trace_id=str(uuid.uuid4()))
+
+
+@router.get("/sessions", response_model=ApiResponse[list[Session]])
+async def list_sessions_endpoint(student_id: str) -> ApiResponse[list[Session]]:
+    """List all sessions for a student ordered by most recent first."""
+    logger.info("Listing sessions for student %s", student_id)
+    rows = await _list_sessions(student_id)
+    return ApiResponse(
+        data=[Session.model_validate(row) for row in rows],
+        error=None,
+        trace_id=str(uuid.uuid4()),
+    )
+
+
+@router.get("/sessions/{session_id}", response_model=ApiResponse[Session])
+async def get_session_endpoint(session_id: str) -> ApiResponse[Session]:
+    """Get session details including file count and progress summary."""
+    logger.info("Getting session %s", session_id)
+    detail = await _get_session(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+    return ApiResponse(data=Session(**detail), error=None, trace_id=str(uuid.uuid4()))
+
+
+@router.delete("/sessions/{session_id}", response_model=ApiResponse[dict])
+async def delete_session_endpoint(session_id: str) -> ApiResponse[dict]:
+    """Delete a session and cascade its associated files."""
+    logger.info("Deleting session %s", session_id)
+    detail = await _get_session(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+    await _delete_session(session_id)
+    return ApiResponse(data={"deleted": session_id}, error=None, trace_id=str(uuid.uuid4()))
+
+
+@router.patch("/sessions/{session_id}", response_model=ApiResponse[Session])
+async def rename_session_endpoint(session_id: str, body: SessionRename) -> ApiResponse[Session]:
+    """Rename a session and optionally update its description."""
+    logger.info("Renaming session %s to %s", session_id, body.name)
+    detail = await _get_session(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+    updated = await _rename_session(session_id, body.name, body.description)
+    if updated is None:
+        raise HTTPException(
+            status_code=404, detail=f"Session '{session_id}' not found after rename"
+        )
+    return ApiResponse(data=Session.model_validate(updated), error=None, trace_id=str(uuid.uuid4()))
+
+
+@router.get("/sessions/{session_id}/files", response_model=ApiResponse[list[SessionFile]])
+async def get_session_files(session_id: str) -> ApiResponse[list[SessionFile]]:
+    """List files uploaded to a session."""
+    logger.info("Listing files for session %s", session_id)
+    detail = await _get_session(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+    rows = await _list_session_files(session_id)
+    files = []
+    for row in rows:
+        topics = []
+        if row.get("topics_json"):
+            try:
+                topics = json.loads(row["topics_json"])
+            except Exception:
+                topics = []
+        topic_tree = None
+        if row.get("topic_tree_json"):
+            try:
+                topic_tree = json.loads(row["topic_tree_json"])
+            except Exception:
+                pass
+        files.append(
+            SessionFile(
+                id=row["id"],
+                fileName=row["file_name"],
+                classification=row.get("classification", ""),
+                topics=topics,
+                topicTree=topic_tree,
+                chunksCount=row.get("chunks_count", 0),
+                ingestedAt=row["ingested_at"],
+            )
+        )
+    return ApiResponse(data=files, error=None, trace_id=str(uuid.uuid4()))
+
+
+@router.get("/sessions/{session_id}/profile", response_model=ApiResponse[SessionProfile])
+async def get_session_profile_endpoint(session_id: str) -> ApiResponse[SessionProfile]:
+    """Return per-session progress: topic scores, weak topics, exam count, avg score."""
+    logger.info("Session profile requested for %s", session_id)
+    from src.memory.schema import get_session_profile as _get_session_profile
+
+    detail = await _get_session_profile(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+    return ApiResponse(
+        data=SessionProfile.model_validate(detail),
+        error=None,
+        trace_id=str(uuid.uuid4()),
+    )
+
+
 @router.post("/ingest", response_model=ApiResponse[list[IngestResult]])
 async def ingest(
     files: list[UploadFile] = File(...),
@@ -141,15 +284,51 @@ async def ingest(
                 {"file_path": tmp_path, "session_id": effective_session_id},
             )
 
+            document_id = result.get("document_id") or str(uuid.uuid4())
+            try:
+                # Ensure the session row exists so ingested_documents FK succeeds.
+                # Anonymous uploads generate a fresh session_id on the fly.
+                session_detail = await _get_session(effective_session_id)
+                if session_detail is None:
+                    await _create_session(
+                        student_id=effective_session_id,
+                        name="",
+                        description="",
+                        session_id=effective_session_id,
+                    )
+                await _insert_ingested_document(
+                    {
+                        "id": document_id,
+                        "file_name": file.filename or "unknown",
+                        "classification": result.get("classification"),
+                        "topics_json": json.dumps(result.get("topics", [])),
+                        "topic_tree_json": result.get("topic_tree", "{}"),
+                        "chunks_count": result.get("chunks_created", 0),
+                        "session_id": effective_session_id,
+                    }
+                )
+            except Exception:
+                logger.exception("Failed to persist file metadata for %s", file.filename)
+
+            # Parse topic_tree from JSON string to dict for API response
+            topic_tree_raw = result.get("topic_tree", "{}")
+            topic_tree = None
+            if topic_tree_raw and topic_tree_raw != "{}":
+                try:
+                    topic_tree = json.loads(topic_tree_raw)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             results.append(
                 IngestResult(
                     sessionId=effective_session_id,
                     status=result.get("status", "unknown"),
                     classification=result.get("classification", ""),
                     topicsDetected=result.get("topics", []),
+                    topicTree=topic_tree,
                     chunksCreated=result.get("chunks_created", 0),
                     classificationConfidence=result.get("classification_confidence"),
-                    documentId=result.get("document_id"),
+                    documentId=document_id,
                 )
             )
         except Exception:
@@ -172,7 +351,11 @@ async def ingest(
     fail = len(results) - ok
     logger.info(
         "Ingest complete | session=%s | files=%d | ok=%d | fail=%d | %dms",
-        effective_session_id, len(files), ok, fail, int(elapsed),
+        effective_session_id,
+        len(files),
+        ok,
+        fail,
+        int(elapsed),
     )
     return ApiResponse(
         data=results,
@@ -205,14 +388,26 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
     # Map tool output to Exam model
     questions = []
     for q in result.get("questions", []):
+        qtype = q.get("type", "open")
+        if qtype == "open_answer":
+            qtype = "open"
+        # Compute base_answer for MCQ from correct_option_index
+        base_answer = q.get("baseAnswer", q.get("base_answer"))
+        if qtype == "mcq" and not base_answer:
+            options = q.get("options", [])
+            correct_idx = q.get("correct_option_index")
+            if isinstance(correct_idx, int) and 0 <= correct_idx < len(options):
+                base_answer = options[correct_idx]
         questions.append(
             ExamQuestion(
                 id=q.get("id", str(uuid.uuid4())),
-                type=q.get("type", "open"),
+                type=qtype,
                 prompt=q.get("prompt", ""),
                 options=q.get("options"),
-                baseAnswer=q.get("baseAnswer", q.get("base_answer")),
+                baseAnswer=base_answer,
                 sourceChunkIds=q.get("sourceChunkIds", q.get("source_chunk_ids")),
+                topic=q.get("topic", ""),
+                difficulty=q.get("difficulty", "medium"),
             )
         )
 
@@ -222,6 +417,10 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
             questions=questions,
             topic=request.topic,
             difficulty=request.preferences.difficulty,
+            status=result.get("status", "complete"),
+            warnings=result.get("warnings", []),
+            topic_not_found=result.get("topic_not_found", []),
+            topic_suggestions=result.get("topic_suggestions", []),
         ),
         error=None,
         trace_id=str(uuid.uuid4()),
@@ -242,9 +441,7 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
                 "question": eq.prompt,
                 "base_answer": eq.base_answer or "",
                 "topic": eq.topic,
-                "difficulty": eq.difficulty.value
-                if hasattr(eq.difficulty, "value")
-                else str(eq.difficulty),
+                "difficulty": str(eq.difficulty),
                 "source_chunk_ids": eq.source_chunk_ids or [],
             }
 
@@ -294,15 +491,15 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
 
         evaluation_results = [
             EvaluationResult(
-                question_id=r.get("question_id", ""),
+                questionId=r.get("question_id", ""),
                 score=r.get("score", 0.0),
                 justification=r.get("justification", ""),
-                conceptual_errors=r.get("conceptual_errors", []),
+                conceptualErrors=r.get("conceptual_errors", []),
                 suggestions=r.get("suggestions", []),
-                is_evaluable=r.get("is_evaluable", True),
-                non_evaluable_reason=r.get("non_evaluable_reason", ""),
-                requires_review=r.get("requires_review", False),
-                judge_score=r.get("judge_verdict", {}).get("score")
+                isEvaluable=r.get("is_evaluable", True),
+                nonEvaluableReason=r.get("non_evaluable_reason", ""),
+                requiresReview=r.get("requires_review", False),
+                judgeScore=r.get("judge_verdict", {}).get("score")
                 if isinstance(r.get("judge_verdict"), dict)
                 else None,
             )
@@ -316,10 +513,10 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
         return ApiResponse(
             data=[
                 EvaluationResult(
-                    question_id=q_id,
+                    questionId=q_id,
                     score=0.0,
                     justification=f"Evaluation error: {exc}",
-                    conceptual_errors=[],
+                    conceptualErrors=[],
                     suggestions=[],
                 )
                 for q_id in request.answers
@@ -452,6 +649,7 @@ async def generate_exercise_endpoint(request: ExerciseRequest) -> ApiResponse[Ex
                 steps=ms.get("steps", []),
                 final_answer=ms.get("final_answer", ""),
                 key_concepts=ms.get("key_concepts", []),
+                source_chunk_ids=ms.get("source_chunk_ids", []),
             ),
             topics_covered=result.get("topics_covered", []),
             source_chunk_ids=result.get("source_chunk_ids"),

@@ -38,7 +38,7 @@ GROQ_API_KEY=gsk_...      # only needed for groq
 
 ## Test Inventory
 
-### Integration Tests (13 tests — `-m integration`)
+### Integration Tests (16 tests — `-m integration`)
 
 | # | Test | File | Real Resource | What It Proves |
 |---|------|------|--------------|----------------|
@@ -55,6 +55,9 @@ GROQ_API_KEY=gsk_...      # only needed for groq
 | 11 | `test_evaluate_partially_correct` | `test_evaluator.py` | ChatOllama + SentenceTransformer + ChromaDB (real PDF) | PRD Case 8: partially correct answer scored mid-range. Verifies EVAL-SPEC-03, EVAL-SPEC-04 |
 | 12 | `test_evaluate_wrong_language` | `test_evaluator.py` | None (rule-based guard) | PRD Case 12: gibberish rejected with structured cannot_evaluate response. Verifies EVAL-SPEC-09, EVAL-SPEC-10 |
 | 13 | `test_full_pipeline_real_pdf` | `test_topic_extraction.py` | Ollama Cloud LLM + markitdown + real PDF | Epic 11 NFR: full topic extraction pipeline on real academic PDF. Verifies ≥3 topics extracted, topic_tree non-empty, segment_count > 0. Skips gracefully if Ollama Cloud API key missing or network fails. |
+| 14 | `test_full_lifecycle_create_upload_chat_profile` | `test_session_lifecycle.py` | SQLite + ChromaDB + mocked LLM | Epic 9: full session lifecycle — create session, insert file metadata, insert evaluations, per-session profile aggregation, orchestrator graph flow with session context. |
+| 15 | `test_delete_session_cascades` | `test_session_lifecycle.py` | SQLite + ChromaDB | Epic 9: session delete cascades ingested_documents and drops ChromaDB collection. |
+| 16 | `test_integration_exam_generation_flow` | `test_session_lifecycle.py` | SQLite + ChromaDB + mocked exam generator | Epic 9: exam generation tool integration through session lifecycle. |
 
 ### Unit Tests (105 tests — default)
 
@@ -65,6 +68,12 @@ GROQ_API_KEY=gsk_...      # only needed for groq
 | `test_ingestor.py` | 12 | ChatGroq | Parse, classify, incremental ingestion, non-academic rejection, image rejection, error handling. TXR-07 integration: classify_document → pipeline delegation. |
 | `test_rag.py` | 10 | Embedding model, ChromaDB client | Chunking, ThematicIndex (CRUD + merge), embed/store, retrieve (with topic filter) |
 | `test_evaluator.py` | 22 | ChatOllama (provider-aware mock), SentenceTransformer, retrieve_chunks | 8-node graph: state schema, evaluability guard (gibberish, language mismatch, length), structured LLM evaluation, anti-hallucination claim validation, LLM-as-judge sampling + disagreement, batch loop, DB sync, full graph E2E mocked |
+| `test_sessions_api.py` | 10 | In-memory SQLite, mocked ChromaDB | Session CRUD endpoints: create, list, get, delete with cascade, 404 handling |
+| `test_files_persistence.py` | 8 | In-memory SQLite, mocked ingest_document | File metadata persistence: insert, list ordering, missing session handling |
+| `test_orchestrator_profile.py` | 8 | `get_student_summary` (AsyncMock) | Profile bootstrap: resolve_student_id, load_profile success/fallback, identity mapping |
+| `test_short_term_memory.py` | 5 | In-memory SQLite, AsyncSqliteSaver, MagicMock LLM | Short-term memory: messages_history state field, synthesize appends, classify uses last N, checkpoint auto-restore |
+| `test_session_profile.py` | 5 | In-memory SQLite | Per-session profile aggregation: topic scores from evaluations, weak topics sorted/capped, 404 for missing session |
+| `test_session_context.py` | 18 | `list_session_files`, `get_session_profile` (AsyncMock), MagicMock LLM | Session context for agent: tool exports, load_session_context node populates files+progress, synthesize_response enrichment with profile+session_context+messages_history, graph wiring |
 
 ---
 

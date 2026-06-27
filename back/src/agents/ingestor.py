@@ -87,7 +87,10 @@ def parse_document(state: IngestorState) -> dict:
         elapsed = (time.monotonic() - t0) * 1000
         logger.info(
             "[parse_document] COMPLETE | session=%s | type=%s | len=%d | %dms",
-            state["session_id"], file_type, len(raw_text), int(elapsed),
+            state["session_id"],
+            file_type,
+            len(raw_text),
+            int(elapsed),
         )
         return {
             "raw_text": raw_text,
@@ -159,7 +162,8 @@ Texto (vista previa):
             elapsed = (time.monotonic() - t0) * 1000
             logger.info(
                 "[classify_document] COMPLETE | session=%s | rejected=non_academic | %dms",
-                state["session_id"], int(elapsed),
+                state["session_id"],
+                int(elapsed),
             )
             return {
                 "classification": result.classification,
@@ -174,7 +178,9 @@ Texto (vista previa):
             elapsed = (time.monotonic() - t0) * 1000
             logger.info(
                 "[classify_document] COMPLETE | session=%s | uncertain | confidence=%.2f | %dms",
-                state["session_id"], result.confidence, int(elapsed),
+                state["session_id"],
+                result.confidence,
+                int(elapsed),
             )
             return {
                 "classification": result.classification,
@@ -187,7 +193,10 @@ Texto (vista previa):
         elapsed = (time.monotonic() - t0) * 1000
         logger.info(
             "[classify_document] COMPLETE | session=%s | class=%s | topics=%d | %dms",
-            state["session_id"], result.classification, len(pipeline_topics), int(elapsed),
+            state["session_id"],
+            result.classification,
+            len(pipeline_topics),
+            int(elapsed),
         )
         return {
             "classification": result.classification,
@@ -259,7 +268,9 @@ def chunk_and_embed(state: IngestorState) -> dict:
         elapsed = (time.monotonic() - t0) * 1000
         logger.info(
             "[chunk_and_embed] COMPLETE | session=%s | chunks=%d | %dms",
-            state["session_id"], len(chunk_ids), int(elapsed),
+            state["session_id"],
+            len(chunk_ids),
+            int(elapsed),
         )
         return {
             "document_id": document_id,

@@ -17,7 +17,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
     <div
       className={cn(
         "flex w-full gap-3",
-        isUser ? "justify-end" : "justify-start"
+        isUser ? "justify-end" : "justify-start",
       )}
     >
       <div
@@ -27,7 +27,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
             ? "bg-primary text-primary-foreground"
             : message.isError
               ? "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200 border border-red-200 dark:border-red-800"
-              : "bg-muted text-foreground"
+              : "bg-muted text-foreground",
         )}
       >
         {isUser ? (
@@ -40,9 +40,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
           </div>
         )}
 
-        {!isUser && message.exam && (
-          <ExamWidget exam={message.exam} />
-        )}
+        {!isUser && message.exam && <ExamWidget exam={message.exam} />}
 
         {message.traceId && (
           <span

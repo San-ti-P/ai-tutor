@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 async def orchestrate_chat(
     messages: list[dict],
     thread_id: str | None = None,
+    student_id: str | None = None,
 ) -> dict:
     """Invoke the Orchestrator agent graph for a chat interaction.
 
@@ -34,6 +35,8 @@ async def orchestrate_chat(
             The tool extracts the last user message to drive the orchestrator.
         thread_id: Optional thread ID for LangGraph checkpoint persistence.
             Defaults to a generated UUID4 when not provided.
+        student_id: Optional explicit student identity. When provided, it
+            bypasses the sessions table lookup in ``load_profile``.
 
     Returns:
         A dict with keys: ``response`` (str), ``intent`` (str),
@@ -66,6 +69,9 @@ async def orchestrate_chat(
         "status": "pending",
         "iteration_count": 0,
         "student_profile": None,
+        "student_id": student_id,
+        "session_context": None,
+        "messages_history": [],
     }
 
     # ── Observability wiring ────────────────────────────────────────────────

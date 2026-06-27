@@ -167,7 +167,9 @@ def compute_progress_summary(state: SupportState) -> dict:
         elapsed = (time.monotonic() - t0) * 1000
         logger.info(
             "[compute_progress] COMPLETE | student=%s | weak_topics=%s | %dms",
-            student_id, weak, int(elapsed),
+            student_id,
+            weak,
+            int(elapsed),
         )
         return {"weak_topics": weak}
 

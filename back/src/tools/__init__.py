@@ -12,7 +12,9 @@ from langchain_core.tools import tool
 from langfuse import observe, propagate_attributes
 
 from src.rag import retrieve as _rag_retrieve
+from src.tools.get_session_progress import get_session_progress  # noqa: F401
 from src.tools.get_student_summary import get_student_summary  # noqa: F401
+from src.tools.list_session_files import list_session_files  # noqa: F401
 from src.tools.orchestrate_chat import orchestrate_chat  # noqa: F401
 from src.tools.query_material import query_material  # noqa: F401
 from src.tools.update_student_profile import update_student_profile  # noqa: F401
@@ -110,7 +112,7 @@ async def ingest_document(
     from src.observability import flush_traces, get_tracer
 
     tracer = get_tracer()
-    config: dict = {}
+    config: dict = {"recursion_limit": 100}
 
     try:
         # Per Langfuse docs: CallbackHandler created INSIDE propagate_attributes
@@ -128,7 +130,10 @@ async def ingest_document(
         "file_path": file_path,
         "classification": result.get("classification", ""),
         "topics": result.get("topics", []),
+        "topic_tree": result.get("topic_tree", "{}"),
         "chunks_created": result.get("chunks_created", 0),
+        "classification_confidence": result.get("classification_confidence"),
+        "document_id": result.get("document_id", ""),
         "status": result.get("status", ""),
         "errors": result.get("errors", []),
     }
@@ -265,7 +270,7 @@ def generate_exercise(
     from src.observability import flush_traces, get_tracer
 
     tracer = get_tracer()
-    config: dict = {}
+    config: dict = {"recursion_limit": 100}
 
     try:
         # Per Langfuse docs: CallbackHandler created INSIDE propagate_attributes
@@ -341,7 +346,7 @@ def evaluate_answer(
     from src.observability import flush_traces, get_tracer
 
     tracer = get_tracer()
-    config: dict = {}
+    config: dict = {"recursion_limit": 100}
 
     try:
         # Per Langfuse docs: CallbackHandler created INSIDE propagate_attributes
@@ -417,7 +422,7 @@ def generate_exam(
     from src.observability import flush_traces, get_tracer
 
     tracer = get_tracer()
-    config: dict = {}
+    config: dict = {"recursion_limit": 100}
 
     try:
         # Per Langfuse docs: CallbackHandler created INSIDE propagate_attributes

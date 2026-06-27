@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { BookOpen, TrendingUp, Target, CheckCircle2 } from "lucide-react";
-import { useSession } from "@/hooks/useSession";
+import { useSessionContext } from "@/hooks/SessionProvider";
 import { api } from "@/lib/api";
 import { StatsCards } from "@/components/dashboard/StatsCards";
 import { TopicChart } from "@/components/dashboard/TopicChart";
@@ -12,16 +12,16 @@ import { Spinner } from "@/components/ui/spinner";
 import type { StudentProfile } from "@/lib/types";
 
 export default function DashboardPage() {
-  const { sessionId } = useSession();
+  const { studentId, activeSession } = useSessionContext();
   const [profile, setProfile] = useState<StudentProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!studentId) return;
     setIsLoading(true);
     api
-      .getDashboard(sessionId)
+      .getDashboard(studentId)
       .then((res) => {
         setProfile(res.data);
       })
@@ -31,7 +31,7 @@ export default function DashboardPage() {
         );
       })
       .finally(() => setIsLoading(false));
-  }, [sessionId]);
+  }, [studentId]);
 
   if (isLoading) {
     return (
@@ -100,6 +100,15 @@ export default function DashboardPage() {
         </h1>
         <p className="mt-1 text-muted-foreground">
           Seguimiento de tu rendimiento académico
+          {activeSession && (
+            <>
+              {" "}
+              &middot; Sesión:{" "}
+              <span className="font-medium text-foreground">
+                {activeSession.name}
+              </span>
+            </>
+          )}
         </p>
       </div>
 

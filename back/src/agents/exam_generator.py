@@ -143,6 +143,13 @@ def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict:
             if not chunks:
                 topic_not_found.append(topic)
             else:
+                # Check if retrieved chunks are semantically relevant to the topic.
+                # similarity_score is cosine distance (lower = more similar).
+                # If the best match has distance > 0.70, the topic is effectively absent.
+                best_distance = min((c.get("similarity_score", 1.0) for c in chunks), default=1.0)
+                if best_distance > 0.60:
+                    topic_not_found.append(topic)
+                    continue
                 for chunk in chunks:
                     cid = chunk.get("chunk_id", "")
                     if cid and cid not in seen_chunk_ids:
@@ -231,7 +238,9 @@ def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None)
 
         logger.info(
             "[generate_questions] START | session=%s | topic=%s | count=%d",
-            state["session_id"], state.get("topic", "?"), question_count,
+            state["session_id"],
+            state.get("topic", "?"),
+            question_count,
         )
 
         student_profile = state.get("student_profile")
@@ -307,6 +316,7 @@ REQUISITOS:
         for mcq in result.mcq_questions:
             q = mcq.model_dump()
             q["type"] = "mcq"
+            q["prompt"] = q.pop("stem")  # map internal field to API field
             new_questions.append(q)
         for oa in result.open_questions:
             q = oa.model_dump()
@@ -331,7 +341,9 @@ REQUISITOS:
         elapsed = (time.monotonic() - t0) * 1000
         logger.info(
             "[generate_questions] COMPLETE | session=%s | questions=%d | %dms",
-            state["session_id"], len(final_questions), int(elapsed),
+            state["session_id"],
+            len(final_questions),
+            int(elapsed),
         )
         return {
             "generated_questions": final_questions,

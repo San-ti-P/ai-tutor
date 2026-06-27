@@ -47,7 +47,6 @@ export function ExamRenderer({
               >
                 <input
                   type="radio"
-                  name={`q-${question.id}`}
                   value={opt}
                   checked={value === opt}
                   onChange={(e) => onChange(e.target.value)}

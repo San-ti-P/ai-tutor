@@ -319,7 +319,9 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dic
 
     logger.info(
         "[evaluate_answer] START | session=%s | answers=%d | idx=%d",
-        state["session_id"], len(answers), idx,
+        state["session_id"],
+        len(answers),
+        idx,
     )
 
     if idx >= len(answers):

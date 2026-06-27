@@ -23,7 +23,7 @@ export function Button({
           "border border-border bg-card text-foreground hover:bg-accent",
         variant === "ghost" &&
           "text-muted-foreground hover:bg-accent hover:text-foreground",
-        className
+        className,
       )}
       {...props}
     />

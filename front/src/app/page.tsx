@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useSession } from "@/hooks/useSession";
+import { useState, useCallback, useEffect } from "react";
+import { useSessionContext } from "@/hooks/SessionProvider";
 import { api } from "@/lib/api";
 import { ChatMessageList } from "@/components/chat/ChatMessageList";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { UploadDropzone } from "@/components/upload/UploadDropzone";
+import { SessionFileList } from "@/components/upload/SessionFileList";
 import {
   UploadFileList,
   type FileStatus,
@@ -24,68 +25,88 @@ interface FileEntry {
 }
 
 export default function ChatPage() {
-  const { sessionId } = useSession();
+  const {
+    sessions,
+    activeSession,
+    isLoading: sessionsLoading,
+    createSession,
+    refreshSessions,
+  } = useSessionContext();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
 
-  const handleFilesSelected = useCallback(async (newFiles: File[]) => {
-    const entries: FileEntry[] = newFiles.map((f) => ({
-      file: f,
-      status: "uploading" as FileStatus,
-    }));
-    setFileEntries((prev) => [...prev, ...entries]);
+  const sessionId = activeSession?.id ?? "";
 
-    try {
-      const res = await api.uploadDocuments(newFiles, sessionId);
-      const results = Array.isArray(res.data) ? res.data : [res.data];
+  // Auto-create default session if none exist after load
+  useEffect(() => {
+    if (!sessionsLoading && sessions.length === 0) {
+      createSession("General").catch(() => {});
+    }
+  }, [sessionsLoading, sessions.length, createSession]);
 
-      // Sync session_id if backend returned a different one
-      const STORAGE_KEY = "ai-tutor-session-id";
-      const effectiveSid = results[0]?.sessionId;
-      if (effectiveSid && effectiveSid !== sessionId) {
-        localStorage.setItem(STORAGE_KEY, effectiveSid);
-      }
+  // Clear messages when switching sessions
+  useEffect(() => {
+    setMessages([]);
+    setFileEntries([]);
+  }, [sessionId]);
 
-      setFileEntries((prev) => {
-        const updated = [...prev];
-        for (const entry of updated) {
-          if (entry.status === "uploading") {
-            // Match result by original index
-            const idx = newFiles.findIndex(
-              (f) => f.name === entry.file.name && f.size === entry.file.size,
-            );
-            if (idx >= 0 && results[idx]) {
-              const r: IngestResult = results[idx];
-              const isError =
-                r.status === "error" || r.status === "rejected_non_academic";
-              entry.status = isError ? "error" : "complete";
-              entry.result = {
-                classification: r.classification,
-                topicsDetected: r.topicsDetected,
-                chunksCreated: r.chunksCreated,
-              };
-              if (r.status === "rejected_non_academic") {
-                entry.status = "rejected";
-                entry.message = "No es material académico";
+  const handleFilesSelected = useCallback(
+    async (newFiles: File[]) => {
+      if (!sessionId) return;
+
+      const entries: FileEntry[] = newFiles.map((f) => ({
+        file: f,
+        status: "uploading" as FileStatus,
+      }));
+      setFileEntries((prev) => [...prev, ...entries]);
+
+      try {
+        const res = await api.uploadDocuments(newFiles, sessionId);
+        const results = Array.isArray(res.data) ? res.data : [res.data];
+
+        refreshSessions();
+
+        setFileEntries((prev) => {
+          const updated = [...prev];
+          for (const entry of updated) {
+            if (entry.status === "uploading") {
+              const idx = newFiles.findIndex(
+                (f) => f.name === entry.file.name && f.size === entry.file.size,
+              );
+              if (idx >= 0 && results[idx]) {
+                const r: IngestResult = results[idx];
+                const isError =
+                  r.status === "error" || r.status === "rejected_non_academic";
+                entry.status = isError ? "error" : "complete";
+                entry.result = {
+                  classification: r.classification,
+                  topicsDetected: r.topicsDetected,
+                  chunksCreated: r.chunksCreated,
+                };
+                if (r.status === "rejected_non_academic") {
+                  entry.status = "rejected";
+                  entry.message = "No es material académico";
+                }
+              } else {
+                entry.status = "complete";
               }
-            } else {
-              entry.status = "complete";
             }
           }
-        }
-        return updated;
-      });
-    } catch {
-      setFileEntries((prev) =>
-        prev.map((e) =>
-          e.status === "uploading"
-            ? { ...e, status: "error" as FileStatus }
-            : e,
-        ),
-      );
-    }
-  }, [sessionId]);
+          return updated;
+        });
+      } catch {
+        setFileEntries((prev) =>
+          prev.map((e) =>
+            e.status === "uploading"
+              ? { ...e, status: "error" as FileStatus }
+              : e,
+          ),
+        );
+      }
+    },
+    [sessionId, refreshSessions],
+  );
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -135,6 +156,14 @@ export default function ChatPage() {
     [sessionId],
   );
 
+  if (sessionsLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-muted-foreground text-sm">Cargando sesiones...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="text-center">
@@ -142,12 +171,18 @@ export default function ChatPage() {
           Tutor Académico
         </h1>
         <p className="mt-2 text-muted-foreground">
-          Prepará tus exámenes con IA
+          {activeSession
+            ? `Sesión: ${activeSession.name}`
+            : "Prepará tus exámenes con IA"}
         </p>
       </div>
 
       <div className="flex flex-col gap-2">
-        <UploadDropzone onFilesSelected={handleFilesSelected} />
+        <UploadDropzone
+          onFilesSelected={handleFilesSelected}
+          activeSessionId={sessionId}
+        />
+        <SessionFileList sessionId={sessionId} />
         <UploadFileList files={fileEntries} />
       </div>
 

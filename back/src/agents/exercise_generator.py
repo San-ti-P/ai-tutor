@@ -126,11 +126,18 @@ def retrieve_relevant_chunks(state: ExerciseGeneratorState) -> dict:
         if not chunks:
             topic_not_found.append(topic)
         else:
-            for chunk in chunks:
-                cid = chunk.get("chunk_id", "")
-                if cid and cid not in seen_chunk_ids:
-                    seen_chunk_ids.add(cid)
-                    all_chunks.append(chunk)
+            # Check if retrieved chunks are semantically relevant to the topic.
+            # similarity_score is cosine distance (lower = more similar).
+            # If the best match has distance > 0.70, the topic is effectively absent.
+            best_distance = min((c.get("similarity_score", 1.0) for c in chunks), default=1.0)
+            if best_distance > 0.60:
+                topic_not_found.append(topic)
+            else:
+                for chunk in chunks:
+                    cid = chunk.get("chunk_id", "")
+                    if cid and cid not in seen_chunk_ids:
+                        seen_chunk_ids.add(cid)
+                        all_chunks.append(chunk)
 
         # For missing topic, query ThematicIndex for suggestions
         topic_suggestions: list[str] = []
@@ -201,7 +208,8 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = No
 
         logger.info(
             "[generate_exercise] START | session=%s | topic=%s",
-            state["session_id"], topic,
+            state["session_id"],
+            topic,
         )
         difficulty: str = state.get("difficulty", "medium")
         exercise_type: str = state.get("exercise_type", "problem_solving")
@@ -294,7 +302,8 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = No
         elapsed = (time.monotonic() - t0) * 1000
         logger.info(
             "[generate_exercise] COMPLETE | session=%s | %dms",
-            state["session_id"], int(elapsed),
+            state["session_id"],
+            int(elapsed),
         )
         return {
             "generated_exercise": exercise_dict,

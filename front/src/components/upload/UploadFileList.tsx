@@ -3,7 +3,12 @@
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 
-export type FileStatus = "pending" | "uploading" | "complete" | "error" | "rejected";
+export type FileStatus =
+  | "pending"
+  | "uploading"
+  | "complete"
+  | "error"
+  | "rejected";
 
 interface FileEntry {
   file: File;

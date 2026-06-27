@@ -27,6 +27,7 @@ MessageRoleEnum = Literal["user", "assistant"]
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    student_id: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -70,6 +71,12 @@ class Exam(BaseModel):
     questions: list[ExamQuestion]
     topic: str
     difficulty: DifficultyEnum
+    status: str = Field(default="complete")
+    warnings: list[str] = Field(default_factory=list)
+    topic_not_found: list[str] = Field(default_factory=list, alias="topicNotFound")
+    topic_suggestions: list[str] = Field(default_factory=list, alias="topicSuggestions")
+
+    model_config = {"populate_by_name": True}
 
 
 class EvaluationResult(BaseModel):
@@ -109,6 +116,7 @@ class IngestResult(BaseModel):
     status: str
     classification: str
     topics_detected: list[str] = Field(alias="topicsDetected")
+    topic_tree: dict | None = Field(default=None, alias="topicTree")
     chunks_created: int = Field(alias="chunksCreated")
     classification_confidence: float | None = Field(default=None, alias="classificationConfidence")
     document_id: str | None = Field(default=None, alias="documentId")
@@ -128,10 +136,24 @@ class ExerciseRequest(BaseModel):
     exercise_type: str = "problem_solving"
 
 
+class ExerciseStepSchema(BaseModel):
+    """A single step in the multi-step model solution (mirrors agent ExerciseStep)."""
+
+    step_number: int = Field(alias="stepNumber")
+    description: str
+    result: str
+    source_chunk_ids: list[str] = Field(default_factory=list, alias="sourceChunkIds")
+
+    model_config = {"populate_by_name": True}
+
+
 class ExerciseModelSolution(BaseModel):
-    steps: list[str]
-    final_answer: str
-    key_concepts: list[str]
+    steps: list[ExerciseStepSchema]
+    final_answer: str = Field(alias="finalAnswer")
+    key_concepts: list[str] = Field(alias="keyConcepts")
+    source_chunk_ids: list[str] = Field(default_factory=list, alias="sourceChunkIds")
+
+    model_config = {"populate_by_name": True}
 
 
 class Exercise(BaseModel):
@@ -164,6 +186,55 @@ class PreferencesStatus(BaseModel):
     student_id: str = ""
     upserted_topics: int = 0
     errors: list[str] = []
+
+
+class SessionCreate(BaseModel):
+    name: str
+    description: str = ""
+    student_id: str = Field(alias="studentId")
+
+    model_config = {"populate_by_name": True}
+
+
+class SessionRename(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class Session(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    student_id: str = Field(alias="studentId")
+    created_at: str = Field(alias="createdAt")
+    status: str = "active"
+    file_count: int = Field(default=0, alias="fileCount")
+    exam_count: int = Field(default=0, alias="examCount")
+    average_score: float | None = Field(default=None, alias="averageScore")
+
+    model_config = {"populate_by_name": True}
+
+
+class SessionFile(BaseModel):
+    id: str
+    file_name: str = Field(alias="fileName")
+    classification: str = ""
+    topics: list[str] = Field(default_factory=list)
+    topic_tree: dict | None = Field(default=None, alias="topicTree")
+    chunks_count: int = Field(default=0, alias="chunksCount")
+    ingested_at: str = Field(alias="ingestedAt")
+
+    model_config = {"populate_by_name": True}
+
+
+class SessionProfile(BaseModel):
+    session_id: str = Field(alias="sessionId")
+    topic_scores: dict[str, list[float]] = Field(default_factory=dict, alias="topicScores")
+    weak_topics: list[str] = Field(default_factory=list, alias="weakTopics")
+    exam_count: int = Field(default=0, alias="examCount")
+    average_score: float | None = Field(default=None, alias="averageScore")
+
+    model_config = {"populate_by_name": True}
 
 
 class ApiResponse[T](BaseModel):
