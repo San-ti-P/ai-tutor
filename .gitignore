@@ -237,3 +237,4 @@ codegraph/
 openspec/
 .opencode/test-results/
 front/test-results/
+test-results/
