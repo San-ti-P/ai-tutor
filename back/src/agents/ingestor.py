@@ -142,6 +142,54 @@ async def classify_document(state: IngestorState, config: RunnableConfig = None)
         pipeline_topics = pipeline_result.get("topics", [])
         topic_tree = pipeline_result.get("topic_tree", "{}")
 
+        # ── Conciliate topics with other files in the same session (cross-file conciliation) ──
+        session_id = state.get("session_id")
+        if session_id:
+            import json
+            from src.memory.schema import list_session_files
+            from src.topic_extraction import reconcile_topics
+
+            try:
+                existing_files = await list_session_files(session_id)
+                existing_topics = []
+                for f in existing_files:
+                    if state.get("document_id") and f.get("id") == state.get("document_id"):
+                        continue
+                    if f.get("topics_json"):
+                        try:
+                            ext_topics = json.loads(f["topics_json"])
+                            existing_topics.extend(ext_topics)
+                        except Exception:
+                            pass
+
+                if existing_topics:
+                    reconciled_topics, topic_map = reconcile_topics(
+                        pipeline_topics, existing_topics
+                    )
+                    pipeline_topics = reconciled_topics
+
+                    # Also update the topic_tree JSON representation to reflect reconciled topics
+                    if topic_tree and topic_tree != "{}":
+                        try:
+                            tree_data = json.loads(topic_tree)
+
+                            def update_tree_keys(d: dict, mapping: dict) -> dict:
+                                new_dict = {}
+                                for k, v in d.items():
+                                    new_k = mapping.get(k, k)
+                                    if isinstance(v, dict):
+                                        new_dict[new_k] = update_tree_keys(v, mapping)
+                                    else:
+                                        new_dict[new_k] = v
+                                return new_dict
+
+                            tree_data = update_tree_keys(tree_data, topic_map)
+                            topic_tree = json.dumps(tree_data, ensure_ascii=False)
+                        except Exception as e:
+                            logger.warning("Failed to update topic tree keys: %s", e)
+            except Exception as e:
+                logger.warning("Failed to retrieve existing session files for topic conciliation: %s", e)
+
         from src.llm import get_structured_llm
 
         structured_llm = get_structured_llm(Classification)

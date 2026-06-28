@@ -13,7 +13,7 @@ from src.llm import get_llm
 from src.topic_extraction.extract import _extract_segment_topics
 from src.topic_extraction.segment import segment_text
 from src.topic_extraction.tree import build_topic_tree
-from src.topic_extraction.unify import unify_topics
+from src.topic_extraction.unify import reconcile_topics, unify_topics
 
 logger = logging.getLogger("tutor.topic_extraction")
 
