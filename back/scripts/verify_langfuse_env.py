@@ -37,15 +37,11 @@ langfuse = Langfuse(
 
 # ── Ollama model (mirrors config.py defaults) ──
 from langchain_core.runnables import RunnableConfig
-from langchain_ollama import ChatOllama
+from src.llm import get_llm
 
-model = ChatOllama(
-    model="gemma4:e4b-it-q8_0",
-    base_url="http://localhost:11434",
-    temperature=0,
-)
+model = get_llm()
 
-print("Ollama model: gemma4:e4b-it-q8_0 @ http://localhost:11434")
+print(f"LLM model: {getattr(model, 'model', getattr(model, 'model_name', 'unknown'))}")
 print(f"Langfuse env: {os.environ['LANGFUSE_TRACING_ENVIRONMENT']}")
 print()
 
@@ -102,7 +98,7 @@ with langfuse.start_as_current_observation(
         gen = root.start_observation(
             name="ollama-call",
             as_type="generation",
-            model="gemma4:e4b-it-q8_0",
+            model=getattr(model, 'model', getattr(model, 'model_name', 'unknown')),
             input={"query": "What is 3+3?"},
             model_parameters={"temperature": 0},
         )

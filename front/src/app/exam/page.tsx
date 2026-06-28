@@ -137,68 +137,80 @@ export default function ExamPage() {
         </div>
       )}
 
-      {!exam ? (
-        <div className="flex flex-col gap-6 rounded-lg border border-border bg-card p-6">
-          <ExamForm onSubmit={handleGenerate} isLoading={isGenerating} />
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <QuestionNavigator
-            total={exam.questions.length}
-            current={currentIndex}
-            answers={Object.fromEntries(
-              exam.questions.map((q, i) => [`q-${i}`, answers[q.id] ?? ""]),
-            )}
-            onSelect={setCurrentIndex}
-          />
+      {activeSession?.status === "active" ? (
+        !exam ? (
+          <div className="flex flex-col gap-6 rounded-lg border border-border bg-card p-6">
+            <ExamForm onSubmit={handleGenerate} isLoading={isGenerating} />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <QuestionNavigator
+              total={exam.questions.length}
+              current={currentIndex}
+              answers={Object.fromEntries(
+                exam.questions.map((q, i) => [`q-${i}`, answers[q.id] ?? ""]),
+              )}
+              onSelect={setCurrentIndex}
+            />
 
-          <ExamRenderer
-            key={exam.questions[currentIndex].id}
-            question={exam.questions[currentIndex]}
-            currentIndex={currentIndex}
-            total={exam.questions.length}
-            value={answers[exam.questions[currentIndex].id] ?? ""}
-            onChange={(v) =>
-              handleAnswerChange(exam.questions[currentIndex].id, v)
-            }
-          />
+            <ExamRenderer
+              key={exam.questions[currentIndex].id}
+              question={exam.questions[currentIndex]}
+              currentIndex={currentIndex}
+              total={exam.questions.length}
+              value={answers[exam.questions[currentIndex].id] ?? ""}
+              onChange={(v) =>
+                handleAnswerChange(exam.questions[currentIndex].id, v)
+              }
+            />
 
-          <div className="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
-              disabled={currentIndex === 0}
-            >
-              Anterior
-            </Button>
-            {currentIndex < exam.questions.length - 1 ? (
+            <div className="flex items-center justify-between">
               <Button
                 variant="ghost"
-                onClick={() =>
-                  setCurrentIndex((i) =>
-                    Math.min(exam.questions.length - 1, i + 1),
-                  )
-                }
+                onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
+                disabled={currentIndex === 0}
               >
-                Siguiente
+                Anterior
               </Button>
-            ) : (
-              <Button
-                onClick={() => setShowConfirm(true)}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Spinner size="sm" />
-                    Enviando...
-                  </>
-                ) : (
-                  "Entregar Examen"
-                )}
-              </Button>
-            )}
+              {currentIndex < exam.questions.length - 1 ? (
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    setCurrentIndex((i) =>
+                      Math.min(exam.questions.length - 1, i + 1),
+                    )
+                  }
+                >
+                  Siguiente
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => setShowConfirm(true)}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Spinner size="sm" />
+                      Enviando...
+                    </>
+                  ) : (
+                    "Entregar Examen"
+                  )}
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
+        )
+      ) : (
+        !exam && !isGenerating && (
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-accent p-4 text-accent-foreground text-sm">
+            <FileText className="size-4 shrink-0" />
+            <p>
+              Cargá material de estudio primero para generar exámenes
+              personalizados.
+            </p>
+          </div>
+        )
       )}
 
       {/* Confirmation dialog */}
@@ -220,16 +232,6 @@ export default function ExamPage() {
               <Button onClick={handleSubmit}>Entregar</Button>
             </div>
           </div>
-        </div>
-      )}
-
-      {!exam && !isGenerating && (
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-accent p-4 text-accent-foreground text-sm">
-          <FileText className="size-4 shrink-0" />
-          <p>
-            Cargá material de estudio primero para generar exámenes
-            personalizados.
-          </p>
         </div>
       )}
     </div>

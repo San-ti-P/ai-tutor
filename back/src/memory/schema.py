@@ -39,6 +39,16 @@ async def _run_migrations(db: aiosqlite.Connection) -> None:
         )
     if not await _column_exists(db, "evaluations", "exam_id"):
         await db.execute("ALTER TABLE evaluations ADD COLUMN exam_id TEXT DEFAULT ''")
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS exams (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            topic TEXT NOT NULL,
+            difficulty TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+        )
+    """)
 
 
 async def init_db() -> None:
@@ -64,6 +74,15 @@ async def init_db() -> None:
                 intent TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 FOREIGN KEY (student_id) REFERENCES students(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS exams (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                difficulty TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
             );
 
             CREATE TABLE IF NOT EXISTS evaluations (
@@ -372,7 +391,7 @@ async def create_session(
         await db.execute(
             """
             INSERT INTO sessions (id, student_id, name, description, status)
-            VALUES (?, ?, ?, ?, 'active')
+            VALUES (?, ?, ?, ?, 'empty')
             """,
             (session_id, student_id, name, description),
         )
@@ -382,7 +401,11 @@ async def create_session(
         "student_id": student_id,
         "name": name,
         "description": description,
-        "created_at": None,  # populated by get_session if needed
+        "created_at": datetime.now(UTC).isoformat() + "Z",
+        "status": "empty",
+        "file_count": 0,
+        "exam_count": 0,
+        "average_score": None,
     }
 
 
@@ -391,12 +414,45 @@ async def list_sessions(student_id: str) -> list[dict]:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT id, student_id, name, description, started_at as created_at, status "
-            "FROM sessions WHERE student_id = ? ORDER BY started_at DESC, rowid DESC",
+            """
+            SELECT 
+                s.id, 
+                s.student_id, 
+                s.name, 
+                s.description, 
+                s.started_at as created_at, 
+                s.status,
+                COALESCE(d.file_cnt, 0) as file_count,
+                COALESCE(e.exam_cnt, 0) as exam_count,
+                e.avg_score as average_score
+            FROM sessions s
+            LEFT JOIN (
+                SELECT session_id, COUNT(*) as file_cnt 
+                FROM ingested_documents 
+                GROUP BY session_id
+            ) d ON s.id = d.session_id
+            LEFT JOIN (
+                SELECT session_id, COUNT(DISTINCT exam_id) as exam_cnt, AVG(score) as avg_score
+                FROM (
+                    SELECT session_id, COALESCE(NULLIF(exam_id, ''), id) AS exam_id, score FROM evaluations WHERE score IS NOT NULL
+                    UNION
+                    SELECT session_id, id AS exam_id, NULL AS score FROM exams
+                )
+                GROUP BY session_id
+            ) e ON s.id = e.session_id
+            WHERE s.student_id = ?
+            ORDER BY s.started_at DESC, s.rowid DESC
+            """,
             (student_id,),
         )
         rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        sessions = []
+        for row in rows:
+            session = dict(row)
+            if session["average_score"] is not None:
+                session["average_score"] = round(session["average_score"], 2)
+            sessions.append(session)
+        return sessions
 
 
 async def get_session(session_id: str) -> dict | None:
@@ -404,38 +460,51 @@ async def get_session(session_id: str) -> dict | None:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT id, student_id, name, description, started_at as created_at, status "
-            "FROM sessions WHERE id = ?",
+            """
+            SELECT 
+                s.id, 
+                s.student_id, 
+                s.name, 
+                s.description, 
+                s.started_at as created_at, 
+                s.status,
+                COALESCE(d.file_cnt, 0) as file_count,
+                COALESCE(e.exam_cnt, 0) as exam_count,
+                e.avg_score as average_score
+            FROM sessions s
+            LEFT JOIN (
+                SELECT session_id, COUNT(*) as file_cnt 
+                FROM ingested_documents 
+                GROUP BY session_id
+            ) d ON s.id = d.session_id
+            LEFT JOIN (
+                SELECT session_id, COUNT(DISTINCT exam_id) as exam_cnt, AVG(score) as avg_score
+                FROM (
+                    SELECT session_id, COALESCE(NULLIF(exam_id, ''), id) AS exam_id, score FROM evaluations WHERE score IS NOT NULL
+                    UNION
+                    SELECT session_id, id AS exam_id, NULL AS score FROM exams
+                )
+                GROUP BY session_id
+            ) e ON s.id = e.session_id
+            WHERE s.id = ?
+            """,
             (session_id,),
         )
         row = await cursor.fetchone()
         if row is None:
             return None
         session = dict(row)
-
-        cursor = await db.execute(
-            "SELECT COUNT(*) as cnt FROM ingested_documents WHERE session_id = ?",
-            (session_id,),
-        )
-        session["file_count"] = (await cursor.fetchone())["cnt"]
-
-        cursor = await db.execute(
-            "SELECT COUNT(*) as cnt, AVG(score) as avg_score "
-            "FROM evaluations WHERE session_id = ? AND score IS NOT NULL",
-            (session_id,),
-        )
-        eval_row = await cursor.fetchone()
-        session["exam_count"] = eval_row["cnt"] if eval_row else 0
-        avg = eval_row["avg_score"] if eval_row else None
-        session["average_score"] = round(avg, 2) if avg is not None else None
-
+        if session["average_score"] is not None:
+            session["average_score"] = round(session["average_score"], 2)
         return session
 
 
 async def delete_session(session_id: str) -> None:
-    """Delete a session, cascade its ingested_documents, and drop Chroma collection."""
+    """Delete a session, cascade its ingested_documents, exams, evaluations, and drop Chroma collection."""
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         await db.execute("DELETE FROM ingested_documents WHERE session_id = ?", (session_id,))
+        await db.execute("DELETE FROM exams WHERE session_id = ?", (session_id,))
+        await db.execute("DELETE FROM evaluations WHERE session_id = ?", (session_id,))
         await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         await db.commit()
 
@@ -451,7 +520,6 @@ async def delete_session(session_id: str) -> None:
 async def rename_session(session_id: str, name: str, description: str | None = None) -> dict | None:
     """Rename a session and optionally update its description. Returns updated row or None."""
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
-        db.row_factory = aiosqlite.Row
         if description is not None:
             await db.execute(
                 "UPDATE sessions SET name = ?, description = ? WHERE id = ?",
@@ -463,13 +531,30 @@ async def rename_session(session_id: str, name: str, description: str | None = N
                 (name, session_id),
             )
         await db.commit()
-        cursor = await db.execute(
-            "SELECT id, student_id, name, description, started_at as created_at, status "
-            "FROM sessions WHERE id = ?",
-            (session_id,),
+    return await get_session(session_id)
+
+
+async def update_session_status(session_id: str, status: str) -> None:
+    """Update the status of a session."""
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        await db.execute(
+            "UPDATE sessions SET status = ? WHERE id = ?",
+            (status, session_id),
         )
-        row = await cursor.fetchone()
-        return dict(row) if row else None
+        await db.commit()
+
+
+async def insert_generated_exam(exam_id: str, session_id: str, topic: str, difficulty: str) -> None:
+    """Insert a generated exam record."""
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO exams (id, session_id, topic, difficulty)
+            VALUES (?, ?, ?, ?)
+            """,
+            (exam_id, session_id, topic, difficulty),
+        )
+        await db.commit()
 
 
 async def insert_ingested_document(doc: dict) -> None:
@@ -524,11 +609,22 @@ async def get_session_profile(session_id: str) -> dict | None:
             return None
 
         cursor = await db.execute(
-            "SELECT COUNT(*) as cnt, AVG(score) as avg_score FROM evaluations WHERE session_id = ?",
+            """
+            SELECT COUNT(DISTINCT exam_id) as cnt FROM (
+                SELECT COALESCE(NULLIF(exam_id, ''), id) AS exam_id FROM evaluations WHERE session_id = ?
+                UNION
+                SELECT id AS exam_id FROM exams WHERE session_id = ?
+            )
+            """,
+            (session_id, session_id),
+        )
+        exam_count = (await cursor.fetchone())["cnt"]
+
+        cursor = await db.execute(
+            "SELECT AVG(score) as avg_score FROM evaluations WHERE session_id = ? AND score IS NOT NULL",
             (session_id,),
         )
         summary = await cursor.fetchone()
-        exam_count = summary["cnt"] if summary else 0
         average_score = (
             round(summary["avg_score"], 2) if summary and summary["avg_score"] is not None else None
         )
