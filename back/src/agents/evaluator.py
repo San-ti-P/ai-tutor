@@ -328,10 +328,46 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dic
         return {"errors": ["current_index out of range"], "status": "error"}
 
     current = answers[idx]
+    qtype = current.get("type", "open")
     question = current.get("question", "")
-    base_answer = current.get("base_answer", "")
-    student_answer = current.get("student_answer", "")
+    base_answer = current.get("base_answer", "") or ""
+    student_answer = current.get("student_answer", "") or ""
     topic = current.get("topic", "")
+
+    # MCQ evaluation logic (deterministic, bypass LLM call)
+    if qtype == "mcq":
+        clean_student = student_answer.strip()
+        clean_base = base_answer.strip()
+        is_correct = clean_student.lower() == clean_base.lower() if clean_student and clean_base else False
+        score = 10.0 if is_correct else 0.0
+        
+        if is_correct:
+            justification = f"Respuesta correcta. Seleccionaste la opción correcta: '{clean_base}'."
+            conceptual_errors = []
+            suggestions = []
+        else:
+            if clean_student:
+                justification = f"Respuesta incorrecta. Seleccionaste '{clean_student}' pero la opción correcta era '{clean_base}'."
+            else:
+                justification = f"Respuesta incorrecta. No seleccionaste ninguna opción. La opción correcta era '{clean_base}'."
+            conceptual_errors = ["Selección de opción incorrecta"]
+            suggestions = ["Repasar el material de lectura y reintentar el examen."]
+            
+        evaluation_dict = {
+            "question_id": current.get("question_id", ""),
+            "score": score,
+            "justification": justification,
+            "conceptual_errors": conceptual_errors,
+            "suggestions": suggestions,
+            "is_evaluable": True,
+            "topic": topic,
+            "source_chunk_ids": current.get("source_chunk_ids", []),
+            "status": "evaluated",
+        }
+        return {
+            "evaluation": evaluation_dict,
+            "status": "evaluated",
+        }
 
     # Build chunk context (truncated to avoid token overflow)
     chunk_context = "\n\n".join(
@@ -456,6 +492,17 @@ def validate_feedback(state: EvaluatorState) -> dict:
 
     evaluation: dict | None = state.get("evaluation")
     chunks: list[dict] = state.get("retrieved_chunks", [])
+
+    answers: list[dict] = state.get("answers", [])
+    idx: int = state.get("current_index", 0)
+    if idx < len(answers):
+        qtype = answers[idx].get("type", "open")
+        if qtype == "mcq":
+            return {
+                "evaluation": {**evaluation, "validation_warnings": []} if evaluation else {},
+                "requires_review": False,
+                "judge_sample": False,
+            }
 
     if not evaluation or evaluation.get("status") == "cannot_evaluate":
         return {}

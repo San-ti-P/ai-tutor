@@ -891,3 +891,100 @@ class TestSyncScoresTransaction:
                 assert row["cnt"] == 0
         finally:
             settings.sqlite_db_path = original_path
+
+
+class TestMCQEvaluation:
+    """Verify deterministic multiple-choice question (MCQ) evaluation."""
+
+    def test_evaluate_answer_mcq_correct(self, evaluator_state):
+        """MCQ with correct answer must evaluate to 10.0 score deterministically."""
+        from src.agents.evaluator import evaluate_answer
+
+        state = dict(evaluator_state)
+        state["current_index"] = 0
+        # Setup MCQ answer
+        state["answers"] = [
+            {
+                "question_id": "q-mcq-001",
+                "question": "¿Cuál es la derivada de x²?",
+                "base_answer": "2x",
+                "student_answer": " 2X ",  # extra spacing, mixed case
+                "type": "mcq",
+                "topic": "cálculo/derivadas",
+                "difficulty": "medium",
+                "source_chunk_ids": ["chunk-math-001"],
+            }
+        ]
+
+        result = evaluate_answer(state)
+        assert result["status"] == "evaluated"
+        eval_dict = result["evaluation"]
+        assert eval_dict["score"] == 10.0
+        assert eval_dict["is_evaluable"] is True
+        assert "Respuesta correcta" in eval_dict["justification"]
+        assert eval_dict["conceptual_errors"] == []
+        assert eval_dict["suggestions"] == []
+
+    def test_evaluate_answer_mcq_incorrect(self, evaluator_state):
+        """MCQ with incorrect answer must evaluate to 0.0 score deterministically."""
+        from src.agents.evaluator import evaluate_answer
+
+        state = dict(evaluator_state)
+        state["current_index"] = 0
+        state["answers"] = [
+            {
+                "question_id": "q-mcq-001",
+                "question": "¿Cuál es la derivada de x²?",
+                "base_answer": "2x",
+                "student_answer": "x²",
+                "type": "mcq",
+                "topic": "cálculo/derivadas",
+                "difficulty": "medium",
+                "source_chunk_ids": ["chunk-math-001"],
+            }
+        ]
+
+        result = evaluate_answer(state)
+        assert result["status"] == "evaluated"
+        eval_dict = result["evaluation"]
+        assert eval_dict["score"] == 0.0
+        assert eval_dict["is_evaluable"] is True
+        assert "Respuesta incorrecta" in eval_dict["justification"]
+        assert eval_dict["conceptual_errors"] == ["Selección de opción incorrecta"]
+        assert len(eval_dict["suggestions"]) > 0
+
+    def test_validate_feedback_mcq_bypasses(self, evaluator_state):
+        """MCQ evaluations bypass grounding/hallucination checks and judge sampling."""
+        from src.agents.evaluator import validate_feedback
+
+        state = dict(evaluator_state)
+        state["current_index"] = 0
+        state["answers"] = [
+            {
+                "question_id": "q-mcq-001",
+                "question": "¿Cuál es la derivada de x²?",
+                "base_answer": "2x",
+                "student_answer": "2x",
+                "type": "mcq",
+                "topic": "cálculo/derivadas",
+                "difficulty": "medium",
+                "source_chunk_ids": ["chunk-math-001"],
+            }
+        ]
+        state["evaluation"] = {
+            "question_id": "q-mcq-001",
+            "score": 10.0,
+            "justification": "Respuesta correcta. Seleccionaste la opción correcta: '2x'.",
+            "conceptual_errors": [],
+            "suggestions": [],
+            "is_evaluable": True,
+            "topic": "cálculo/derivadas",
+            "source_chunk_ids": ["chunk-math-001"],
+            "status": "evaluated",
+        }
+
+        result = validate_feedback(state)
+        assert result["requires_review"] is False
+        assert result["judge_sample"] is False
+        assert result["evaluation"]["validation_warnings"] == []
+

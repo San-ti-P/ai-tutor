@@ -481,12 +481,17 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
     question_map: dict[str, dict] = {}
     if request.exam_questions:
         for eq in request.exam_questions:
+            # eq.type is QuestionTypeEnum. Value can be extracted via eq.type.value if it is an Enum,
+            # or just as string. Let's make sure we handle both by getting it as a string or .value
+            q_type = eq.type.value if hasattr(eq.type, "value") else str(eq.type)
             question_map[eq.id] = {
                 "question": eq.prompt,
                 "base_answer": eq.base_answer or "",
                 "topic": eq.topic,
                 "difficulty": str(eq.difficulty),
                 "source_chunk_ids": eq.source_chunk_ids or [],
+                "type": q_type,
+                "options": eq.options or [],
             }
 
     # Convert dict[str, str] answers to list[dict] format expected by evaluator
@@ -503,6 +508,8 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
                     "source_chunk_ids": qdata["source_chunk_ids"],
                     "topic": qdata["topic"],
                     "difficulty": qdata["difficulty"],
+                    "type": qdata.get("type", "open"),
+                    "options": qdata.get("options", []),
                 }
             )
         else:
@@ -520,6 +527,8 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
                     "source_chunk_ids": [],
                     "topic": "",
                     "difficulty": "medium",
+                    "type": "open",
+                    "options": [],
                 }
             )
 
