@@ -694,3 +694,200 @@ class TestEvaluatorIntegration:
         assert check_result["non_evaluable"] is True
         assert check_result["non_evaluable_reason"] == "gibberish"
         assert check_result["evaluation"]["status"] == "cannot_evaluate"
+
+
+# ==============================================================================
+# Phase 5.3: validate_feedback immutability (Epic 13, SS-2)
+# ==============================================================================
+
+
+class TestValidateFeedbackImmutability:
+    """SS-2: validate_feedback returns new dict, does not mutate input."""
+
+    def test_validate_feedback_does_not_mutate_input_dict(self):
+        """GIVEN an evaluation dict → THEN validate_feedback returns a new dict
+        and the original dict is unchanged."""
+        from src.agents.evaluator import validate_feedback
+
+        evaluation = {
+            "question_id": "q-001",
+            "score": 8.0,
+            "justification": "Buena respuesta sobre derivadas.",
+            "suggestions": ["Repasar reglas de derivación."],
+            "is_evaluable": True,
+            "topic": "cálculo/derivadas",
+            "status": "evaluated",
+        }
+        original_id = id(evaluation)
+        original_keys = set(evaluation.keys())
+
+        state = {
+            "evaluation": evaluation,
+            "retrieved_chunks": [
+                {
+                    "chunk_id": "chunk-001",
+                    "text": "La derivada es el límite del cociente incremental.",
+                    "metadata": {},
+                    "similarity_score": 0.1,
+                }
+            ],
+            "judge_sample": False,
+            "requires_review": False,
+        }
+
+        result = validate_feedback(state)
+
+        # The returned evaluation must be a DIFFERENT object
+        returned_eval = result["evaluation"]
+        assert id(returned_eval) != original_id, (
+            "validate_feedback must return a NEW dict, not the mutated original"
+        )
+
+        # The original evaluation must be UNCHANGED
+        assert set(evaluation.keys()) == original_keys, (
+            "Original evaluation dict was mutated — keys changed"
+        )
+        assert evaluation.get("score") == 8.0
+        assert "validation_warnings" not in evaluation, (
+            "Original evaluation dict was mutated with validation_warnings"
+        )
+
+        # The returned dict should have validation_warnings
+        assert "validation_warnings" in returned_eval
+
+    def test_validate_feedback_empty_chunks_no_mutation(self):
+        """GIVEN empty chunks → THEN returned dict is new, original unchanged."""
+        from src.agents.evaluator import validate_feedback
+
+        evaluation = {"question_id": "q-002", "score": 5.0, "status": "evaluated"}
+        original_keys = set(evaluation.keys())
+
+        state = {
+            "evaluation": evaluation,
+            "retrieved_chunks": [],
+            "judge_sample": False,
+        }
+
+        result = validate_feedback(state)
+        returned_eval = result["evaluation"]
+
+        assert id(returned_eval) != id(evaluation)
+        assert set(evaluation.keys()) == original_keys
+        assert "validation_warnings" in returned_eval
+
+
+# ==============================================================================
+# Phase 5.6: sync_scores transaction rollback (Epic 13, SS-1)
+# ==============================================================================
+
+
+class TestSyncScoresTransaction:
+    """SS-1: sync_scores uses single transaction with rollback on failure."""
+
+    @pytest.mark.asyncio
+    async def test_sync_scores_writes_within_transaction(self, tmp_path):
+        """GIVEN valid evaluation results → THEN all writes succeed atomically."""
+        import aiosqlite
+
+        from src.config import settings
+
+        db_path = tmp_path / "sync_test.db"
+        original_path = settings.sqlite_db_path
+
+        try:
+            # Set up test DB
+            settings.sqlite_db_path = str(db_path)
+            async with aiosqlite.connect(str(db_path)) as db:
+                await db.execute("PRAGMA journal_mode=WAL")
+                await db.executescript("""
+                    CREATE TABLE IF NOT EXISTS evaluations (
+                        id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        student_id TEXT NOT NULL,
+                        question_id TEXT NOT NULL,
+                        topic TEXT,
+                        score REAL,
+                        feedback_json TEXT
+                    );
+                    CREATE TABLE IF NOT EXISTS topic_scores (
+                        topic TEXT NOT NULL,
+                        student_id TEXT NOT NULL,
+                        score REAL NOT NULL,
+                        evaluated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        PRIMARY KEY (topic, student_id)
+                    );
+                """)
+                await db.commit()
+
+            from src.agents.evaluator import sync_scores
+
+            state = {
+                "evaluation_results": [
+                    {"question_id": "q-1", "topic": "cálculo", "score": 8.0, "status": "evaluated"},
+                    {"question_id": "q-2", "topic": "álgebra", "score": 6.5, "status": "evaluated"},
+                ],
+                "session_id": "sess-test",
+                "student_id": "student-test",
+            }
+
+            result = sync_scores(state)
+            assert result["scores_synced"] is True
+            assert result.get("status") in ("synced", "synced_with_errors")
+
+            # Verify writes
+            async with aiosqlite.connect(str(db_path)) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("SELECT COUNT(*) as cnt FROM evaluations")
+                row = await cursor.fetchone()
+                assert row["cnt"] == 2
+                cursor = await db.execute("SELECT COUNT(*) as cnt FROM topic_scores")
+                row = await cursor.fetchone()
+                assert row["cnt"] == 2
+        finally:
+            settings.sqlite_db_path = original_path
+
+    @pytest.mark.asyncio
+    async def test_sync_scores_empty_results(self, tmp_path):
+        """GIVEN empty evaluation_results → THEN no writes occur, no error."""
+        import aiosqlite
+
+        from src.config import settings
+
+        db_path = tmp_path / "sync_empty.db"
+        original_path = settings.sqlite_db_path
+
+        try:
+            settings.sqlite_db_path = str(db_path)
+            async with aiosqlite.connect(str(db_path)) as db:
+                await db.execute("PRAGMA journal_mode=WAL")
+                await db.executescript("""
+                    CREATE TABLE IF NOT EXISTS evaluations (
+                        id TEXT PRIMARY KEY, session_id TEXT, student_id TEXT,
+                        question_id TEXT, topic TEXT, score REAL, feedback_json TEXT
+                    );
+                    CREATE TABLE IF NOT EXISTS topic_scores (
+                        topic TEXT, student_id TEXT, score REAL,
+                        evaluated_at TEXT DEFAULT (datetime('now')),
+                        PRIMARY KEY (topic, student_id)
+                    );
+                """)
+                await db.commit()
+
+            from src.agents.evaluator import sync_scores
+
+            state = {
+                "evaluation_results": [],
+                "session_id": "sess-test",
+                "student_id": "student-test",
+            }
+
+            result = sync_scores(state)
+            assert result["scores_synced"] is True
+
+            async with aiosqlite.connect(str(db_path)) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("SELECT COUNT(*) as cnt FROM evaluations")
+                row = await cursor.fetchone()
+                assert row["cnt"] == 0
+        finally:
+            settings.sqlite_db_path = original_path

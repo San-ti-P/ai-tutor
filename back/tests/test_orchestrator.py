@@ -1954,3 +1954,70 @@ class TestOrchestratorToolMap:
         args = _build_tool_args("update_student_profile", state)
         assert args["student_id"] == "stu-up-1"
         assert args["preferences"] == {"difficulty": "hard", "question_types": ["open"]}
+
+
+# ==============================================================================
+# Phase 5.2: get_orchestrator_graph() race safety (Epic 13, SS-3)
+# ==============================================================================
+
+
+class TestOrchestratorGraphRaceSafety:
+    """SS-3: asyncio.Lock serializes singleton compilation."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_init_single_singleton(self, monkeypatch):
+        """GIVEN 5 concurrent get_orchestrator_graph() calls
+        THEN only one graph instance is created.
+        """
+        import asyncio
+
+        import aiosqlite
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        from src.agents.orchestrator import (
+            _orchestrator_graph,
+            _orchestrator_db_conn,
+            _orchestrator_lock,
+            get_orchestrator_graph,
+        )
+        from src.config import settings
+
+        # Force clean state for deterministic test
+        import src.agents.orchestrator as orch_mod
+
+        orch_mod._orchestrator_graph = None
+        orch_mod._orchestrator_db_conn = None
+        orch_mod._orchestrator_lock = None
+
+        # Patch DB path to temp
+        import tempfile
+        import os
+
+        tmp_dir = tempfile.mkdtemp()
+        db_path = os.path.join(tmp_dir, "race_test.db")
+        monkeypatch.setattr(settings, "sqlite_db_path", db_path)
+
+        try:
+            # Launch 5 concurrent calls
+            results = await asyncio.gather(
+                *[get_orchestrator_graph() for _ in range(5)]
+            )
+
+            # All should be the same object
+            first = results[0]
+            for i, r in enumerate(results[1:], 1):
+                assert r is first, f"Result {i} is a different object"
+
+            # Singleton should be set
+            assert orch_mod._orchestrator_graph is not None
+            assert orch_mod._orchestrator_db_conn is not None
+        finally:
+            # Clean up
+            if orch_mod._orchestrator_db_conn is not None:
+                await orch_mod._orchestrator_db_conn.close()
+            orch_mod._orchestrator_graph = None
+            orch_mod._orchestrator_db_conn = None
+            orch_mod._orchestrator_lock = None
+            import shutil
+
+            shutil.rmtree(tmp_dir, ignore_errors=True)
