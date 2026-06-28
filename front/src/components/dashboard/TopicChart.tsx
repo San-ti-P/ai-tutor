@@ -26,7 +26,7 @@ export function TopicChart({ data }: TopicChartProps) {
     return (
       <div className="rounded-lg border border-border bg-card p-8 text-center">
         <p className="text-muted-foreground text-sm">
-          Sin datos de temas. Complet\u00e1 evaluaciones para ver tu progreso.
+          Sin datos de temas. Completá evaluaciones para ver tu progreso.
         </p>
       </div>
     );
