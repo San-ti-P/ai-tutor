@@ -290,7 +290,20 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
         )
 
         invoke_kwargs = {"config": config} if config is not None else {}
-        result = structured.invoke(prompt, **invoke_kwargs)
+        result = None
+
+        # First attempt
+        try:
+            result = structured.invoke(prompt, **invoke_kwargs)
+        except Exception as first_err:
+            logger.warning(
+                "[classify_intent] First attempt failed: %s. Retrying.",
+                first_err,
+            )
+            # Retry once with a fresh structured LLM (temperature=0 implicit)
+            retry_structured = get_structured_llm(IntentClassification)
+            result = retry_structured.invoke(prompt, **invoke_kwargs)
+
         intent = result.intent
         confidence = result.confidence
 
@@ -1040,11 +1053,26 @@ async def get_orchestrator_graph():
 async def close_orchestrator_graph():
     """Close the aiosqlite connection and reset the compiled graph singleton.
 
+    Sets a 5-second drain period: in-flight `graph.ainvoke()` calls are
+    given time to complete before the DB connection is closed.
+
     After calling this, the next ``get_orchestrator_graph()`` call creates a
     fresh graph with a new database connection. Safe to call multiple times.
     """
     global _orchestrator_graph
     global _orchestrator_db_conn
+
+    # Drain in-flight requests: wait 5 seconds for active graph invocations
+    if _orchestrator_graph is not None:
+        logger.info("Draining in-flight orchestrator requests (5s)...")
+        try:
+            await asyncio.wait_for(
+                asyncio.sleep(0), timeout=5.0
+            )  # Allow async tasks to yield
+        except asyncio.TimeoutError:
+            pass
+        # Brief drain sleep to let pending coroutines finish
+        await asyncio.sleep(5)
 
     if _orchestrator_db_conn is not None:
         try:

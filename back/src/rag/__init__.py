@@ -10,6 +10,7 @@ Provides the persistence and retrieval backbone consumed by all agents:
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 
 import chromadb
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 _chroma_client: chromadb.PersistentClient | None = None
 _embedding_model: SentenceTransformer | None = None
+_embedding_lock: threading.Lock = threading.Lock()
 
 
 def get_chroma_client() -> chromadb.PersistentClient:
@@ -131,7 +133,8 @@ def embed_and_store(
     )
 
     chunk_ids = [str(uuid.uuid4()) for _ in chunks]
-    embeddings = model.encode(chunks).tolist()
+    with _embedding_lock:
+        embeddings = model.encode(chunks).tolist()
 
     if metadatas is None:
         metadatas = [{} for _ in chunks]
@@ -197,7 +200,8 @@ def retrieve(
     # discarding chunks whose topic doesn't match the prefix.
     fetch_k = min(top_k * 3, collection_count) if topic_filter else top_k
 
-    query_embedding = model.encode([query]).tolist()
+    with _embedding_lock:
+        query_embedding = model.encode([query]).tolist()
 
     results = collection.query(
         query_embeddings=query_embedding,

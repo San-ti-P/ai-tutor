@@ -381,6 +381,23 @@ REQUISITOS:
             q["type"] = "open_answer"
             new_questions.append(q)
 
+        # ── Post-filter: remove hallucinated source_chunk_ids ──────────
+        valid_chunk_ids = {c.get("chunk_id", "") for c in chunks}
+
+        for q in new_questions:
+            raw_ids = q.get("source_chunk_ids", [])
+            if not raw_ids:
+                continue
+            filtered = [cid for cid in raw_ids if cid in valid_chunk_ids]
+            removed = set(raw_ids) - set(filtered)
+            if removed:
+                logger.warning(
+                    "[generate_questions] Hallucinated chunk ID(s) removed: %s | question=%s",
+                    sorted(removed),
+                    q.get("prompt", q.get("stem", ""))[:80],
+                )
+            q["source_chunk_ids"] = filtered
+
         # On retry: merge new questions into existing, replacing invalid slots
         if retry_count > 0 and invalid_indices and existing_questions:
             merged = list(existing_questions)
