@@ -236,6 +236,6 @@ graphify-out/
 codegraph/
 .atl/
 openspec/
-.opencode/test-results/
+.opencode/
 front/test-results/
 test-results/
