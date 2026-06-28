@@ -247,6 +247,7 @@ async def get_session_evaluations(session_id: str) -> list[dict]:
             "judgeScore": feedback.get("judge_score"),
             "questionText": feedback.get("question_text", ""),
             "userAnswer": feedback.get("student_answer", ""),
+            "sourceChunks": feedback.get("source_chunks", []),
         })
 
     result_list = list(groups.values())

@@ -80,6 +80,7 @@ interface EvaluationResult {
   nonEvaluableReason?: string;
   questionText?: string;
   userAnswer?: string;
+  sourceChunks?: string[];
 }
 
 interface ExamEvaluationSummary {

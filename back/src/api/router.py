@@ -533,41 +533,40 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
 
     # Convert dict[str, str] answers to list[dict] format expected by evaluator
     answers_list: list[dict] = []
+    answers_by_id: dict[str, dict] = {}
     for question_id, student_answer in request.answers.items():
         if question_id in question_map:
             qdata = question_map[question_id]
-            answers_list.append(
-                {
-                    "question_id": question_id,
-                    "question": qdata["question"],
-                    "base_answer": qdata["base_answer"],
-                    "student_answer": student_answer,
-                    "source_chunk_ids": qdata["source_chunk_ids"],
-                    "topic": qdata["topic"],
-                    "difficulty": qdata["difficulty"],
-                    "type": qdata.get("type", "open"),
-                    "options": qdata.get("options", []),
-                }
-            )
+            entry = {
+                "question_id": question_id,
+                "question": qdata["question"],
+                "base_answer": qdata["base_answer"],
+                "student_answer": student_answer,
+                "source_chunk_ids": qdata["source_chunk_ids"],
+                "topic": qdata["topic"],
+                "difficulty": qdata["difficulty"],
+                "type": qdata.get("type", "open"),
+                "options": qdata.get("options", []),
+            }
         else:
             if request.exam_questions:
                 logger.warning(
                     "question_id '%s' not found in exam_questions, using empty placeholders",
                     question_id,
                 )
-            answers_list.append(
-                {
-                    "question_id": question_id,
-                    "question": "",
-                    "base_answer": "",
-                    "student_answer": student_answer,
-                    "source_chunk_ids": [],
-                    "topic": "",
-                    "difficulty": "medium",
-                    "type": "open",
-                    "options": [],
-                }
-            )
+            entry = {
+                "question_id": question_id,
+                "question": "",
+                "base_answer": "",
+                "student_answer": student_answer,
+                "source_chunk_ids": [],
+                "topic": "",
+                "difficulty": "medium",
+                "type": "open",
+                "options": [],
+            }
+        answers_list.append(entry)
+        answers_by_id[question_id] = entry
 
     # ── Resolve student_id: request override → session lookup → session_id fallback ──
     student_id = request.student_id
@@ -602,6 +601,9 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
                 judgeScore=r.get("judge_verdict", {}).get("score")
                 if isinstance(r.get("judge_verdict"), dict)
                 else None,
+                questionText=answers_by_id.get(r.get("question_id", ""), {}).get("question", ""),
+                userAnswer=answers_by_id.get(r.get("question_id", ""), {}).get("student_answer", ""),
+                sourceChunks=r.get("source_chunks", []),
             )
             for r in results
         ]

@@ -370,9 +370,10 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dic
             "status": "evaluated",
         }
 
-    # Build chunk context (truncated to avoid token overflow)
+    # Build numbered fragments (no IDs so they don't appear in LLM output)
+    fragment_texts = [c.get("text", "") for c in chunks]
     chunk_context = "\n\n".join(
-        f"[CHUNK:{c.get('chunk_id', '?')}] {c.get('text', '')}" for c in chunks
+        f"--- Fragmento {i + 1} ---\n{text}" for i, text in enumerate(fragment_texts)
     )[:6000]
 
     # Guard: no chunks → short-circuit to cannot_evaluate (no LLM call)
@@ -389,6 +390,7 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dic
                 "requires_review": False,
                 "topic": topic,
                 "source_chunk_ids": current.get("source_chunk_ids", []),
+                "source_chunks": [],
                 "status": "cannot_evaluate",
             },
             "status": "cannot_evaluate",
@@ -436,6 +438,7 @@ INSTRUCCIONES:
             "is_evaluable": result.is_evaluable,
             "topic": topic,
             "source_chunk_ids": current.get("source_chunk_ids", []),
+            "source_chunks": fragment_texts,
             "status": "evaluated",
         }
 
@@ -753,6 +756,7 @@ def sync_scores(state: EvaluatorState) -> dict:
                 ),
                 "question_text": result.get("question_text", ""),
                 "student_answer": result.get("student_answer", ""),
+                "source_chunks": result.get("source_chunks", []),
             }
             eval_record = {
                 "id": str(_uuid.uuid4()),
