@@ -112,7 +112,7 @@ class TestExamGenerateEndpoint:
                 "topics_covered": ["test"],
                 "status": "complete",
             }
-            client.post(
+            _get_client().post(
                 "/api/exam/generate",
                 json={
                     "session_id": "sess-3",
@@ -268,7 +268,10 @@ class TestExerciseGenerateEndpoint:
                 "given_data": "f(x) = x\u00b2",
                 "question": "f'(x) = ?",
                 "model_solution": {
-                    "steps": ["Paso 1", "Paso 2"],
+                    "steps": [
+                        {"stepNumber": 1, "description": "Paso 1", "result": "x"},
+                        {"stepNumber": 2, "description": "Paso 2", "result": "2x"},
+                    ],
                     "final_answer": "2x",
                     "key_concepts": ["derivada"],
                 },

@@ -71,6 +71,17 @@ def temp_dir():
 
 
 @pytest.fixture(autouse=True)
+def _clear_llm_cache_fixture():
+    """Clear LLM instance cache before every test to prevent cross-test leakage.
+
+    Synchronous so it runs for ALL tests, including non-async ones.
+    """
+    from src.llm import _clear_llm_cache
+
+    _clear_llm_cache()
+
+
+@pytest.fixture(autouse=True)
 async def _init_test_db(tmp_path, monkeypatch):
     """Ensure the test DB schema exists before any DB-touching test.
 

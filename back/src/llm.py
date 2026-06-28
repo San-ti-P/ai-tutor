@@ -30,6 +30,11 @@ logger = logging.getLogger(__name__)
 # Avoids rebuilding HTTP connection pools on every call under concurrent load.
 _llm_cache: dict[str, BaseChatModel] = {}
 
+
+def _clear_llm_cache() -> None:
+    """Clear the LLM instance cache. Exposed for test isolation."""
+    _llm_cache.clear()
+
 # Regex to strip markdown ```json ... ``` fences from LLM output.
 _CLEAN_FENCES = re.compile(r"^```(?:json)?\s*|\s*```\s*$", re.MULTILINE)
 

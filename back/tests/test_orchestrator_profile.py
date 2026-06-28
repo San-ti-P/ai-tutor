@@ -72,11 +72,11 @@ class TestLoadProfile:
         ):
             with patch(
                 "src.tools.get_student_summary.get_student_summary",
-                new=AsyncMock(return_value=profile),
             ) as mock_summary:
+                mock_summary.ainvoke = AsyncMock(return_value=profile)
                 result = await load_profile(state)
 
-        mock_summary.assert_awaited_once_with("stu-1")
+        mock_summary.ainvoke.assert_awaited_once_with({"student_id": "stu-1"})
         assert result["student_profile"] == profile
 
     async def test_load_profile_exception_fallback_empty(self, caplog):
@@ -91,15 +91,14 @@ class TestLoadProfile:
         ):
             with patch(
                 "src.tools.get_student_summary.get_student_summary",
-                new=AsyncMock(side_effect=RuntimeError("DB down")),
-            ):
+            ) as mock_summary:
+                mock_summary.ainvoke = AsyncMock(side_effect=RuntimeError("DB down"))
                 with caplog.at_level("WARNING"):
                     result = await load_profile(state)
 
         assert result["student_profile"] == {}
         assert "DB down" in caplog.text
         # Phase 3 robustness: will set profile_load_error on DB failure.
-        # Until then, the key may not exist in the result dict.
         if "profile_load_error" in result:
             assert result["profile_load_error"] is not None
 
@@ -115,8 +114,8 @@ class TestLoadProfile:
         ):
             with patch(
                 "src.tools.get_student_summary.get_student_summary",
-                new=AsyncMock(return_value=None),
-            ):
+            ) as mock_summary:
+                mock_summary.ainvoke = AsyncMock(return_value=None)
                 result = await load_profile(state)
 
         assert result["student_profile"] == {}
