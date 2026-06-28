@@ -11,6 +11,11 @@ Functions:
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
+import logging
+import re
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -18,6 +23,20 @@ from langchain_core.runnables import Runnable
 from pydantic import BaseModel
 
 from src.config import settings
+
+logger = logging.getLogger(__name__)
+
+# Module-level LLM cache keyed by provider + model fingerprint.
+# Avoids rebuilding HTTP connection pools on every call under concurrent load.
+_llm_cache: dict[str, BaseChatModel] = {}
+
+
+def _clear_llm_cache() -> None:
+    """Clear the LLM instance cache. Exposed for test isolation."""
+    _llm_cache.clear()
+
+# Regex to strip markdown ```json ... ``` fences from LLM output.
+_CLEAN_FENCES = re.compile(r"^```(?:json)?\s*|\s*```\s*$", re.MULTILINE)
 
 
 def get_llm(
@@ -69,9 +88,22 @@ def get_llm(
 
     # Priority 3 & 4: Live LLM or normal operation
     llm_cls, llm_kwargs = settings.llm_kwargs
-    if callbacks:
-        llm_kwargs = {**llm_kwargs, "callbacks": callbacks}
-    return llm_cls(**llm_kwargs)
+    # Build a cache key from provider and model fingerprint
+    cls_name = getattr(llm_cls, "__name__", str(llm_cls))
+    raw_key = f"{settings.llm_provider}:{cls_name}:{llm_kwargs.get('model', '')}"
+    cache_key = hashlib.sha256(raw_key.encode()).hexdigest()[:16]
+
+    if cache_key not in _llm_cache:
+        if callbacks:
+            llm_kwargs = {**llm_kwargs, "callbacks": callbacks}
+        _llm_cache[cache_key] = llm_cls(**llm_kwargs)
+    else:
+        # Re-inject callbacks if provided (they may change per invocation)
+        cached = _llm_cache[cache_key]
+        if callbacks:
+            cached.callbacks = callbacks
+
+    return _llm_cache[cache_key]
 
 
 def _ollama_json_mode_chain(
@@ -124,6 +156,10 @@ def _ollama_json_mode_chain(
     )
 
     def _parse(text: str) -> BaseModel:
+        # Strip markdown ```json fences before scanning for JSON.
+        # Ollama often wraps JSON output in ```json ... ``` blocks.
+        text = _CLEAN_FENCES.sub("", text).strip()
+
         # Find the last complete JSON object by scanning from the end with a
         # brace counter. This handles nested JSON and correctly ignores any
         # JSON examples that may appear earlier in the user prompt.

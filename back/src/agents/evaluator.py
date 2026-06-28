@@ -472,9 +472,8 @@ def validate_feedback(state: EvaluatorState) -> dict:
     sampled = random.random() < sample_rate
 
     if not claims or not chunks:
-        evaluation["validation_warnings"] = []
         return {
-            "evaluation": evaluation,
+            "evaluation": {**evaluation, "validation_warnings": []},
             "judge_sample": sampled,
         }
 
@@ -499,20 +498,19 @@ def validate_feedback(state: EvaluatorState) -> dict:
                     }
                 )
 
-        evaluation["validation_warnings"] = validation_warnings
         has_warnings = len(validation_warnings) > 0
+        updated_evaluation = {**evaluation, "validation_warnings": validation_warnings}
 
         return {
-            "evaluation": evaluation,
+            "evaluation": updated_evaluation,
             "requires_review": has_warnings,
             "judge_sample": sampled,
         }
 
     except Exception as exc:
         logger.exception("validate_feedback embedding failed")
-        evaluation["validation_warnings"] = []
         return {
-            "evaluation": evaluation,
+            "evaluation": {**evaluation, "validation_warnings": []},
             "errors": [f"Validation error: {exc}"],
             "judge_sample": sampled,
         }
@@ -675,69 +673,75 @@ def next_question(state: EvaluatorState) -> dict:
 
 
 def sync_scores(state: EvaluatorState) -> dict:
-    """Persist evaluation results to DB and mark sync complete.
+    """Persist evaluation results to DB in a single transaction.
 
     Writes each result to the ``evaluations`` table and the
-    ``topic_scores`` table via the memory module. Also returns
-    scores dict for optional Support Agent routing.
+    ``topic_scores`` table within a BEGIN/COMMIT boundary.
+    If any write fails, the entire batch is rolled back.
     """
     import uuid as _uuid
 
-    from src.memory.schema import save_evaluation, upsert_topic_scores
+    import aiosqlite
+
+    from src.config import settings
+    from src.utils.async_ import run_async_in_sync
 
     results: list[dict] = state.get("evaluation_results", [])
     session_id: str = state.get("session_id", "")
     student_id: str = state.get("student_id", "")
 
     errors: list[str] = []
-    # Collect topic→score pairs for upsert after saving evaluations
     topic_score_pairs: list[dict] = []
 
-    for result in results:
-        try:
-            eval_record = {
-                "id": str(_uuid.uuid4()),
-                "session_id": session_id,
-                "student_id": student_id,
-                "question_id": result.get("question_id", ""),
-                "topic": result.get("topic", ""),
-                "score": result.get("score", 0.0),
-                "feedback_json": "",
-            }
+    async def _transactional_write() -> None:
+        """Execute all evaluation writes in a single DB transaction."""
+        async with aiosqlite.connect(settings.sqlite_db_path) as db:
+            await db.execute("BEGIN TRANSACTION")
+            try:
+                for result in results:
+                    eval_id = str(_uuid.uuid4())
+                    await db.execute(
+                        """INSERT INTO evaluations
+                           (id, session_id, student_id, question_id, topic, score, feedback_json)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            eval_id,
+                            session_id,
+                            student_id,
+                            result.get("question_id", ""),
+                            result.get("topic", ""),
+                            result.get("score", 0.0),
+                            "",
+                        ),
+                    )
+                    topic = result.get("topic", "")
+                    score = result.get("score", 0.0)
+                    if topic and result.get("status") != "cannot_evaluate":
+                        topic_score_pairs.append({"topic": topic, "score": score})
 
-            # Run async DB write synchronously (acceptable for graph node)
-            from src.utils.async_ import run_async_in_sync
+                # Upsert topic scores
+                if student_id and topic_score_pairs:
+                    deduped: dict[str, float] = {}
+                    for pair in topic_score_pairs:
+                        deduped[pair["topic"]] = pair["score"]
+                    for topic, score in deduped.items():
+                        await db.execute(
+                            """INSERT OR REPLACE INTO topic_scores
+                               (topic, student_id, score, evaluated_at)
+                               VALUES (?, ?, ?, datetime('now'))""",
+                            (topic, student_id, score),
+                        )
 
-            run_async_in_sync(save_evaluation(eval_record))
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
 
-            # Collect topic/score for profile update (SUP-03)
-            topic = result.get("topic", "")
-            score = result.get("score", 0.0)
-            # Only track evaluable answers that have a topic
-            if topic and result.get("status") != "cannot_evaluate":
-                topic_score_pairs.append({"topic": topic, "score": score})
-
-        except Exception as exc:
-            logger.warning("Failed to save evaluation for %s: %s", result.get("question_id"), exc)
-            errors.append(f"DB write failed for {result.get('question_id')}: {exc}")
-
-    # Upsert topic scores if we have student_id and scores (SUP-03)
-    if student_id and topic_score_pairs:
-        try:
-            # Deduplicate: keep latest score per topic from this batch
-            deduped: dict[str, float] = {}
-            for pair in topic_score_pairs:
-                deduped[pair["topic"]] = pair["score"]
-            deduped_list = [{"topic": t, "score": s} for t, s in deduped.items()]
-
-            from src.utils.async_ import run_async_in_sync
-
-            run_async_in_sync(upsert_topic_scores(student_id, deduped_list))
-        except Exception as exc:
-            logger.warning("Failed to upsert topic scores for %s: %s", student_id, exc)
-            errors.append(f"Topic score upsert failed: {exc}")
-
-    if errors:
+    try:
+        run_async_in_sync(_transactional_write())
+    except Exception as exc:
+        logger.exception("sync_scores transaction failed, rolled back")
+        errors.append(f"Transaction failed: {exc}")
         return {"scores_synced": True, "errors": errors, "status": "synced_with_errors"}
 
     return {"scores_synced": True, "status": "synced"}

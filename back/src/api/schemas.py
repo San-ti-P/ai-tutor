@@ -25,8 +25,8 @@ MessageRoleEnum = Literal["user", "assistant"]
 
 
 class ChatRequest(BaseModel):
-    session_id: str
-    message: str
+    session_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,128}$")
+    message: str = Field(max_length=10000)
     student_id: str | None = None
 
 
@@ -40,7 +40,7 @@ class ChatResponse(BaseModel):
 class ExamPreferences(BaseModel):
     question_types: list[QuestionTypeEnum] = Field(alias="questionTypes")
     difficulty: DifficultyEnum
-    question_count: int = Field(alias="questionCount")
+    question_count: int = Field(alias="questionCount", ge=1, le=30)
     include_topics: list[str] = Field(alias="includeTopics")
     exclude_topics: list[str] = Field(alias="excludeTopics")
 
@@ -136,7 +136,9 @@ class ExerciseRequest(BaseModel):
     session_id: str
     topic: str
     difficulty: DifficultyEnum = "medium"
-    exercise_type: str = "problem_solving"
+    exercise_type: Literal["problem_solving", "calculation", "conceptual", "applied"] = (
+        "problem_solving"
+    )
 
 
 class ExerciseStepSchema(BaseModel):
@@ -177,7 +179,7 @@ class Exercise(BaseModel):
 class PreferencesUpdate(BaseModel):
     question_types: list[QuestionTypeEnum] = Field(alias="questionTypes")
     difficulty: DifficultyEnum
-    question_count: int = Field(alias="questionCount")
+    question_count: int = Field(alias="questionCount", ge=1, le=30)
     include_topics: list[str] = Field(alias="includeTopics")
     exclude_topics: list[str] = Field(alias="excludeTopics")
 

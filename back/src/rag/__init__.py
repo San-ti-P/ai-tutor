@@ -15,6 +15,7 @@ These are applied automatically by embed_and_store and retrieve.
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 
 import chromadb
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 _chroma_client: chromadb.PersistentClient | None = None
 _embedding_model: SentenceTransformer | None = None
+_embedding_lock: threading.Lock = threading.Lock()
 
 
 def get_chroma_client() -> chromadb.PersistentClient:
@@ -136,8 +138,9 @@ def embed_and_store(
     )
 
     chunk_ids = [str(uuid.uuid4()) for _ in chunks]
-    prefixed = [f"passage: {c}" for c in chunks]
-    embeddings = model.encode(prefixed).tolist()
+    with _embedding_lock:
+        prefixed = [f"passage: {c}" for c in chunks]
+        embeddings = model.encode(prefixed).tolist()
 
     if metadatas is None:
         metadatas = [{} for _ in chunks]
@@ -203,7 +206,8 @@ def retrieve(
     # discarding chunks whose topic doesn't match the prefix.
     fetch_k = min(top_k * 3, collection_count) if topic_filter else top_k
 
-    query_embedding = model.encode([f"query: {query}"]).tolist()
+    with _embedding_lock:
+        query_embedding = model.encode([f"query: {query}"]).tolist()
 
     results = collection.query(
         query_embeddings=query_embedding,

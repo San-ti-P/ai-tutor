@@ -328,11 +328,11 @@ class TestRealRAG:
             "embedding may not be working correctly"
         )
 
-    def test_real_topic_extraction(self, requires_ollama, real_pdf_text):
+    async def test_real_topic_extraction(self, requires_ollama, real_pdf_text):
         """extract_topics tool works on real academic content."""
         from src.tools import extract_topics
 
-        result = extract_topics.invoke({"text": real_pdf_text[:5000]})
+        result = await extract_topics.ainvoke({"text": real_pdf_text[:5000]})
         assert "error" not in result, f"extract_topics failed: {result.get('error')}"
         assert "summary" in result
         assert len(result.get("topics", [])) >= 3, (

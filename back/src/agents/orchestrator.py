@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import operator
 import os
+import sqlite3
 from typing import Annotated, Literal, NotRequired
 
+import aiosqlite
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
@@ -98,6 +101,7 @@ class OrchestratorState(TypedDict):
     student_id: NotRequired[str | None]
     session_context: NotRequired[dict | None]
     messages_history: NotRequired[Annotated[list, operator.add]]
+    profile_load_error: NotRequired[str | None]
 
 
 async def load_session_context(state: OrchestratorState, config: RunnableConfig = None) -> dict:
@@ -139,7 +143,7 @@ async def load_session_context(state: OrchestratorState, config: RunnableConfig 
                     "session_id": row.get("session_id", session_id),
                 }
             )
-    except Exception:
+    except (sqlite3.OperationalError, aiosqlite.Error, KeyError):
         logger.exception("Failed to load session files for %s", session_id)
         files = []
 
@@ -161,7 +165,7 @@ async def load_session_context(state: OrchestratorState, config: RunnableConfig 
                 "average_score": None,
             }
         )
-    except Exception:
+    except (sqlite3.OperationalError, aiosqlite.Error, KeyError):
         logger.exception("Failed to load session progress for %s", session_id)
         progress = {
             "topic_scores": {},
@@ -196,7 +200,13 @@ async def load_profile(state: OrchestratorState, config: RunnableConfig = None) 
             "Failed to load profile for session %s, falling back to empty profile",
             session_id,
         )
-        return {"student_profile": {}}
+        return {
+            "student_profile": {},
+            "profile_load_error": (
+                "No pude cargar tu perfil. "
+                "Los resultados pueden no estar personalizados."
+            ),
+        }
 
 
 def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> dict:
@@ -280,7 +290,20 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
         )
 
         invoke_kwargs = {"config": config} if config is not None else {}
-        result = structured.invoke(prompt, **invoke_kwargs)
+        result = None
+
+        # First attempt
+        try:
+            result = structured.invoke(prompt, **invoke_kwargs)
+        except Exception as first_err:
+            logger.warning(
+                "[classify_intent] First attempt failed: %s. Retrying.",
+                first_err,
+            )
+            # Retry once with a fresh structured LLM (temperature=0 implicit)
+            retry_structured = get_structured_llm(IntentClassification)
+            result = retry_structured.invoke(prompt, **invoke_kwargs)
+
         intent = result.intent
         confidence = result.confidence
 
@@ -304,7 +327,11 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
         return {"intent": intent, "confidence": confidence, "plan": plan}
 
     except Exception:
-        logger.exception("classify_intent failed, falling back to general_chat")
+        logger.exception(
+            "classify_intent failed, falling back to general_chat. "
+            "Message preview: %.200r",
+            message,
+        )
         return {"intent": "general_chat", "confidence": 0.0, "plan": []}
 
 
@@ -762,6 +789,11 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
             "Esto es lo que logré hasta ahora:\n\n"
         )
 
+    # Prepend profile load error warning if present
+    profile_load_error = state.get("profile_load_error")
+    if profile_load_error:
+        prefix = f"ℹ️ {profile_load_error}\n\n{prefix}"
+
     # Build prompt for LLM synthesis
     try:
         llm = _get_llm()
@@ -960,6 +992,19 @@ def build_orchestrator() -> StateGraph:
 
 _orchestrator_graph: object | None = None
 _orchestrator_db_conn: object | None = None
+_orchestrator_lock: asyncio.Lock | None = None
+
+
+def _get_lock() -> asyncio.Lock:
+    """Return the module-level asyncio.Lock for singleton init.
+
+    Must be a function (not module-level =) to avoid creating the lock
+    outside a running event loop.
+    """
+    global _orchestrator_lock
+    if _orchestrator_lock is None:
+        _orchestrator_lock = asyncio.Lock()
+    return _orchestrator_lock
 
 
 async def get_orchestrator_graph():
@@ -969,32 +1014,38 @@ async def get_orchestrator_graph():
     Falls back to InMemorySaver if DB connection fails due to missing
     dependencies (ImportError), database errors (aiosqlite.Error), or
     filesystem issues (OSError). Unexpected errors propagate.
+
+    Serialized via asyncio.Lock — only one caller enters the init
+    block, preventing double DB connections under concurrent startup.
     """
     global _orchestrator_graph
     global _orchestrator_db_conn
-    if _orchestrator_graph is None:
-        from langgraph.checkpoint.memory import InMemorySaver
 
-        try:
-            import aiosqlite
-            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    lock = _get_lock()
+    async with lock:
+        if _orchestrator_graph is None:
+            from langgraph.checkpoint.memory import InMemorySaver
 
-            db_dir = os.path.dirname(settings.sqlite_db_path)
-            if db_dir:
-                os.makedirs(db_dir, exist_ok=True)
-            conn = await aiosqlite.connect(settings.sqlite_db_path)
-            checkpointer = AsyncSqliteSaver(conn)
-            _orchestrator_db_conn = conn
-            logger.info("Orchestrator using AsyncSqliteSaver at %s", settings.sqlite_db_path)
-        except (ImportError, aiosqlite.Error, OSError) as exc:
-            logger.warning(
-                "AsyncSqliteSaver unavailable at %s: %s. Using InMemorySaver",
-                settings.sqlite_db_path,
-                exc,
-            )
-            checkpointer = InMemorySaver()
+            try:
+                import aiosqlite
+                from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-        _orchestrator_graph = build_orchestrator().compile(checkpointer=checkpointer)
+                db_dir = os.path.dirname(settings.sqlite_db_path)
+                if db_dir:
+                    os.makedirs(db_dir, exist_ok=True)
+                conn = await aiosqlite.connect(settings.sqlite_db_path)
+                checkpointer = AsyncSqliteSaver(conn)
+                _orchestrator_db_conn = conn
+                logger.info("Orchestrator using AsyncSqliteSaver at %s", settings.sqlite_db_path)
+            except (ImportError, aiosqlite.Error, OSError) as exc:
+                logger.warning(
+                    "AsyncSqliteSaver unavailable at %s: %s. Using InMemorySaver",
+                    settings.sqlite_db_path,
+                    exc,
+                )
+                checkpointer = InMemorySaver()
+
+            _orchestrator_graph = build_orchestrator().compile(checkpointer=checkpointer)
 
     return _orchestrator_graph
 
@@ -1002,11 +1053,26 @@ async def get_orchestrator_graph():
 async def close_orchestrator_graph():
     """Close the aiosqlite connection and reset the compiled graph singleton.
 
+    Sets a 5-second drain period: in-flight `graph.ainvoke()` calls are
+    given time to complete before the DB connection is closed.
+
     After calling this, the next ``get_orchestrator_graph()`` call creates a
     fresh graph with a new database connection. Safe to call multiple times.
     """
     global _orchestrator_graph
     global _orchestrator_db_conn
+
+    # Drain in-flight requests: wait 5 seconds for active graph invocations
+    if _orchestrator_graph is not None:
+        logger.info("Draining in-flight orchestrator requests (5s)...")
+        try:
+            await asyncio.wait_for(
+                asyncio.sleep(0), timeout=5.0
+            )  # Allow async tasks to yield
+        except asyncio.TimeoutError:
+            pass
+        # Brief drain sleep to let pending coroutines finish
+        await asyncio.sleep(5)
 
     if _orchestrator_db_conn is not None:
         try:

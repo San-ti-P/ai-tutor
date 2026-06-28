@@ -272,7 +272,28 @@ async def ingest(
     # Use the tools layer — ingest_document wraps the full ingestion graph
     from src.tools import ingest_document as _ingest_tool
 
+    MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+
     for file in files:
+        # Reject oversized files before temp write (A-4)
+        if file.size and file.size > MAX_FILE_SIZE:
+            logger.warning(
+                "File '%s' rejected: size %d exceeds 20 MB limit",
+                file.filename,
+                file.size,
+            )
+            results.append(
+                IngestResult(
+                    sessionId=effective_session_id,
+                    status="error",
+                    classification="",
+                    topicsDetected=[],
+                    chunksCreated=0,
+                )
+            )
+            await file.close()
+            continue
+
         # Save uploaded file to temp location
         suffix = Path(file.filename).suffix if file.filename else ""
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:

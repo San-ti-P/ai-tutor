@@ -760,7 +760,7 @@ class TestDashboardEndpoint:
 
             client = TestClient(app)
 
-            response = client.get("/students/test-student-001/dashboard")
+            response = client.get("/api/students/test-student-001/dashboard")
             assert response.status_code == 200
 
             data = response.json()
@@ -784,7 +784,7 @@ class TestDashboardEndpoint:
 
             client = TestClient(app)
 
-            response = client.get("/students/nonexistent/dashboard")
+            response = client.get("/api/students/nonexistent/dashboard")
             assert response.status_code == 404
 
     @pytest.mark.asyncio
@@ -814,7 +814,7 @@ class TestDashboardEndpoint:
             latencies: list[float] = []
             for _ in range(20):
                 start = time.perf_counter()
-                response = client.get("/students/test-student-001/dashboard")
+                response = client.get("/api/students/test-student-001/dashboard")
                 elapsed = (time.perf_counter() - start) * 1000  # ms
                 latencies.append(elapsed)
                 assert response.status_code == 200
