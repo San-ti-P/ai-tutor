@@ -11,7 +11,7 @@ import {
   UploadFileList,
   type FileStatus,
 } from "@/components/upload/UploadFileList";
-import type { ChatMessage, IngestResult } from "@/lib/types";
+import type { ChatMessage, IngestResult, ExamQuestion } from "@/lib/types";
 
 interface FileEntry {
   file: File;
@@ -156,6 +156,57 @@ export default function ChatPage() {
     [sessionId],
   );
 
+  const handleExamSubmit = useCallback(
+    async (examId: string, answers: Record<string, string>, examQuestions: ExamQuestion[]) => {
+      if (!sessionId) return;
+      setIsLoading(true);
+
+      const userMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: "Entrego el examen con mis respuestas.",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, userMsg]);
+
+      try {
+        const res = await api.chat({
+          session_id: sessionId,
+          message: "Entrego el examen.",
+          examId,
+          answers,
+          examQuestions,
+        });
+
+        const assistantMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: res.data.response,
+          timestamp: new Date(),
+          traceId: res.data.trace_id ?? res.trace_id,
+          exam: res.data.exam,
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "No se pudo entregar el examen. Verificá que el backend esté corriendo.";
+        const errorMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: msg,
+          timestamp: new Date(),
+          isError: true,
+        };
+        setMessages((prev) => [...prev, errorMsg]);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [sessionId],
+  );
+
   if (sessionsLoading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -190,7 +241,7 @@ export default function ChatPage() {
         className="flex flex-1 flex-col rounded-lg border border-border bg-card overflow-hidden"
         style={{ minHeight: "60vh" }}
       >
-        <ChatMessageList messages={messages} isLoading={isLoading} />
+        <ChatMessageList messages={messages} isLoading={isLoading} onExamSubmit={handleExamSubmit} />
         {!sessionId ? (
           <div className="border-t border-border p-4 text-center text-muted-foreground text-sm">
             Inicializando sesión...

@@ -28,6 +28,11 @@ class ChatRequest(BaseModel):
     session_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,128}$")
     message: str = Field(max_length=10000)
     student_id: str | None = None
+    exam_id: str | None = Field(default=None, alias="examId")
+    answers: dict[str, str] | None = None
+    exam_questions: list[ExamQuestion] | None = Field(default=None, alias="examQuestions")
+
+    model_config = {"populate_by_name": True}
 
 
 class ChatResponse(BaseModel):

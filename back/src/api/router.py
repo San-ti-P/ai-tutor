@@ -85,6 +85,9 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
             "messages": [{"role": "user", "content": request.message}],
             "thread_id": request.session_id,
             "student_id": request.student_id,
+            "exam_id": request.exam_id,
+            "answers": request.answers,
+            "exam_questions": [eq.model_dump(by_alias=True) for eq in request.exam_questions] if request.exam_questions else None,
         }
     )
 
