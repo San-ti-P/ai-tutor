@@ -30,7 +30,7 @@ def _manual_cosine_sim(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-def _random_vector(dim: int = 384) -> list[float]:
+def _random_vector(dim: int = 1024) -> list[float]:
     """Generate a random vector with values in [-1, 1]."""
     import random
 
@@ -58,8 +58,8 @@ class TestCosineSimEquivalence:
         import random as _random
 
         _random.seed(seed)
-        a = [_random.uniform(-1.0, 1.0) for _ in range(384)]
-        b = [_random.uniform(-1.0, 1.0) for _ in range(384)]
+        a = [_random.uniform(-1.0, 1.0) for _ in range(1024)]
+        b = [_random.uniform(-1.0, 1.0) for _ in range(1024)]
 
         # Manual result
         manual = _manual_cosine_sim(a, b)
@@ -79,7 +79,7 @@ class TestCosineSimEquivalence:
         Note: cos_sim produces NaN for zero-norm vectors; torch.nan_to_num
         converts NaN to 0.0. This test verifies the conversion.
         """
-        a = [0.0] * 384
+        a = [0.0] * 1024
         b = _random_vector()
 
         # Manual zero-norm guard returns 0.0
@@ -98,15 +98,15 @@ class TestCosineSimEquivalence:
 
     def test_batch_shape_correct(self):
         """cos_sim with N claims and M chunks produces (N, M) matrix."""
-        claims = torch.randn(5, 384, dtype=torch.float32)
-        chunks = torch.randn(10, 384, dtype=torch.float32)
+        claims = torch.randn(5, 1024, dtype=torch.float32)
+        chunks = torch.randn(10, 1024, dtype=torch.float32)
         sim = cos_sim(claims, chunks)
         assert sim.shape == (5, 10)
 
     def test_best_score_per_claim(self):
         """max(dim=1) on cos_sim matrix gives best chunk per claim."""
-        claims = torch.randn(3, 384, dtype=torch.float32)
-        chunks = torch.randn(5, 384, dtype=torch.float32)
+        claims = torch.randn(3, 1024, dtype=torch.float32)
+        chunks = torch.randn(5, 1024, dtype=torch.float32)
         sim = cos_sim(claims, chunks)
         best_scores, best_indices = sim.max(dim=1)
         assert best_scores.shape == (3,)
@@ -115,7 +115,7 @@ class TestCosineSimEquivalence:
 
     def test_dimension_mismatch_raises(self):
         """cos_sim with incompatible dimensions raises RuntimeError."""
-        a = torch.randn(2, 384, dtype=torch.float32)
+        a = torch.randn(2, 1024, dtype=torch.float32)
         b = torch.randn(2, 512, dtype=torch.float32)
         with pytest.raises(RuntimeError, match="cannot be multiplied"):
             cos_sim(a, b)

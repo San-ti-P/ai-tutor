@@ -89,10 +89,10 @@ class TestIncrementalIngestion:
         """PRD Case #5: Two files added, chunks accumulate."""
         with patch("src.rag.get_embedding_model") as mock_get_model:
             mock_model = MagicMock()
-            mock_model.get_sentence_embedding_dimension.return_value = 384
+            mock_model.get_sentence_embedding_dimension.return_value = 1024
 
             def _fake_encode(texts):
-                return [[0.1 * (i + 1) for i in range(384)] for _ in texts]
+                return [[0.1 * (i + 1) for i in range(1024)] for _ in texts]
 
             mock_model.encode.side_effect = lambda texts: _FakeEncodeResult(_fake_encode(texts))
             mock_get_model.return_value = mock_model

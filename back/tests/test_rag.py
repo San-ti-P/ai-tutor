@@ -168,11 +168,11 @@ class TestEmbedAndStore:
         ChromaDB path to a temp directory."""
         with patch("src.rag.get_embedding_model") as mock_get_model:
             mock_model = MagicMock()
-            mock_model.get_sentence_embedding_dimension.return_value = 384
+            mock_model.get_sentence_embedding_dimension.return_value = 1024
 
-            # Return a 384-dim fake embedding for each chunk
+            # Return a 1024-dim fake embedding for each chunk
             def _fake_encode(texts):
-                return [[0.1 * (i + 1) for i in range(384)] for _ in texts]
+                return [[0.1 * (i + 1) for i in range(1024)] for _ in texts]
 
             mock_model.encode.return_value.tolist = MagicMock()
             mock_model.encode.side_effect = lambda texts: _FakeEncodeResult(_fake_encode(texts))
@@ -221,7 +221,7 @@ class TestRetrieve:
         """Create a real ChromaDB collection with pre-loaded chunks."""
         with patch("src.rag.get_embedding_model") as mock_get_model:
             mock_model = MagicMock()
-            mock_model.get_sentence_embedding_dimension.return_value = 384
+            mock_model.get_sentence_embedding_dimension.return_value = 1024
 
             # Store the texts that get encoded so we can build proper embeddings
             encoded_texts = []
@@ -229,7 +229,7 @@ class TestRetrieve:
             def _fake_encode(texts):
                 encoded_texts.clear()
                 encoded_texts.extend(texts)
-                return [[0.1 * (i + 1) for i in range(384)] for _ in texts]
+                return [[0.1 * (i + 1) for i in range(1024)] for _ in texts]
 
             mock_model.encode.return_value.tolist = MagicMock()
             mock_model.encode.side_effect = lambda texts: _FakeEncodeResult(_fake_encode(texts))

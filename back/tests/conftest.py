@@ -203,12 +203,12 @@ def mock_embedding_model():
 
     with patch("src.rag.get_embedding_model") as mock_get:
         mock_model = MagicMock()
-        mock_model.get_sentence_embedding_dimension.return_value = 384
+        mock_model.get_sentence_embedding_dimension.return_value = 1024
 
         # Make encode return real torch tensors for cos_sim/batch compatibility
         def _fake_encode(texts, **kwargs):
             return torch.tensor(
-                [[0.1 * (i + 1 + (hash(t) % 10) * 0.01) for i in range(384)] for t in texts],
+                [[0.1 * (i + 1 + (hash(t) % 10) * 0.01) for i in range(1024)] for t in texts],
                 dtype=torch.float32,
             )
 

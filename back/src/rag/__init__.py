@@ -1,4 +1,4 @@
-"""RAG module — ChromaDB vector store, E5 embeddings, and thematic index.
+"""RAG module — ChromaDB vector store, E5-large embeddings, and thematic index.
 
 Provides the persistence and retrieval backbone consumed by all agents:
 - Lazy singletons for the ChromaDB PersistentClient and SentenceTransformer model

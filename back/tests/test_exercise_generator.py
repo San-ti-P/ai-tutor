@@ -176,14 +176,14 @@ class TestValidateExercise:
             import torch
 
             model = MagicMock()
-            model.get_sentence_embedding_dimension.return_value = 384
+            model.get_sentence_embedding_dimension.return_value = 1024
 
             def _fake_encode(texts, **kwargs):
                 return torch.tensor(
                     [
                         [
                             float(int(hashlib.md5(t.encode()).hexdigest()[:8], 16) % 1000) / 1000.0
-                            for _ in range(384)
+                            for _ in range(1024)
                         ]
                         for t in texts
                     ],
@@ -236,11 +236,11 @@ class TestValidateExercise:
             import torch
 
             model = MagicMock()
-            model.get_sentence_embedding_dimension.return_value = 384
+            model.get_sentence_embedding_dimension.return_value = 1024
 
             # Chunk embeddings: non-zero. Claim embeddings: zero vector → cos-sim=0
-            chunk_vec = [[0.1] * 384]
-            zero_vec = [[0.0] * 384]
+            chunk_vec = [[0.1] * 1024]
+            zero_vec = [[0.0] * 1024]
             call_counter = [0]
 
             def _discriminating_encode(texts, **kwargs):
@@ -502,10 +502,10 @@ class TestPRDIntegration:
             import torch
 
             model = MagicMock()
-            model.get_sentence_embedding_dimension.return_value = 384
+            model.get_sentence_embedding_dimension.return_value = 1024
 
-            chunk_vec = [[0.1] * 384]
-            zero_vec = [[0.0] * 384]
+            chunk_vec = [[0.1] * 1024]
+            zero_vec = [[0.0] * 1024]
             call_counter = [0]
 
             def _discriminating_encode(texts, **kwargs):

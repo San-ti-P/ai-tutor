@@ -45,7 +45,7 @@ def sample_chunks() -> list[dict]:
 # ── Test helpers ─────────────────────────────────────────────────────────────
 
 
-def _make_matching_model(dim: int = 384):
+def _make_matching_model(dim: int = 1024):
     """Model where chunks and claims get identical embeddings → cos_sim=1.0."""
     model = MagicMock()
     model.get_sentence_embedding_dimension.return_value = dim
@@ -58,7 +58,7 @@ def _make_matching_model(dim: int = 384):
     return model
 
 
-def _make_diverging_model(chunk_value: float, claim_value: float, dim: int = 384):
+def _make_diverging_model(chunk_value: float, claim_value: float, dim: int = 1024):
     """Model where chunks and claims get different embeddings.
 
     Normalised dot product ≈ chunk_value * claim_value.
@@ -78,7 +78,7 @@ def _make_diverging_model(chunk_value: float, claim_value: float, dim: int = 384
     return model
 
 
-def _make_zero_model(dim: int = 384):
+def _make_zero_model(dim: int = 1024):
     """Model returning all-zero vectors → cos_sim=0.0."""
     model = MagicMock()
     model.get_sentence_embedding_dimension.return_value = dim

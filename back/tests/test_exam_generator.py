@@ -171,7 +171,7 @@ class TestValidateQuestions:
 
             # Embeddings: make chunk embeddings match their text content
             model = MagicMock()
-            model.get_sentence_embedding_dimension.return_value = 384
+            model.get_sentence_embedding_dimension.return_value = 1024
 
             # Encode returns a real torch tensor for cos_sim compatibility
             def _fake_encode(texts, **kwargs):
@@ -181,7 +181,7 @@ class TestValidateQuestions:
                     [
                         [
                             float(int(hashlib.md5(t.encode()).hexdigest()[:8], 16) % 1000) / 1000.0
-                            for _ in range(384)
+                            for _ in range(1024)
                         ]
                         for t in texts
                     ],
@@ -225,12 +225,12 @@ class TestValidateQuestions:
             import torch
 
             model = MagicMock()
-            model.get_sentence_embedding_dimension.return_value = 384
+            model.get_sentence_embedding_dimension.return_value = 1024
 
             # Return LOW similarity embeddings for the claim (hallucination)
             def _low_encode(texts, **kwargs):
                 return torch.tensor(
-                    [[0.01 * (i + 1) for i in range(384)] for _ in texts],
+                    [[0.01 * (i + 1) for i in range(1024)] for _ in texts],
                     dtype=torch.float32,
                 )
 
@@ -763,13 +763,13 @@ class TestPRDIntegration:
             import torch
 
             model = MagicMock()
-            model.get_sentence_embedding_dimension.return_value = 384
+            model.get_sentence_embedding_dimension.return_value = 1024
 
             # Chunk embeddings: non-zero vectors (so they have valid norms).
             # Claim embedding: zero vector → norm=0 → cos-sim=0.0 → below any threshold.
             # This guarantees the fabricated astrofísica claim fails validation.
-            chunk_vec = [[0.1] * 384]
-            zero_vec = [[0.0] * 384]
+            chunk_vec = [[0.1] * 1024]
+            zero_vec = [[0.0] * 1024]
             call_counter = [0]  # mutable so inner function can mutate
 
             def _discriminating_encode(texts, **kwargs):
