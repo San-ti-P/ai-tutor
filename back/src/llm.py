@@ -89,7 +89,8 @@ def get_llm(
     # Priority 3 & 4: Live LLM or normal operation
     llm_cls, llm_kwargs = settings.llm_kwargs
     # Build a cache key from provider and model fingerprint
-    raw_key = f"{settings.llm_provider}:{llm_cls.__name__}:{llm_kwargs.get('model', '')}"
+    cls_name = getattr(llm_cls, "__name__", str(llm_cls))
+    raw_key = f"{settings.llm_provider}:{cls_name}:{llm_kwargs.get('model', '')}"
     cache_key = hashlib.sha256(raw_key.encode()).hexdigest()[:16]
 
     if cache_key not in _llm_cache:

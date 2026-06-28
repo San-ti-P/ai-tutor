@@ -40,7 +40,7 @@ class TestMessagesHistoryState:
         """GIVEN synthesize_response → THEN it returns new messages_history entries."""
         state: OrchestratorState = {
             "session_id": "s1",
-            "user_message": "¿Qué es un límite?",
+            "user_message": "Hola, ¿cómo estás?",
             "intent": "general_chat",
             "confidence": 0.95,
             "plan": [],
@@ -65,7 +65,7 @@ class TestMessagesHistoryState:
         assert len(result["messages_history"]) == 2
         assert result["messages_history"][0] == {
             "role": "user",
-            "content": "¿Qué es un límite?",
+            "content": "Hola, ¿cómo estás?",
         }
         assert result["messages_history"][1]["role"] == "assistant"
         assert "Un límite es..." in result["messages_history"][1]["content"]

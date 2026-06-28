@@ -69,7 +69,7 @@ class TestGenerateQuestions:
 
         state = {
             **exam_generator_state,
-            "retrieved_chunks": sample_chunks[:3],
+            "retrieved_chunks": sample_chunks,  # all 5 chunks including chunk-math-004
             "mcq_ratio": 0.6,
             "question_count": 5,
         }
@@ -101,7 +101,7 @@ class TestGenerateQuestions:
 
         state = {
             **exam_generator_state,
-            "retrieved_chunks": sample_chunks[:3],
+            "retrieved_chunks": sample_chunks,  # all 5 chunks
             "generated_questions": existing_valid,
             "invalid_question_indices": [2],
             "retry_count": 1,
