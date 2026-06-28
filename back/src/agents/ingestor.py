@@ -286,11 +286,20 @@ def chunk_and_embed(state: IngestorState) -> dict:
 # ── Graph builder ───────────────────────────────────────────────────────────
 
 
+def _route_after_parse(state: IngestorState) -> str:
+    """Short-circuit: rejected or error status → END (no LLM calls)."""
+    if state.get("status") in ("rejected", "error"):
+        return "end"
+    return "classify_document"
+
+
 def build_ingestor() -> StateGraph:
     """Build and return the Ingestor LangGraph.
 
-    Simplified graph (OCR deferred):
-        START → parse_document → classify_document → chunk_and_embed → END
+    Topology:
+        START → parse_document
+          ├── status in (\"rejected\", \"error\") → END
+          └── status ok → classify_document → chunk_and_embed → END
     """
     builder = StateGraph(IngestorState)
 
@@ -299,7 +308,11 @@ def build_ingestor() -> StateGraph:
     builder.add_node("chunk_and_embed", chunk_and_embed)
 
     builder.add_edge(START, "parse_document")
-    builder.add_edge("parse_document", "classify_document")
+    builder.add_conditional_edges(
+        "parse_document",
+        _route_after_parse,
+        {"classify_document": "classify_document", "end": END},
+    )
     builder.add_edge("classify_document", "chunk_and_embed")
     builder.add_edge("chunk_and_embed", END)
 
