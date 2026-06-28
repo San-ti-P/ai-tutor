@@ -59,6 +59,8 @@ from src.memory.schema import (
 )
 from src.memory.schema import (
     rename_session as _rename_session,
+    update_session_status as _update_session_status,
+    insert_generated_exam as _insert_generated_exam,
 )
 
 logger = logging.getLogger(__name__)
@@ -401,6 +403,7 @@ async def ingest(
                         "session_id": effective_session_id,
                     }
                 )
+                await _update_session_status(effective_session_id, "active")
             except Exception:
                 logger.exception("Failed to persist file metadata for %s", file.filename)
 
@@ -501,8 +504,14 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
         },
     )
 
+    exam = _build_exam_from_raw(result, topic=request.topic, difficulty=request.preferences.difficulty)
+    try:
+        await _insert_generated_exam(exam.id, request.session_id, exam.topic, exam.difficulty)
+    except Exception:
+        logger.exception("Failed to insert generated exam %s into database", exam.id)
+
     return ApiResponse(
-        data=_build_exam_from_raw(result, topic=request.topic, difficulty=request.preferences.difficulty),
+        data=exam,
         error=None,
         trace_id=str(uuid.uuid4()),
     )
