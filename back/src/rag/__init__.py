@@ -1,10 +1,15 @@
-"""RAG module — ChromaDB vector store, sentence-transformers embeddings, and thematic index.
+"""RAG module — ChromaDB vector store, E5 embeddings, and thematic index.
 
 Provides the persistence and retrieval backbone consumed by all agents:
 - Lazy singletons for the ChromaDB PersistentClient and SentenceTransformer model
 - Semantic chunking via RecursiveCharacterTextSplitter
 - embed_and_store / retrieve for the full write and read paths
 - ThematicIndex for hierarchical topic tracking across sessions
+
+Note: The E5 embedding model requires asymmetric prefixes:
+- Documents/chunks use ``"passage: "`` prefix
+- Queries use ``"query: "`` prefix
+These are applied automatically by embed_and_store and retrieve.
 """
 
 from __future__ import annotations
@@ -134,7 +139,8 @@ def embed_and_store(
 
     chunk_ids = [str(uuid.uuid4()) for _ in chunks]
     with _embedding_lock:
-        embeddings = model.encode(chunks).tolist()
+        prefixed = [f"passage: {c}" for c in chunks]
+        embeddings = model.encode(prefixed).tolist()
 
     if metadatas is None:
         metadatas = [{} for _ in chunks]
@@ -201,7 +207,7 @@ def retrieve(
     fetch_k = min(top_k * 3, collection_count) if topic_filter else top_k
 
     with _embedding_lock:
-        query_embedding = model.encode([query]).tolist()
+        query_embedding = model.encode([f"query: {query}"]).tolist()
 
     results = collection.query(
         query_embeddings=query_embedding,

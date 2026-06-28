@@ -81,9 +81,14 @@ def validate_claim_grounding(
     model = get_embedding_model()
 
     # ── Batch encode claims and chunks ──
+    # E5 models require asymmetric prefixes: claims are queries, chunks are passages.
     chunk_texts = [c.get("text", "") for c in chunks]
-    claim_embeddings = model.encode(claims, convert_to_tensor=True)
-    chunk_embeddings = model.encode(chunk_texts, convert_to_tensor=True)
+    claim_embeddings = model.encode(
+        [f"query: {cl}" for cl in claims], convert_to_tensor=True
+    )
+    chunk_embeddings = model.encode(
+        [f"passage: {ct}" for ct in chunk_texts], convert_to_tensor=True
+    )
 
     # ── Pre-flight dimension assertion ──
     assert claim_embeddings.shape[1] == chunk_embeddings.shape[1], (
