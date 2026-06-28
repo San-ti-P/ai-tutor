@@ -291,6 +291,75 @@ class TestErrorHandling:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Cross-File Topic Conciliation / Unification
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestCrossFileTopicConciliation:
+    @pytest.mark.asyncio
+    async def test_cross_file_topic_conciliation(self, ingestor_state):
+        """Verify that when a second file is ingested, similar topics are reconciled."""
+        from src.agents.ingestor import classify_document
+        from src.memory.schema import insert_ingested_document, create_session
+        import json
+
+        session_id = ingestor_state["session_id"]
+        await create_session(session_id, "Materia", "", session_id=session_id)
+
+        # Insert a fake existing document with similar topics first
+        await insert_ingested_document(
+            {
+                "id": "doc-1",
+                "file_name": "file1.txt",
+                "classification": "apunte_teorico",
+                "topics_json": json.dumps(["Álgebra Lineal", "Matrices"]),
+                "topic_tree_json": '{"Álgebra Lineal": {}, "Matrices": {}}',
+                "chunks_count": 2,
+                "session_id": session_id,
+            }
+        )
+
+        state = dict(ingestor_state)
+        state["raw_text"] = "Algún texto sobre Álgebra Lineal Avanzada."
+
+        # Mock the pipeline result to return similar but slightly different topics
+        mock_pipeline_result = {
+            "summary": "Resumen sobre Álgebra.",
+            "topics": ["Álgebra Lineal Avanzada", "Espacio Vectorial"],
+            "topic_tree": '{"Álgebra Lineal Avanzada": {}, "Espacio Vectorial": {}}',
+            "segment_count": 1,
+            "failed_segments": [],
+        }
+
+        with patch(
+            "src.topic_extraction.extract_topics_pipeline",
+            new_callable=AsyncMock,
+        ) as mock_pipeline:
+            mock_pipeline.return_value = mock_pipeline_result
+
+            # Mock LLM classifier structured output
+            mock_result = MagicMock()
+            mock_result.classification = "apunte_teorico"
+            mock_result.confidence = 0.95
+            mock_result.topics = ["Álgebra Lineal Avanzada", "Espacio Vectorial"]
+            mock_chain = MagicMock()
+            mock_chain.invoke.return_value = mock_result
+
+            with patch("src.llm.get_structured_llm", return_value=mock_chain):
+                result = await classify_document(state)
+
+        # "Álgebra Lineal Avanzada" should be reconciled/mapped to the existing "Álgebra Lineal"
+        assert "Álgebra Lineal" in result["topics"]
+        assert "Álgebra Lineal Avanzada" not in result["topics"]
+        assert "Espacio Vectorial" in result["topics"]
+
+        # Check that the topic tree keys were updated
+        tree = json.loads(result["topic_tree"])
+        assert "Álgebra Lineal" in tree
+        assert "Álgebra Lineal Avanzada" not in tree
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 

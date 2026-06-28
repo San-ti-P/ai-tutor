@@ -101,3 +101,71 @@ def unify_topics(
         max_count,
     )
     return result
+
+
+def reconcile_topics(
+    new_topics: list[str],
+    existing_topics: list[str],
+    threshold: float | None = None,
+) -> tuple[list[str], dict[str, str]]:
+    """Map new topics to existing topics in the session if they are semantically similar.
+
+    This prevents duplicate/near-duplicate topics across different files in the same session.
+
+    Args:
+        new_topics: Newly extracted topic strings from the current document.
+        existing_topics: Already stored topics in other documents of the same session.
+        threshold: Jaccard similarity threshold for merging. Defaults to settings.topic_similarity_threshold (0.6).
+
+    Returns:
+        A tuple containing:
+            - A list of reconciled topic strings.
+            - A dictionary mapping original topic names to their reconciled names.
+    """
+    if threshold is None:
+        threshold = settings.topic_similarity_threshold
+
+    if not existing_topics or not new_topics:
+        return list(new_topics), {t: t for t in new_topics}
+
+    # Pre-stem existing topics
+    existing_topics_unique = list(dict.fromkeys(existing_topics))
+    existing_stems = [(t, stem_topic(t)) for t in existing_topics_unique]
+
+    reconciled_topics = []
+    topic_map = {}
+
+    for topic in new_topics:
+        topic_stem = stem_topic(topic)
+        best_match = None
+        best_sim = -1.0
+
+        for ext_topic, ext_stem in existing_stems:
+            sim = jaccard_similarity(topic_stem, ext_stem)
+            if sim >= threshold and sim > best_sim:
+                best_match = ext_topic
+                best_sim = sim
+
+        if best_match:
+            reconciled_topics.append(best_match)
+            topic_map[topic] = best_match
+            logger.info(
+                "Reconciled topic '%s' -> '%s' (similarity: %.2f)",
+                topic,
+                best_match,
+                best_sim,
+            )
+        else:
+            reconciled_topics.append(topic)
+            topic_map[topic] = topic
+
+    # Deduplicate while preserving order
+    unique_reconciled = []
+    seen = set()
+    for t in reconciled_topics:
+        if t not in seen:
+            seen.add(t)
+            unique_reconciled.append(t)
+
+    return unique_reconciled, topic_map
+

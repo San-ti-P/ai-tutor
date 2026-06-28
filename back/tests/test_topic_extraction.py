@@ -262,6 +262,33 @@ class TestSegmentText:
         segments = segment_text(text, max_chars=200)
         assert segments == [text]
 
+    def test_fallback_to_paragraphs_merges_small_adjacent(self):
+        """Text without headings splits on double newline but merges small paragraphs."""
+        from src.topic_extraction.segment import segment_text
+
+        text = "Corto 1.\n\nCorto 2.\n\nCorto 3.\n\nEste es un párrafo sustancialmente más largo que supera el mínimo de caracteres configurado."
+        # min_section = 100, max_chars = 10
+        # Corto 1 (8), Corto 2 (8), Corto 3 (8) should merge
+        segments = segment_text(text, min_section=100, max_chars=10)
+        assert len(segments) == 1
+
+    def test_backward_merge_last_segment_short(self):
+        """If the last segment is shorter than min_section, it is merged backward."""
+        from src.topic_extraction.segment import segment_text
+
+        text = (
+            "# Sección 1\n\n"
+            "Un texto relativamente largo que va a superar los 100 caracteres cómodamente. "
+            "Esto asegura que la primera sección tenga suficiente longitud por sí sola y no intente mergearse hacia adelante de entrada.\n\n"
+            "# Sección 2\n\n"
+            "Cortito."
+        )
+        segments = segment_text(text, min_section=100)
+        # Section 2 is very short, so it must be merged backward into Section 1.
+        assert len(segments) == 1
+        assert "Sección 1" in segments[0]
+        assert "Cortito." in segments[0]
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 2.3 — extract.py tests (TXR-03)

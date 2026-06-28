@@ -58,39 +58,47 @@ def segment_text(
     if not headings:
         # Fallback: no headings → split on double newline (paragraphs)
         if len(text) <= max_chars:
-            return [text]
-        parts = [p.strip() for p in text.split("\n\n") if p.strip()]
-        if len(parts) <= 1:
-            return [text]
-        return parts
+            return [text.strip()]
+        initial_segments = [p.strip() for p in text.split("\n\n") if p.strip()]
+    else:
+        # Split at heading boundaries, keeping preamble if exists
+        initial_segments = []
+        first_heading_start = headings[0].start()
+        preamble = text[:first_heading_start].strip()
+        if preamble:
+            initial_segments.append(preamble)
 
-    # Split at heading boundaries
-    segments: list[str] = []
-    for i, match in enumerate(headings):
-        start = match.start()
-        if i + 1 < len(headings):
-            end = headings[i + 1].start()
-        else:
-            end = len(text)
-        seg = text[start:end].strip()
-        if seg:
-            segments.append(seg)
+        for i, match in enumerate(headings):
+            start = match.start()
+            if i + 1 < len(headings):
+                end = headings[i + 1].start()
+            else:
+                end = len(text)
+            seg = text[start:end].strip()
+            if seg:
+                initial_segments.append(seg)
+
+    if not initial_segments:
+        return []
 
     # Merge adjacent sections shorter than min_section
     merged: list[str] = []
-    i = 0
-    while i < len(segments):
-        current = segments[i]
-        j = i + 1
-        while j < len(segments) and len(current) < min_section:
-            current = current + "\n\n" + segments[j]
-            j += 1
-        merged.append(current.strip())
-        i = j
+    current = ""
+    for seg in initial_segments:
+        if not current:
+            current = seg
+        else:
+            if len(current) < min_section:
+                current = current + "\n\n" + seg
+            else:
+                merged.append(current)
+                current = seg
 
-    # Passthrough: if single segment and text is short enough
-    if len(merged) == 1 and len(text) <= max_chars:
-        return [text.strip()]
+    if current:
+        if merged and len(current) < min_section:
+            merged[-1] = merged[-1] + "\n\n" + current
+        else:
+            merged.append(current)
 
     logger.debug(
         "Segmented %d chars into %d sections (headings=%d, merged=%d)",
