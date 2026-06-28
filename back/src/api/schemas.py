@@ -96,6 +96,9 @@ class EvaluationResult(BaseModel):
     non_evaluable_reason: str = Field(default="", alias="nonEvaluableReason")
     requires_review: bool = Field(default=False, alias="requiresReview")
     judge_score: float | None = Field(default=None, alias="judgeScore")
+    question_text: str = Field(default="", alias="questionText")
+    user_answer: str = Field(default="", alias="userAnswer")
+    source_chunks: list[str] = Field(default_factory=list, alias="sourceChunks")
 
     model_config = {"populate_by_name": True}
 
