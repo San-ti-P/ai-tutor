@@ -1051,6 +1051,42 @@ class TestOrchestrateChatTool:
         assert call_args[0][0]["user_message"] == ""
         assert result["response"] == "No entendí tu mensaje."
 
+    async def test_tool_accepts_and_forwards_exam_params(self):
+        """orchestrate_chat accepts and forwards exam parameters to initial state."""
+        from unittest.mock import AsyncMock, patch
+
+        from src.tools.orchestrate_chat import orchestrate_chat
+
+        fake_graph = AsyncMock()
+        fake_graph.ainvoke = AsyncMock(
+            return_value={
+                "response": "Examen evaluado.",
+                "intent": "evaluate",
+                "status": "complete",
+            }
+        )
+
+        with patch(
+            "src.agents.orchestrator.get_orchestrator_graph",
+            return_value=fake_graph,
+        ):
+            result = await orchestrate_chat.ainvoke(
+                {
+                    "messages": [{"role": "user", "content": "Entrego examen"}],
+                    "thread_id": "t-exam",
+                    "exam_id": "exam-123",
+                    "answers": {"q1": "my answer"},
+                    "exam_questions": [{"id": "q1", "prompt": "Question 1"}],
+                }
+            )
+
+        call_args = fake_graph.ainvoke.call_args
+        init_state = call_args[0][0]
+        assert init_state["exam_id"] == "exam-123"
+        assert init_state["answers"] == {"q1": "my answer"}
+        assert init_state["exam_questions"] == [{"id": "q1", "prompt": "Question 1"}]
+        assert result["intent"] == "evaluate"
+
 
 # ==============================================================================
 # Helpers for fake LLM responses

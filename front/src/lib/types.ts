@@ -151,6 +151,9 @@ interface ApiResponse<T> {
 interface ChatRequest {
   session_id: string;
   message: string;
+  examId?: string;
+  answers?: Record<string, string>;
+  examQuestions?: ExamQuestion[];
 }
 
 interface ChatResponse {

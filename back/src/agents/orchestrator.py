@@ -102,6 +102,9 @@ class OrchestratorState(TypedDict):
     session_context: NotRequired[dict | None]
     messages_history: NotRequired[Annotated[list, operator.add]]
     profile_load_error: NotRequired[str | None]
+    exam_id: NotRequired[str | None]
+    answers: NotRequired[dict[str, str] | None]
+    exam_questions: NotRequired[list[dict] | None]
 
 
 async def load_session_context(state: OrchestratorState, config: RunnableConfig = None) -> dict:
@@ -221,6 +224,15 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
     message = state["user_message"]
     profile = state.get("student_profile")
     t0 = time.monotonic()
+
+    if state.get("exam_id") and state.get("answers"):
+        logger.info("[classify_intent] Bypassing classification for explicit exam evaluation request")
+        return {
+            "intent": "evaluate",
+            "confidence": 1.0,
+            "plan": ["evaluate"],
+            "current_step": 0,
+        }
 
     try:
         structured = get_structured_llm(IntentClassification)
@@ -512,8 +524,66 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
         if profile:
             args["student_profile"] = profile
     elif tool_name == "evaluate":
-        args["exam_id"] = ""
-        args["answers"] = []
+        exam_id = state.get("exam_id") or ""
+        raw_answers = state.get("answers") or {}
+        exam_questions = state.get("exam_questions") or []
+
+        # Map dict[str, str] answers to list[dict] expected by the evaluate tool
+        question_map: dict[str, dict] = {}
+        for eq in exam_questions:
+            eq_id = eq.get("id") if isinstance(eq, dict) else getattr(eq, "id", "")
+            eq_prompt = eq.get("prompt") if isinstance(eq, dict) else getattr(eq, "prompt", "")
+            eq_base_answer = (
+                (eq.get("baseAnswer") or eq.get("base_answer"))
+                if isinstance(eq, dict)
+                else (getattr(eq, "baseAnswer", None) or getattr(eq, "base_answer", ""))
+            )
+            eq_topic = eq.get("topic") if isinstance(eq, dict) else getattr(eq, "topic", "")
+            eq_difficulty = eq.get("difficulty") if isinstance(eq, dict) else getattr(eq, "difficulty", "medium")
+            eq_source_chunk_ids = (
+                (eq.get("sourceChunkIds") or eq.get("source_chunk_ids"))
+                if isinstance(eq, dict)
+                else (getattr(eq, "sourceChunkIds", None) or getattr(eq, "source_chunk_ids", []))
+            )
+
+            question_map[eq_id] = {
+                "question": eq_prompt,
+                "base_answer": eq_base_answer or "",
+                "topic": eq_topic,
+                "difficulty": str(eq_difficulty),
+                "source_chunk_ids": eq_source_chunk_ids or [],
+            }
+
+        answers_list: list[dict] = []
+        for question_id, student_answer in raw_answers.items():
+            if question_id in question_map:
+                qdata = question_map[question_id]
+                answers_list.append(
+                    {
+                        "question_id": question_id,
+                        "question": qdata["question"],
+                        "base_answer": qdata["base_answer"],
+                        "student_answer": student_answer,
+                        "source_chunk_ids": qdata["source_chunk_ids"],
+                        "topic": qdata["topic"],
+                        "difficulty": qdata["difficulty"],
+                    }
+                )
+            else:
+                answers_list.append(
+                    {
+                        "question_id": question_id,
+                        "question": "",
+                        "base_answer": "",
+                        "student_answer": student_answer,
+                        "source_chunk_ids": [],
+                        "topic": "",
+                        "difficulty": "medium",
+                    }
+                )
+
+        args["exam_id"] = exam_id
+        args["answers"] = answers_list
         resolved_sid = state.get("student_id") or state["session_id"]
         args["student_id"] = resolved_sid
     elif tool_name == "update_student_profile":

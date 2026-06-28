@@ -2,15 +2,16 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ChatMessage as ChatMessageType } from "@/lib/types";
+import type { ChatMessage as ChatMessageType, ExamQuestion } from "@/lib/types";
 import { ExamWidget } from "@/components/chat/ExamWidget";
 import { cn } from "@/lib/utils";
 
 interface ChatMessageProps {
   message: ChatMessageType;
+  onExamSubmit?: (examId: string, answers: Record<string, string>, examQuestions: ExamQuestion[]) => void;
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, onExamSubmit }: ChatMessageProps) {
   const isUser = message.role === "user";
 
   return (
@@ -40,7 +41,12 @@ export function ChatMessage({ message }: ChatMessageProps) {
           </div>
         )}
 
-        {!isUser && message.exam && <ExamWidget exam={message.exam} />}
+        {!isUser && message.exam && (
+          <ExamWidget
+            exam={message.exam}
+            onSubmit={(answers) => onExamSubmit?.(message.exam!.id, answers, message.exam!.questions)}
+          />
+        )}
 
         {message.traceId && (
           <span
