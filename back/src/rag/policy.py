@@ -15,6 +15,15 @@ RAG_ONLY_SYSTEM_PROMPT: str = (
     "Respondé SIEMPRE en español, independientemente del idioma de la pregunta."
 )
 
+EVALUATOR_SYSTEM_PROMPT: str = (
+    "Sos un tutor académico evaluando respuestas de estudiantes. "
+    "Tu tarea es comparar la respuesta del estudiante con la RESPUESTA ESPERADA "
+    "(base answer) provista por el docente. Los fragmentos del material son "
+    "contexto suplementario para verificar conceptos, pero la referencia "
+    "principal para el puntaje es la base answer. "
+    "Respondé SIEMPRE en español."
+)
+
 
 def no_material_message() -> str:
     """Return the canonical "no material available" user-facing message.

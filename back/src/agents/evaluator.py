@@ -312,7 +312,7 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dic
     Decorated with ``@observe()`` for Langfuse tracing.
     """
     from src.llm import get_structured_llm
-    from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT, no_material_message
+    from src.rag.policy import EVALUATOR_SYSTEM_PROMPT, RAG_ONLY_SYSTEM_PROMPT, no_material_message
 
     answers: list[dict] = state.get("answers", [])
     idx: int = state.get("current_index", 0)
@@ -399,7 +399,7 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dic
 {chunk_context}
 """
 
-        prompt = f"""{RAG_ONLY_SYSTEM_PROMPT}
+        prompt = f"""{EVALUATOR_SYSTEM_PROMPT}
 
 Evaluá la siguiente respuesta de un estudiante universitario. Respondé SIEMPRE en español.
 
@@ -420,7 +420,8 @@ INSTRUCCIONES:
 4. Proporcioná sugerencias de estudio accionables basadas en los errores detectados.
 5. Si la respuesta es incoherente, en otro idioma, o no se puede evaluar,
    establecé is_evaluable=false.
-6. Cada afirmación en la justificación DEBE estar respaldada por el material de referencia."""
+6. Usa el material de referencia como contexto para verificar conceptos, pero la
+   fuente principal para el puntaje es la comparacion con la RESPUESTA ESPERADA."""
 
         structured_llm = get_structured_llm(SingleEvaluation)
 
