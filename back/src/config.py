@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     e2e_record_mode: bool = False
 
     # ── RAG / Embedding ───────────────────────────────────────────────────
-    embedding_model_name: str = "intfloat/multilingual-e5-small"
+    embedding_model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
     chunk_size: int = 512
     chunk_overlap: int = 64
     retrieval_top_k: int = 5

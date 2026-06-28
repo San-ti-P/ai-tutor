@@ -88,7 +88,7 @@ UTN Santa Fe — CIDISI
 |---|---|---|
 | **LLM** | Ollama Cloud `gemma4:31b-cloud` | Tool calling nativo, español, local/cloud |
 | **Orquestación** | LangGraph + LangChain | StateGraph con conditional edges y loops |
-| **RAG** | ChromaDB + `intfloat/multilingual-e5-small` | Vector store local, embeddings multilingües |
+| **RAG** | ChromaDB + `paraphrase-multilingual-MiniLM-L12-v2` | Vector store local, embeddings multilingües |
 | **API** | FastAPI (Python) | Async, tipado, OpenAPI automático |
 | **UI** | Next.js 15 + React 19 + Tailwind 4 | SPA moderna, upload, chat, dashboard |
 | **Memoria** | SQLite (perfil) + ChromaDB (material) | Sin servidor externo |
@@ -137,7 +137,7 @@ UTN Santa Fe — CIDISI
     ▼
 ┌──────────┐    ┌──────────────────┐    ┌─────────────────┐
 │ markitdown│───▶│ Chunking Semántico│───▶│ Embeddings      │
-│  (parse)  │    │ 512 tokens, 64 ov│    │multilingual-e5  │
+│  (parse)  │    │ 512 tokens, 64 ov│    │MiniLM-L12-v2    │
 └──────────┘    └──────────────────┘    └──────┬──────────┘
                                                │
                                                ▼
@@ -165,10 +165,10 @@ UTN Santa Fe — CIDISI
 
 | Riesgo | Guardrail | Acción |
 |---|---|---|
-| **Material no académico** | Clasificador del Ingestor | Rechazar, no contaminar BD |
-| **Evaluación inconsistente** | LLM-as-judge (10% sampling) | Marcar para revisión si discrepancia >2pts |
 | **Preguntas inventadas** | Validación claim-level contra ChromaDB (threshold 0.55) | Regenerar hasta 3×, luego skip |
 | **Loop infinito** | Máximo 15 iteraciones por task | Terminar y devolver parcial |
+| **Material no académico** | Clasificador del Ingestor | Rechazar, no contaminar BD |
+| **Evaluación inconsistente** | LLM-as-judge (10% sampling) | Marcar para revisión si discrepancia >2pts |
 
 ---
 
@@ -322,7 +322,7 @@ Session
 | 12 | Respuesta otro idioma | ✅ | ✅ | — |
 | **Composite** | Exam + Exercise | — | — | ✅ |
 
-> Todos los tests de integración pasan con `gemma4:31b-cloud` + `intfloat/multilingual-e5-small`
+> Todos los tests de integración pasan con `gemma4:31b-cloud` + `paraphrase-multilingual-MiniLM-L12-v2`
 
 ---
 
@@ -332,9 +332,9 @@ Session
 
 | Falla detectada | Causa | Mitigación |
 |---|---|---|
-| **Anti-alucinación con embeddings** | `intfloat/multilingual-e5-small` da scores altos a texto académico genérico | Subir threshold de 0.30 a 0.55 ✅ (corregido) |
+| **Evaluator score bajo** | `gemma4:31b-cloud` no sigue instrucciones de scoring con precisión | Ajustar prompt del evaluador o cambiar modelo |
+| **Hallucinated chunk IDs** | LLM inventa IDs que no existen en ChromaDB | Post-filtro elimina IDs inválidos (ya implementado) |
 | **ChromaDB file locking** | Windows no libera sqlite3 en tests | `ignore_cleanup_errors=True` |
-| **Evaluator score bajo con ciertos modelos** | Ollama Cloud `gemma4:31b-cloud` no sigue instrucciones de scoring con precisión | Ajustar prompt del evaluador o cambiar modelo |
 
 ---
 
@@ -368,7 +368,7 @@ Session
 | **Agentes** | 6 (Orchestrator, Ingestor, ExamGen, ExerciseGen, Evaluator, Support) |
 | **Tools** | 8 funcionales con tool calling nativo |
 | **Grafos LangGraph** | 6 StateGraphs con conditional edges y loops |
-| **RAG** | ChromaDB + SentenceTransformer + índice temático jerárquico |
+| **RAG** | ChromaDB + `paraphrase-multilingual-MiniLM-L12-v2` + índice temático jerárquico |
 | **Tests** | 121 (105 unit + 16 integration) + 6 E2E live |
 | **Casos PRD cubiertos** | 10/12 (2 diferidos por imágenes) |
 | **Observabilidad** | Langfuse con spans anidados (LLM, Tool, RAG, Evaluation) |

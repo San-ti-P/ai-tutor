@@ -49,7 +49,7 @@ Cada criterio del TP debe ser cubierto EXPLÍCITAMENTE. La presentación es la d
 - Stack tecnológico completo con justificación de cada choice:
   - LangGraph → StateGraph con conditional edges y loops
   - ChromaDB → vector store local sin dependencias externas
-  - SentenceTransformer → embeddings bilingües español/inglés
+   - SentenceTransformer → embeddings multilingües
   - Langfuse → observabilidad open-source con spans anidados
   - FastAPI + Next.js → async, tipado, separación clara front/back
 
@@ -115,7 +115,7 @@ Cada criterio del TP debe ser cubierto EXPLÍCITAMENTE. La presentación es la d
 ### Bloque 4: RAG, Guardrails y Observabilidad (4 min)
 
 **Slide 8 — Pipeline RAG**
-- Diagrama: Load (markitdown) → Split (chunking semántico, 512 tokens, 64 overlap) → Embed (SentenceTransformer `hiiamsid/sentence_similarity_spanish_es`) → Store (ChromaDB, colecciones por sesión) → Retrieve (top-K=5-8, similarity search con filtro temático)
+- Diagrama: Load (markitdown) → Split (chunking semántico, 512 tokens, 64 overlap) → Embed (`paraphrase-multilingual-MiniLM-L12-v2`) → Store (ChromaDB, colecciones por sesión) → Retrieve (top-K=5-8, similarity search con filtro temático)
 - Índice temático: árbol jerárquico extraído por LLM del Ingestor. Permite filtrar chunks por tema antes del similarity search
 - Actualización incremental: nuevos chunks sin reprocesar existentes, índice fusionado
 
@@ -461,7 +461,7 @@ GET    {{base}}/api/sessions/{{id}}/progress
 | "¿El Evaluator no puede equivocarse?" | Sí, por eso implementamos LLM-as-judge: un segundo LLM revisa el 10% de las evaluaciones. Si hay discrepancia >2 puntos, se marca para revisión. |
 | "¿Por qué no funciona el composite para 'generar y corregir'?" | Es una decisión de scope. Priorizamos tener todos los agentes funcionales individualmente. El result-forwarding entre pasos del composite requiere un refactor de `_build_tool_args` que está planificado para la próxima iteración. |
 | "¿Cómo escala esto a 100 estudiantes?" | Cada sesión tiene su propia colección en ChromaDB y su propio thread en LangGraph. SQLite → PostgreSQL. El cuello de botella es el LLM, no la arquitectura. |
-| "¿Qué modelo de embeddings usan?" | `hiiamsid/sentence_similarity_spanish_es` (SentenceTransformer). Bilingüe español/inglés, optimizado para similitud semántica. Local, sin API externa. |
+| "¿Qué modelo de embeddings usan?" | `paraphrase-multilingual-MiniLM-L12-v2` (SentenceTransformer). Multilingüe, optimizado para similitud semántica. Local, sin API externa. |
 
 ---
 
