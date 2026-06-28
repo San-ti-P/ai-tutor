@@ -12,7 +12,23 @@ from fastapi.testclient import TestClient
 
 from src.main import app
 
-client = TestClient(app)
+_client: TestClient | None = None
+
+
+def _get_client() -> TestClient:
+    """Lazy TestClient — lifespan runs on first call, using patched settings."""
+    global _client
+    if _client is None:
+        _client = TestClient(app)
+    return _client
+
+
+@pytest.fixture(autouse=True)
+def _reset_client():
+    """Reset the lazy client between test modules to avoid cross-test leaks."""
+    global _client
+    _client = None
+    yield
 
 
 # ==============================================================================
@@ -51,7 +67,7 @@ class TestExamGenerateEndpoint:
 
         with patch("src.tools.generate_exam") as mock_tool:
             mock_tool.invoke.return_value = fake_exam
-            response = client.post(
+            response = _get_client().post(
                 "/api/exam/generate",
                 json={
                     "session_id": "sess-2",
@@ -96,7 +112,7 @@ class TestExamGenerateEndpoint:
                 "topics_covered": ["test"],
                 "status": "complete",
             }
-            client.post(
+            _get_client().post(
                 "/api/exam/generate",
                 json={
                     "session_id": "sess-3",
@@ -135,7 +151,7 @@ class TestExamGenerateEndpoint:
                 "topics_covered": ["test"],
                 "status": "complete",
             }
-            response = client.post(
+            response = _get_client().post(
                 "/api/exam/generate",
                 json={
                     "session_id": "sess-4",
@@ -187,7 +203,7 @@ class TestProfileEndpoint:
                     "session_count": 3,
                 }
             )
-            response = client.get("/api/profile/stu-1")
+            response = _get_client().get("/api/profile/stu-1")
 
         assert response.status_code == 200
         data = response.json()
@@ -203,7 +219,7 @@ class TestProfileEndpoint:
         """GIVEN nonexistent student → THEN 404."""
         with patch("src.tools.get_student_summary.get_student_summary") as mock_tool:
             mock_tool.ainvoke = AsyncMock(return_value=None)
-            response = client.get("/api/profile/nonexistent")
+            response = _get_client().get("/api/profile/nonexistent")
 
         assert response.status_code == 404
 
@@ -227,7 +243,7 @@ class TestProfileEndpoint:
                     "session_count": 1,
                 }
             )
-            response = client.get("/api/profile/stu-real")
+            response = _get_client().get("/api/profile/stu-real")
 
         data = response.json()
         profile = data["data"]
@@ -252,14 +268,17 @@ class TestExerciseGenerateEndpoint:
                 "given_data": "f(x) = x\u00b2",
                 "question": "f'(x) = ?",
                 "model_solution": {
-                    "steps": ["Paso 1", "Paso 2"],
+                    "steps": [
+                        {"stepNumber": 1, "description": "Paso 1", "result": "x"},
+                        {"stepNumber": 2, "description": "Paso 2", "result": "2x"},
+                    ],
                     "final_answer": "2x",
                     "key_concepts": ["derivada"],
                 },
                 "topics_covered": ["c\u00e1lculo/derivadas"],
                 "status": "complete",
             }
-            response = client.post(
+            response = _get_client().post(
                 "/api/exercise/generate",
                 json={
                     "session_id": "sess-3",
@@ -296,7 +315,7 @@ class TestExerciseGenerateEndpoint:
                 "topic_suggestions": ["c\u00e1lculo", "\u00e1lgebra", "f\u00edsica"],
                 "status": "topic_not_found",
             }
-            response = client.post(
+            response = _get_client().post(
                 "/api/exercise/generate",
                 json={
                     "session_id": "sess-5",
@@ -333,7 +352,7 @@ class TestTraceIdPropagation:
                     "trace_id": "trace-chat-001",
                 }
             )
-            response = client.post(
+            response = _get_client().post(
                 "/api/chat",
                 json={"session_id": "sess-t", "message": "Hola"},
             )
@@ -359,16 +378,18 @@ class TestTraceIdPropagation:
         provided_sid = str(_uuid.uuid4())
 
         with patch("src.tools.ingest_document") as mock_tool:
-            mock_tool.invoke.return_value = {
-                "session_id": provided_sid,
-                "status": "ok",
-                "classification": "apunte_teorico",
-                "topics": ["test"],
-                "chunks_created": 3,
-                "classification_confidence": 0.9,
-                "document_id": "doc-1",
-            }
-            response = client.post(
+            mock_tool.ainvoke = AsyncMock(
+                return_value={
+                    "session_id": provided_sid,
+                    "status": "ok",
+                    "classification": "apunte_teorico",
+                    "topics": ["test"],
+                    "chunks_created": 3,
+                    "classification_confidence": 0.9,
+                    "document_id": "doc-1",
+                }
+            )
+            response = _get_client().post(
                 "/api/ingest",
                 files=[("files", ("test.pdf", b"fake pdf content", "application/pdf"))],
                 data={"session_id": provided_sid},
@@ -380,7 +401,7 @@ class TestTraceIdPropagation:
         results = data["data"]
         assert len(results) >= 1
         # The tool should have been called with the provided session_id
-        call_kwargs = mock_tool.invoke.call_args[0][0]
+        call_kwargs = mock_tool.ainvoke.call_args[0][0]
         assert call_kwargs["session_id"] == provided_sid
 
     def test_ingest_generates_uuid_when_session_id_missing(self):
@@ -391,16 +412,18 @@ class TestTraceIdPropagation:
         from unittest.mock import patch
 
         with patch("src.tools.ingest_document") as mock_tool:
-            mock_tool.invoke.return_value = {
-                "session_id": "generated-uuid",
-                "status": "ok",
-                "classification": "apunte_teorico",
-                "topics": ["test"],
-                "chunks_created": 3,
-                "classification_confidence": 0.9,
-                "document_id": "doc-1",
-            }
-            response = client.post(
+            mock_tool.ainvoke = AsyncMock(
+                return_value={
+                    "session_id": "generated-uuid",
+                    "status": "ok",
+                    "classification": "apunte_teorico",
+                    "topics": ["test"],
+                    "chunks_created": 3,
+                    "classification_confidence": 0.9,
+                    "document_id": "doc-1",
+                }
+            )
+            response = _get_client().post(
                 "/api/ingest",
                 files=[("files", ("test.pdf", b"fake pdf content", "application/pdf"))],
                 # No session_id in data
@@ -423,17 +446,19 @@ class TestTraceIdPropagation:
         from unittest.mock import patch
 
         with patch("src.tools.ingest_document") as mock_tool:
-            mock_tool.invoke.return_value = {
-                "session_id": "should-be-uuid",
-                "status": "ok",
-                "classification": "apunte_teorico",
-                "topics": ["test"],
-                "chunks_created": 3,
-                "classification_confidence": 0.9,
-                "document_id": "doc-1",
-            }
+            mock_tool.ainvoke = AsyncMock(
+                return_value={
+                    "session_id": "should-be-uuid",
+                    "status": "ok",
+                    "classification": "apunte_teorico",
+                    "topics": ["test"],
+                    "chunks_created": 3,
+                    "classification_confidence": 0.9,
+                    "document_id": "doc-1",
+                }
+            )
             long_id = "x" * 100
-            response = client.post(
+            response = _get_client().post(
                 "/api/ingest",
                 files=[("files", ("test.pdf", b"fake pdf content", "application/pdf"))],
                 data={"session_id": long_id},
@@ -458,7 +483,7 @@ class TestTraceIdPropagation:
                     "is_evaluable": True,
                 }
             ]
-            response = client.post(
+            response = _get_client().post(
                 "/api/evaluate",
                 json={
                     "session_id": "sess-ev",
@@ -473,7 +498,7 @@ class TestTraceIdPropagation:
 
     def test_health_has_trace_id(self):
         """GET /api/health response includes trace_id."""
-        response = client.get("/api/health")
+        response = _get_client().get("/api/health")
         data = response.json()
         assert data["status"] == "ok"
         assert "trace_id" in data
@@ -491,7 +516,7 @@ class TestTraceIdPropagation:
             mock_weak.return_value = []
             mock_sessions.return_value = []
 
-            response = client.get("/api/students/stu-d/dashboard")
+            response = _get_client().get("/api/students/stu-d/dashboard")
 
         data = response.json()
         if response.status_code == 200:
@@ -519,7 +544,7 @@ class TestPreferencesEndpoint:
                     "errors": [],
                 }
             )
-            response = client.put(
+            response = _get_client().put(
                 "/api/profile/stu-1/preferences",
                 json={
                     "questionTypes": ["mcq", "open"],
@@ -547,7 +572,7 @@ class TestPreferencesEndpoint:
                     "errors": [],
                 }
             )
-            client.put(
+            _get_client().put(
                 "/api/profile/stu-2/preferences",
                 json={
                     "questionTypes": ["open"],
@@ -573,7 +598,7 @@ class TestPreferencesEndpoint:
                     "errors": [],
                 }
             )
-            response = client.put(
+            response = _get_client().put(
                 "/api/profile/new-stu/preferences",
                 json={
                     "questionTypes": ["mcq"],
@@ -608,7 +633,7 @@ class TestEvaluateMapsExamQuestions:
                     "is_evaluable": True,
                 }
             ]
-            response = client.post(
+            response = _get_client().post(
                 "/api/evaluate",
                 json={
                     "session_id": "sess-ev-map",
@@ -657,7 +682,7 @@ class TestEvaluateMapsExamQuestions:
                     "non_evaluable_reason": "no_material",
                 }
             ]
-            response = client.post(
+            response = _get_client().post(
                 "/api/evaluate",
                 json={
                     "session_id": "sess-ev-map2",
@@ -703,7 +728,7 @@ class TestEvaluateMapsExamQuestions:
                     "is_evaluable": True,
                 }
             ]
-            response = client.post(
+            response = _get_client().post(
                 "/api/evaluate",
                 json={
                     "session_id": "sess-ev-legacy",

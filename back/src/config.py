@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # ── LLM Timeout ───────────────────────────────────────────────────────
+    llm_timeout_seconds: int = 60
+
     # ── Agent / Guardrails ────────────────────────────────────────────────
     max_iterations_per_task: int = 15
     ocr_confidence_threshold: float = 0.85
@@ -54,7 +57,7 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 5
 
     # ── Topic Extraction ───────────────────────────────────────────────────
-    topic_segment_size: int = 6000
+    topic_segment_size: int = 15000
     """Max chars per segment sent to LLM for topic extraction."""
 
     topic_similarity_threshold: float = 0.6
@@ -63,7 +66,7 @@ class Settings(BaseSettings):
     max_topics_per_document: int = 30
     """Maximum number of unified topics returned per document."""
 
-    topic_min_section_chars: int = 200
+    topic_min_section_chars: int = 1000
     """Merge adjacent markdown sections below this character count."""
 
     # ── LLM Provider ──────────────────────────────────────────────────────

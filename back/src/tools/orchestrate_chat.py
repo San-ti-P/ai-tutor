@@ -22,6 +22,9 @@ async def orchestrate_chat(
     messages: list[dict],
     thread_id: str | None = None,
     student_id: str | None = None,
+    exam_id: str | None = None,
+    answers: dict[str, str] | None = None,
+    exam_questions: list[dict] | None = None,
 ) -> dict:
     """Invoke the Orchestrator agent graph for a chat interaction.
 
@@ -37,6 +40,9 @@ async def orchestrate_chat(
             Defaults to a generated UUID4 when not provided.
         student_id: Optional explicit student identity. When provided, it
             bypasses the sessions table lookup in ``load_profile``.
+        exam_id: Optional exam ID for direct submissions.
+        answers: Optional dictionary of student answers.
+        exam_questions: Optional list of exam question metadata.
 
     Returns:
         A dict with keys: ``response`` (str), ``intent`` (str),
@@ -78,6 +84,9 @@ async def orchestrate_chat(
         "student_id": student_id,
         "session_context": None,
         "messages_history": [],
+        "exam_id": exam_id,
+        "answers": answers,
+        "exam_questions": exam_questions,
     }
 
     # ── Observability wiring ────────────────────────────────────────────────

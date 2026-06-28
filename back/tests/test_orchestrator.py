@@ -1051,6 +1051,42 @@ class TestOrchestrateChatTool:
         assert call_args[0][0]["user_message"] == ""
         assert result["response"] == "No entendí tu mensaje."
 
+    async def test_tool_accepts_and_forwards_exam_params(self):
+        """orchestrate_chat accepts and forwards exam parameters to initial state."""
+        from unittest.mock import AsyncMock, patch
+
+        from src.tools.orchestrate_chat import orchestrate_chat
+
+        fake_graph = AsyncMock()
+        fake_graph.ainvoke = AsyncMock(
+            return_value={
+                "response": "Examen evaluado.",
+                "intent": "evaluate",
+                "status": "complete",
+            }
+        )
+
+        with patch(
+            "src.agents.orchestrator.get_orchestrator_graph",
+            return_value=fake_graph,
+        ):
+            result = await orchestrate_chat.ainvoke(
+                {
+                    "messages": [{"role": "user", "content": "Entrego examen"}],
+                    "thread_id": "t-exam",
+                    "exam_id": "exam-123",
+                    "answers": {"q1": "my answer"},
+                    "exam_questions": [{"id": "q1", "prompt": "Question 1"}],
+                }
+            )
+
+        call_args = fake_graph.ainvoke.call_args
+        init_state = call_args[0][0]
+        assert init_state["exam_id"] == "exam-123"
+        assert init_state["answers"] == {"q1": "my answer"}
+        assert init_state["exam_questions"] == [{"id": "q1", "prompt": "Question 1"}]
+        assert result["intent"] == "evaluate"
+
 
 # ==============================================================================
 # Helpers for fake LLM responses
@@ -1353,6 +1389,9 @@ class TestIntegrationSqliteSaver:
         orch_mod._orchestrator_db_conn = None
 
         with patch.object(orch_mod.settings, "sqlite_db_path", str(db_path)):
+            from src.memory.schema import init_db
+
+            await init_db()
             graph = await orch_mod.get_orchestrator_graph()
 
             thread_id = "sqlite-persist-int-001"
@@ -1561,7 +1600,14 @@ class TestRealOrchestratorIntegration:
             "errors": [],
             "status": "pending",
         }
-        result = synthesize_response(state)
+        with patch("src.tools.query_material") as mock_qm:
+            mock_qm.invoke.return_value = {
+                "chunks_found": 1,
+                "sources": [
+                    "Un vector es un elemento de un espacio vectorial, caracterizado por magnitud y dirección."
+                ],
+            }
+            result = synthesize_response(state)
 
         assert len(result["response"]) > 20, f"Response too short: '{result['response']}'"
         assert result["status"] == "complete"
@@ -1954,3 +2000,70 @@ class TestOrchestratorToolMap:
         args = _build_tool_args("update_student_profile", state)
         assert args["student_id"] == "stu-up-1"
         assert args["preferences"] == {"difficulty": "hard", "question_types": ["open"]}
+
+
+# ==============================================================================
+# Phase 5.2: get_orchestrator_graph() race safety (Epic 13, SS-3)
+# ==============================================================================
+
+
+class TestOrchestratorGraphRaceSafety:
+    """SS-3: asyncio.Lock serializes singleton compilation."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_init_single_singleton(self, monkeypatch):
+        """GIVEN 5 concurrent get_orchestrator_graph() calls
+        THEN only one graph instance is created.
+        """
+        import asyncio
+
+        import aiosqlite
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        from src.agents.orchestrator import (
+            _orchestrator_graph,
+            _orchestrator_db_conn,
+            _orchestrator_lock,
+            get_orchestrator_graph,
+        )
+        from src.config import settings
+
+        # Force clean state for deterministic test
+        import src.agents.orchestrator as orch_mod
+
+        orch_mod._orchestrator_graph = None
+        orch_mod._orchestrator_db_conn = None
+        orch_mod._orchestrator_lock = None
+
+        # Patch DB path to temp
+        import tempfile
+        import os
+
+        tmp_dir = tempfile.mkdtemp()
+        db_path = os.path.join(tmp_dir, "race_test.db")
+        monkeypatch.setattr(settings, "sqlite_db_path", db_path)
+
+        try:
+            # Launch 5 concurrent calls
+            results = await asyncio.gather(
+                *[get_orchestrator_graph() for _ in range(5)]
+            )
+
+            # All should be the same object
+            first = results[0]
+            for i, r in enumerate(results[1:], 1):
+                assert r is first, f"Result {i} is a different object"
+
+            # Singleton should be set
+            assert orch_mod._orchestrator_graph is not None
+            assert orch_mod._orchestrator_db_conn is not None
+        finally:
+            # Clean up
+            if orch_mod._orchestrator_db_conn is not None:
+                await orch_mod._orchestrator_db_conn.close()
+            orch_mod._orchestrator_graph = None
+            orch_mod._orchestrator_db_conn = None
+            orch_mod._orchestrator_lock = None
+            import shutil
+
+            shutil.rmtree(tmp_dir, ignore_errors=True)

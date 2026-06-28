@@ -69,7 +69,7 @@ class TestGenerateQuestions:
 
         state = {
             **exam_generator_state,
-            "retrieved_chunks": sample_chunks[:3],
+            "retrieved_chunks": sample_chunks,  # all 5 chunks including chunk-math-004
             "mcq_ratio": 0.6,
             "question_count": 5,
         }
@@ -101,7 +101,7 @@ class TestGenerateQuestions:
 
         state = {
             **exam_generator_state,
-            "retrieved_chunks": sample_chunks[:3],
+            "retrieved_chunks": sample_chunks,  # all 5 chunks
             "generated_questions": existing_valid,
             "invalid_question_indices": [2],
             "retry_count": 1,
@@ -803,7 +803,7 @@ class TestRealIntegration:
     They verify product behavior, not just plumbing.
     """
 
-    def test_generate_exam_from_real_pdf(
+    async def test_generate_exam_from_real_pdf(
         self, requires_ollama, ingested_collection_name, real_pdf_text
     ):
         """Full pipeline: real PDF → real chunks → real LLM → validated exam.
@@ -815,7 +815,7 @@ class TestRealIntegration:
         from src.tools import retrieve_chunks
 
         # Extract topics from the real PDF to guide exam generation
-        topics_result = _extract_topics.invoke({"text": real_pdf_text[:3000]})
+        topics_result = await _extract_topics.ainvoke({"text": real_pdf_text[:3000]})
         detected_topics = topics_result.get("topics", [])
         if not detected_topics:
             detected_topics = ["agentes", "inteligencia artificial"]
@@ -1008,3 +1008,106 @@ class TestRealIntegration:
         assert 0 in invalid_indices, (
             f"Fabricated question passed validation! Results: {validation_results}"
         )
+
+
+# ==============================================================================
+# Phase 5.5: source_chunk_ids hallucination filter (Epic 13, LT-2)
+# ==============================================================================
+
+
+class TestSourceChunkIdFilter:
+    """LT-2: Post-filter hallucinated source_chunk_ids against retrieved_chunks."""
+
+    def test_hallucinated_ids_removed(self, mock_exam_llm, exam_generator_state, sample_chunks):
+        """GIVEN LLM returns a question with hallucinated chunk IDs
+        THEN source_chunk_ids are filtered to only valid IDs.
+        """
+        from src.agents.exam_generator import (
+            ExamGeneration,
+            MCQQuestion,
+            OpenAnswerQuestion,
+        )
+
+        # Override the mock to include hallucinated chunk IDs
+        fake_exam = ExamGeneration(
+            mcq_questions=[
+                MCQQuestion(
+                    stem="Test hallucination filter",
+                    options=["A", "B", "C"],
+                    correct_option_index=0,
+                    source_chunk_ids=["chunk-math-001", "chunk-math-999", "chunk-fake-007"],
+                    difficulty="medium",
+                    topic="cálculo/derivadas",
+                ),
+            ],
+            open_questions=[],
+            metadata={"topics_covered": ["cálculo/derivadas"], "total_source_chunks": 1},
+        )
+
+        mock_exam_llm.return_value.invoke.return_value = fake_exam
+
+        from src.agents.exam_generator import generate_questions
+
+        state = dict(exam_generator_state)
+        state["retrieved_chunks"] = sample_chunks  # Only has chunk-math-001..005
+
+        result = generate_questions(state)
+
+        questions = result["generated_questions"]
+        assert len(questions) == 1
+
+        mcq = questions[0]
+        filtered_ids = mcq.get("source_chunk_ids", [])
+        assert "chunk-math-001" in filtered_ids, "Valid chunk ID was incorrectly removed"
+        assert "chunk-math-999" not in filtered_ids, "Hallucinated chunk ID was not removed"
+        assert "chunk-fake-007" not in filtered_ids, "Hallucinated chunk ID was not removed"
+        assert len(filtered_ids) == 1, (
+            f"Expected 1 valid ID, got {filtered_ids}"
+        )
+
+    def test_all_valid_ids_preserved(self, mock_exam_llm, exam_generator_state, sample_chunks):
+        """GIVEN all source_chunk_ids are valid → THEN none are removed."""
+        from src.agents.exam_generator import (
+            ExamGeneration,
+            MCQQuestion,
+        )
+
+        fake_exam = ExamGeneration(
+            mcq_questions=[
+                MCQQuestion(
+                    stem="All valid IDs",
+                    options=["A", "B", "C"],
+                    correct_option_index=0,
+                    source_chunk_ids=["chunk-math-001", "chunk-math-003", "chunk-math-005"],
+                    difficulty="medium",
+                    topic="cálculo/derivadas",
+                ),
+            ],
+            open_questions=[],
+            metadata={"topics_covered": ["cálculo/derivadas"], "total_source_chunks": 3},
+        )
+
+        mock_exam_llm.return_value.invoke.return_value = fake_exam
+
+        from src.agents.exam_generator import generate_questions
+
+        state = dict(exam_generator_state)
+        state["retrieved_chunks"] = sample_chunks
+
+        result = generate_questions(state)
+        questions = result["generated_questions"]
+        filtered_ids = questions[0].get("source_chunk_ids", [])
+
+        assert set(filtered_ids) == {"chunk-math-001", "chunk-math-003", "chunk-math-005"}
+
+    def test_no_chunks_available(self, mock_exam_llm, exam_generator_state):
+        """GIVEN no retrieved chunks → THEN generate_questions returns no_material."""
+        from src.agents.exam_generator import generate_questions
+
+        state = dict(exam_generator_state)
+        state["retrieved_chunks"] = []
+
+        result = generate_questions(state)
+
+        assert result["status"] == "no_material"
+        assert result["generated_questions"] == []

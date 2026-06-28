@@ -40,7 +40,7 @@ class TestMessagesHistoryState:
         """GIVEN synthesize_response → THEN it returns new messages_history entries."""
         state: OrchestratorState = {
             "session_id": "s1",
-            "user_message": "¿Qué es un límite?",
+            "user_message": "Hola, ¿cómo estás?",
             "intent": "general_chat",
             "confidence": 0.95,
             "plan": [],
@@ -65,7 +65,7 @@ class TestMessagesHistoryState:
         assert len(result["messages_history"]) == 2
         assert result["messages_history"][0] == {
             "role": "user",
-            "content": "¿Qué es un límite?",
+            "content": "Hola, ¿cómo estás?",
         }
         assert result["messages_history"][1]["role"] == "assistant"
         assert "Un límite es..." in result["messages_history"][1]["content"]
@@ -124,7 +124,7 @@ class TestShortTermMemoryAcrossTurns:
         config = {"configurable": {"thread_id": session_id}}
 
         with patch("src.agents.orchestrator._get_llm") as mock_llm_factory:
-            mock_llm = AsyncMock()
+            mock_llm = MagicMock()
             mock_llm.invoke.return_value = type(
                 "R", (), {"content": "Respuesta del turno 1"}
             )()
@@ -192,10 +192,16 @@ class TestShortTermMemoryAcrossTurns:
         session_id = "stm-session-2"
         config = {"configurable": {"thread_id": session_id}}
 
+        async def _get_summary(*a, **kw):
+            return {}
+
+        _get_summary_mock = MagicMock()
+        _get_summary_mock.ainvoke = AsyncMock(side_effect=_get_summary)
+
         with patch("src.agents.orchestrator._get_llm") as mock_llm_factory, patch(
             "src.agents.orchestrator.get_structured_llm"
         ) as mock_structured, patch(
-            "src.tools.get_student_summary.get_student_summary", new=AsyncMock(return_value={})
+            "src.tools.get_student_summary.get_student_summary", new=_get_summary_mock
         ):
             mock_structured.return_value = type(
                 "M",

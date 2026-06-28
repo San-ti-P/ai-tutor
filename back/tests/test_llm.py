@@ -289,3 +289,88 @@ class TestGetStructuredLLM:
                 assert result is mock_structured
         finally:
             settings.llm_provider = original
+
+
+# ==============================================================================
+# Phase 5.4: Markdown fence stripping in _ollama_json_mode_chain._parse (Epic 13, LT-1)
+# ==============================================================================
+
+
+class TestMarkdownFenceStripping:
+    """LT-1: _parse strips ```json fences before JSON scanning."""
+
+    def _get_parse_fn(self):
+        """Build a minimal _parse function matching the Ollama chain pattern."""
+        import json
+
+        from pydantic import BaseModel
+
+        from src.llm import _CLEAN_FENCES
+
+        class _TestSchema(BaseModel):
+            score: float
+            feedback: str
+
+        def _parse(text: str) -> BaseModel:
+            text = _CLEAN_FENCES.sub("", text).strip()
+            for end in range(len(text) - 1, -1, -1):
+                if text[end] != "}":
+                    continue
+                depth = 1
+                start = end - 1
+                while start >= 0 and depth > 0:
+                    if text[start] == "}":
+                        depth += 1
+                    elif text[start] == "{":
+                        depth -= 1
+                    start -= 1
+                if depth == 0:
+                    candidate = text[start + 1 : end + 1]
+                    try:
+                        return _TestSchema.model_validate(json.loads(candidate))
+                    except Exception:
+                        continue
+            raise ValueError(f"No valid JSON in: {text[:200]!r}")
+
+        return _parse
+
+    def test_strips_markdown_fences_json_tag(self):
+        """LLM output wrapped in ```json ... ``` is correctly parsed."""
+        parse = self._get_parse_fn()
+        raw = '```json\n{"score": 8.5, "feedback": "Buen trabajo"}\n```'
+        result = parse(raw)
+        assert result.score == 8.5
+        assert result.feedback == "Buen trabajo"
+
+    def test_strips_markdown_fences_no_lang_tag(self):
+        """LLM output wrapped in ``` ... ``` (no json tag) is correctly parsed."""
+        parse = self._get_parse_fn()
+        raw = '```\n{"score": 7.0, "feedback": "Correcto"}\n```'
+        result = parse(raw)
+        assert result.score == 7.0
+
+    def test_strips_fences_with_extra_whitespace(self):
+        """Fences with trailing whitespace are handled."""
+        parse = self._get_parse_fn()
+        raw = '```json  \n{"score": 9.0, "feedback": "Excelente"}  \n```  '
+        result = parse(raw)
+        assert result.score == 9.0
+
+    def test_no_fences_still_parses(self):
+        """Plain JSON without fences still parses correctly."""
+        parse = self._get_parse_fn()
+        raw = '{"score": 6.0, "feedback": "Aceptable"}'
+        result = parse(raw)
+        assert result.score == 6.0
+
+    def test_nested_json_with_fences(self):
+        """Fences around nested JSON (containing braces inside values) works."""
+        parse = self._get_parse_fn()
+        raw = (
+            '```json\n'
+            '{"score": 7.5, "feedback": "La derivada f\'(x) = lim(h->0) [f(x+h)-f(x)]/h es clave"}\n'
+            '```'
+        )
+        result = parse(raw)
+        assert result.score == 7.5
+        assert "derivada" in result.feedback

@@ -129,6 +129,9 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
             "messages": [{"role": "user", "content": request.message}],
             "thread_id": request.session_id,
             "student_id": request.student_id,
+            "exam_id": request.exam_id,
+            "answers": request.answers,
+            "exam_questions": [eq.model_dump(by_alias=True) for eq in request.exam_questions] if request.exam_questions else None,
         }
     )
 
@@ -342,7 +345,28 @@ async def ingest(
     # Use the tools layer — ingest_document wraps the full ingestion graph
     from src.tools import ingest_document as _ingest_tool
 
+    MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+
     for file in files:
+        # Reject oversized files before temp write (A-4)
+        if file.size and file.size > MAX_FILE_SIZE:
+            logger.warning(
+                "File '%s' rejected: size %d exceeds 20 MB limit",
+                file.filename,
+                file.size,
+            )
+            results.append(
+                IngestResult(
+                    sessionId=effective_session_id,
+                    status="error",
+                    classification="",
+                    topicsDetected=[],
+                    chunksCreated=0,
+                )
+            )
+            await file.close()
+            continue
+
         # Save uploaded file to temp location
         suffix = Path(file.filename).suffix if file.filename else ""
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -494,12 +518,17 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
     question_map: dict[str, dict] = {}
     if request.exam_questions:
         for eq in request.exam_questions:
+            # eq.type is QuestionTypeEnum. Value can be extracted via eq.type.value if it is an Enum,
+            # or just as string. Let's make sure we handle both by getting it as a string or .value
+            q_type = eq.type.value if hasattr(eq.type, "value") else str(eq.type)
             question_map[eq.id] = {
                 "question": eq.prompt,
                 "base_answer": eq.base_answer or "",
                 "topic": eq.topic,
                 "difficulty": str(eq.difficulty),
                 "source_chunk_ids": eq.source_chunk_ids or [],
+                "type": q_type,
+                "options": eq.options or [],
             }
 
     # Convert dict[str, str] answers to list[dict] format expected by evaluator
@@ -516,6 +545,8 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
                     "source_chunk_ids": qdata["source_chunk_ids"],
                     "topic": qdata["topic"],
                     "difficulty": qdata["difficulty"],
+                    "type": qdata.get("type", "open"),
+                    "options": qdata.get("options", []),
                 }
             )
         else:
@@ -533,6 +564,8 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
                     "source_chunk_ids": [],
                     "topic": "",
                     "difficulty": "medium",
+                    "type": "open",
+                    "options": [],
                 }
             )
 

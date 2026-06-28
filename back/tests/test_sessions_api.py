@@ -126,8 +126,8 @@ class TestSessionSchemaCrud:
                 }
             )
 
+            mock_client = MagicMock()
             with patch("src.memory.schema.get_chroma_client") as mock_get_client:
-                mock_client = AsyncMock()
                 mock_get_client.return_value = mock_client
                 await delete_session(session["id"])
                 mock_client.delete_collection.assert_called_once_with(
@@ -175,8 +175,12 @@ class TestSessionApiEndpoints:
                 "average_score": None,
             }
         )
+        mock_ensure_student = AsyncMock(return_value=None)
         for client in self._client(
-            tmp_path, _create_session=mock_create, _get_session=mock_get
+            tmp_path,
+            _create_session=mock_create,
+            _get_session=mock_get,
+            _ensure_student_exists=mock_ensure_student,
         ):
             response = client.post(
                 "/api/sessions",

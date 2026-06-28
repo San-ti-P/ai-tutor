@@ -581,37 +581,39 @@ class TestHardening:
         mock_tracer.get_callback_handler.return_value = handler
         return mock_tracer
 
-    def test_ingest_document_injects_callback_handler(self):
+    async def test_ingest_document_injects_callback_handler(self):
         """3.1a: ingest_document passes CallbackHandler to graph.invoke."""
         tools_mod = self._reload_tools()
         mock_graph = MagicMock()
-        mock_graph.invoke.return_value = {
-            "classification": "apunte_teorico",
-            "topics": ["algebra"],
-            "chunks_created": 1,
-            "status": "completed",
-            "errors": [],
-        }
+        mock_graph.ainvoke = AsyncMock(
+            return_value={
+                "classification": "apunte_teorico",
+                "topics": ["algebra"],
+                "chunks_created": 1,
+                "status": "completed",
+                "errors": [],
+            }
+        )
         mock_handler = MagicMock()
 
         with (
             patch("src.tools._get_or_compile", return_value=mock_graph),
             patch("src.observability.get_tracer", return_value=self._mock_tracer(mock_handler)),
         ):
-            tools_mod.ingest_document.invoke({"file_path": "/tmp/foo.txt", "session_id": "s1"})
+            await tools_mod.ingest_document.ainvoke({"file_path": "/tmp/foo.txt", "session_id": "s1"})
 
-        config = mock_graph.invoke.call_args.kwargs["config"]
+        config = mock_graph.ainvoke.call_args.kwargs["config"]
         assert config["callbacks"] == [mock_handler]
 
         # Graceful when disabled
-        mock_graph.invoke.reset_mock()
+        mock_graph.ainvoke.reset_mock()
         with (
             patch("src.tools._get_or_compile", return_value=mock_graph),
             patch("src.observability.get_tracer", return_value=self._mock_tracer(None)),
         ):
-            tools_mod.ingest_document.invoke({"file_path": "/tmp/foo.txt", "session_id": "s1"})
+            await tools_mod.ingest_document.ainvoke({"file_path": "/tmp/foo.txt", "session_id": "s1"})
 
-        config = mock_graph.invoke.call_args.kwargs["config"]
+        config = mock_graph.ainvoke.call_args.kwargs["config"]
         assert "callbacks" not in config
 
     def test_generate_exam_injects_callback_handler(self):
@@ -713,7 +715,7 @@ class TestHardening:
 
     # Phase 4: cross-cutting verification
 
-    def test_all_tools_work_without_langfuse_keys(self, sample_txt, mock_embedding_model):
+    async def test_all_tools_work_without_langfuse_keys(self, sample_txt, mock_embedding_model):
         """4.1: All 10 tools + 3 builders execute when Langfuse keys are empty."""
         import importlib
 
@@ -736,7 +738,7 @@ class TestHardening:
                 {"query": "x", "collection_name": "no_such", "top_k": 1}
             )
 
-            # extract_topics needs a mocked LLM
+            # extract_topics needs a mocked LLM (async tool)
             with patch("src.llm.get_structured_llm") as mock_get_llm:
                 mock_result = MagicMock()
                 mock_result.summary = "s"
@@ -745,11 +747,11 @@ class TestHardening:
                 mock_structured = MagicMock()
                 mock_structured.invoke.return_value = mock_result
                 mock_get_llm.return_value = mock_structured
-                tools_mod.extract_topics.invoke({"text": "some academic text"})
+                await tools_mod.extract_topics.ainvoke({"text": "some academic text"})
 
             # Graph-backed tools use a mock graph
             mock_graph = MagicMock()
-            mock_graph.invoke.return_value = {
+            _mock_graph_result = {
                 "classification": "apunte_teorico",
                 "topics": ["t"],
                 "chunks_created": 1,
@@ -759,8 +761,10 @@ class TestHardening:
                 "exercise": {"exercise_id": "x1"},
                 "evaluation_results": [{"question_id": "q1"}],
             }
+            mock_graph.invoke.return_value = _mock_graph_result
+            mock_graph.ainvoke = AsyncMock(return_value=_mock_graph_result)
             with patch("src.tools._get_or_compile", return_value=mock_graph):
-                tools_mod.ingest_document.invoke({"file_path": str(sample_txt), "session_id": "s1"})
+                await tools_mod.ingest_document.ainvoke({"file_path": str(sample_txt), "session_id": "s1"})
                 tools_mod.generate_exam.invoke(
                     {"session_id": "s1", "topics": ["t"], "question_count": 1}
                 )
@@ -820,9 +824,7 @@ class TestHardening:
                         {"messages": [{"role": "user", "content": "hola"}]}
                     )
 
-            import asyncio
-
-            asyncio.run(_run_async_tools())
+            await _run_async_tools()
 
             # Builders
             from src.agents.exam_generator import build_exam_generator
@@ -833,7 +835,7 @@ class TestHardening:
             assert build_exam_generator() is not None
             assert build_exercise_generator() is not None
 
-    def test_no_duplicate_root_traces(
+    async def test_no_duplicate_root_traces(
         self, mock_langfuse, sample_txt, mock_llm_response, mock_embedding_model
     ):
         """4.2: ingest_document end-to-end emits observations under one trace_id."""
@@ -883,7 +885,7 @@ class TestHardening:
             tools_mod = importlib.import_module("src.tools")
             importlib.reload(tools_mod)
 
-            result = tools_mod.ingest_document.invoke(
+            result = await tools_mod.ingest_document.ainvoke(
                 {"file_path": str(sample_txt), "session_id": "s1"}
             )
 
@@ -1149,7 +1151,7 @@ class TestContextPropagation:
             f"Expected WARNING about trace creation failure, got: {warnings}"
         )
 
-    def test_ingest_document_calls_propagate_attributes(self, mock_embedding_model):
+    async def test_ingest_document_calls_propagate_attributes(self, mock_embedding_model):
         """Gap-4: ingest_document wraps graph.invoke in propagate_attributes."""
         import importlib
 
@@ -1173,7 +1175,7 @@ class TestContextPropagation:
             mock_get_tracer.return_value = mock_tracer
 
             importlib.reload(tools_mod)
-            tools_mod.ingest_document.invoke({"file_path": "/tmp/f.txt", "session_id": "ctx-s1"})
+            await tools_mod.ingest_document.ainvoke({"file_path": "/tmp/f.txt", "session_id": "ctx-s1"})
 
         # propagate_attributes must be called with session_id
         assert mock_pa.called, "propagate_attributes must be called before graph.invoke"
@@ -1421,7 +1423,7 @@ class TestLangfuseRealTraces:
 
         flush_traces()
 
-    def test_langfuse_unreachable_agent_does_not_crash(
+    async def test_langfuse_unreachable_agent_does_not_crash(
         self,
         langfuse_observe_tests,
         sample_txt,
@@ -1472,7 +1474,7 @@ class TestLangfuseRealTraces:
                 "chunk_ids": [],
             }
 
-            final_state = graph.invoke(initial_state)
+            final_state = await graph.ainvoke(initial_state)
 
             assert final_state["status"] == "completed", (
                 f"Agent should complete even without Langfuse: {final_state.get('errors', [])}"

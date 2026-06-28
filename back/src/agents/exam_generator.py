@@ -266,7 +266,16 @@ def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None)
 
         # Build preferences section
         prefs_lines: list[str] = []
-        mcq_n = max(1, round(target_count * mcq_ratio))
+        if mcq_ratio <= 0.0:
+            mcq_n = 0
+        elif mcq_ratio >= 1.0:
+            mcq_n = target_count
+        else:
+            mcq_n = round(target_count * mcq_ratio)
+            if mcq_n == 0 and target_count > 0:
+                mcq_n = 1
+            if mcq_n == target_count and target_count > 1:
+                mcq_n = target_count - 1
         open_n = target_count - mcq_n
         prefs_lines.append(f"Total questions: {target_count}")
         prefs_lines.append(f"MCQ questions: {mcq_n}")
@@ -380,6 +389,23 @@ REQUISITOS:
             q = oa.model_dump()
             q["type"] = "open_answer"
             new_questions.append(q)
+
+        # ── Post-filter: remove hallucinated source_chunk_ids ──────────
+        valid_chunk_ids = {c.get("chunk_id", "") for c in chunks}
+
+        for q in new_questions:
+            raw_ids = q.get("source_chunk_ids", [])
+            if not raw_ids:
+                continue
+            filtered = [cid for cid in raw_ids if cid in valid_chunk_ids]
+            removed = set(raw_ids) - set(filtered)
+            if removed:
+                logger.warning(
+                    "[generate_questions] Hallucinated chunk ID(s) removed: %s | question=%s",
+                    sorted(removed),
+                    q.get("prompt", q.get("stem", ""))[:80],
+                )
+            q["source_chunk_ids"] = filtered
 
         # On retry: merge new questions into existing, replacing invalid slots
         if retry_count > 0 and invalid_indices and existing_questions:

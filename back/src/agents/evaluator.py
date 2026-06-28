@@ -329,10 +329,46 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dic
         return {"errors": ["current_index out of range"], "status": "error"}
 
     current = answers[idx]
+    qtype = current.get("type", "open")
     question = current.get("question", "")
-    base_answer = current.get("base_answer", "")
-    student_answer = current.get("student_answer", "")
+    base_answer = current.get("base_answer", "") or ""
+    student_answer = current.get("student_answer", "") or ""
     topic = current.get("topic", "")
+
+    # MCQ evaluation logic (deterministic, bypass LLM call)
+    if qtype == "mcq":
+        clean_student = student_answer.strip()
+        clean_base = base_answer.strip()
+        is_correct = clean_student.lower() == clean_base.lower() if clean_student and clean_base else False
+        score = 10.0 if is_correct else 0.0
+        
+        if is_correct:
+            justification = f"Respuesta correcta. Seleccionaste la opción correcta: '{clean_base}'."
+            conceptual_errors = []
+            suggestions = []
+        else:
+            if clean_student:
+                justification = f"Respuesta incorrecta. Seleccionaste '{clean_student}' pero la opción correcta era '{clean_base}'."
+            else:
+                justification = f"Respuesta incorrecta. No seleccionaste ninguna opción. La opción correcta era '{clean_base}'."
+            conceptual_errors = ["Selección de opción incorrecta"]
+            suggestions = ["Repasar el material de lectura y reintentar el examen."]
+            
+        evaluation_dict = {
+            "question_id": current.get("question_id", ""),
+            "score": score,
+            "justification": justification,
+            "conceptual_errors": conceptual_errors,
+            "suggestions": suggestions,
+            "is_evaluable": True,
+            "topic": topic,
+            "source_chunk_ids": current.get("source_chunk_ids", []),
+            "status": "evaluated",
+        }
+        return {
+            "evaluation": evaluation_dict,
+            "status": "evaluated",
+        }
 
     # Build chunk context (truncated to avoid token overflow)
     chunk_context = "\n\n".join(
@@ -458,6 +494,17 @@ def validate_feedback(state: EvaluatorState) -> dict:
     evaluation: dict | None = state.get("evaluation")
     chunks: list[dict] = state.get("retrieved_chunks", [])
 
+    answers: list[dict] = state.get("answers", [])
+    idx: int = state.get("current_index", 0)
+    if idx < len(answers):
+        qtype = answers[idx].get("type", "open")
+        if qtype == "mcq":
+            return {
+                "evaluation": {**evaluation, "validation_warnings": []} if evaluation else {},
+                "requires_review": False,
+                "judge_sample": False,
+            }
+
     if not evaluation or evaluation.get("status") == "cannot_evaluate":
         return {}
 
@@ -473,9 +520,8 @@ def validate_feedback(state: EvaluatorState) -> dict:
     sampled = random.random() < sample_rate
 
     if not claims or not chunks:
-        evaluation["validation_warnings"] = []
         return {
-            "evaluation": evaluation,
+            "evaluation": {**evaluation, "validation_warnings": []},
             "judge_sample": sampled,
         }
 
@@ -500,20 +546,19 @@ def validate_feedback(state: EvaluatorState) -> dict:
                     }
                 )
 
-        evaluation["validation_warnings"] = validation_warnings
         has_warnings = len(validation_warnings) > 0
+        updated_evaluation = {**evaluation, "validation_warnings": validation_warnings}
 
         return {
-            "evaluation": evaluation,
+            "evaluation": updated_evaluation,
             "requires_review": has_warnings,
             "judge_sample": sampled,
         }
 
     except Exception as exc:
         logger.exception("validate_feedback embedding failed")
-        evaluation["validation_warnings"] = []
         return {
-            "evaluation": evaluation,
+            "evaluation": {**evaluation, "validation_warnings": []},
             "errors": [f"Validation error: {exc}"],
             "judge_sample": sampled,
         }
@@ -678,25 +723,19 @@ def next_question(state: EvaluatorState) -> dict:
 
 
 def sync_scores(state: EvaluatorState) -> dict:
-    """Persist evaluation results to DB and mark sync complete.
-
-    Writes each result to the ``evaluations`` table and the
-    ``topic_scores`` table via the memory module. Also returns
-    scores dict for optional Support Agent routing.
-    """
+    """Persist evaluation results to DB."""
     import uuid as _uuid
 
     from src.memory.schema import save_evaluation, upsert_topic_scores
+    from src.utils.async_ import run_async_in_sync
 
     results: list[dict] = state.get("evaluation_results", [])
     session_id: str = state.get("session_id", "")
     student_id: str = state.get("student_id", "")
+    exam_id: str = state.get("exam_id", "")
 
     errors: list[str] = []
-    # Collect topic→score pairs for upsert after saving evaluations
     topic_score_pairs: list[dict] = []
-
-    exam_id: str = state.get("exam_id", "")
 
     for result in results:
         try:
@@ -725,42 +764,25 @@ def sync_scores(state: EvaluatorState) -> dict:
                 "score": result.get("score", 0.0),
                 "feedback_json": json.dumps(feedback, ensure_ascii=False),
             }
-
-            # Run async DB write synchronously (acceptable for graph node)
-            from src.utils.async_ import run_async_in_sync
-
             run_async_in_sync(save_evaluation(eval_record))
 
-            # Collect topic/score for profile update (SUP-03)
             topic = result.get("topic", "")
             score = result.get("score", 0.0)
-            # Only track evaluable answers that have a topic
             if topic and result.get("status") != "cannot_evaluate":
                 topic_score_pairs.append({"topic": topic, "score": score})
-
         except Exception as exc:
-            logger.warning("Failed to save evaluation for %s: %s", result.get("question_id"), exc)
-            errors.append(f"DB write failed for {result.get('question_id')}: {exc}")
+            logger.exception("sync_scores failed for question %s", result.get("question_id", ""))
+            errors.append(f"Save error: {exc}")
 
-    # Upsert topic scores if we have student_id and scores (SUP-03)
     if student_id and topic_score_pairs:
         try:
-            # Deduplicate: keep latest score per topic from this batch
-            deduped: dict[str, float] = {}
-            for pair in topic_score_pairs:
-                deduped[pair["topic"]] = pair["score"]
-            deduped_list = [{"topic": t, "score": s} for t, s in deduped.items()]
-
-            from src.utils.async_ import run_async_in_sync
-
-            run_async_in_sync(upsert_topic_scores(student_id, deduped_list))
+            run_async_in_sync(upsert_topic_scores(student_id, topic_score_pairs))
         except Exception as exc:
-            logger.warning("Failed to upsert topic scores for %s: %s", student_id, exc)
-            errors.append(f"Topic score upsert failed: {exc}")
+            logger.exception("sync_scores topic_scores upsert failed")
+            errors.append(f"Topic scores error: {exc}")
 
     if errors:
         return {"scores_synced": True, "errors": errors, "status": "synced_with_errors"}
-
     return {"scores_synced": True, "status": "synced"}
 
 
