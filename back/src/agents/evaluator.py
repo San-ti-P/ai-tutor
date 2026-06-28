@@ -12,6 +12,7 @@ configurable rate (default 10%) for quality assurance.
 
 from __future__ import annotations
 
+import json
 import logging
 import operator
 import random
@@ -629,11 +630,13 @@ def build_feedback(state: EvaluatorState) -> dict:
     if evaluation is None:
         return {"status": "no_evaluation"}
 
-    # Ensure question_id and topic are present
+    # Ensure question_id, topic, and answer context are present
     if idx < len(answers):
         evaluation.setdefault("question_id", answers[idx].get("question_id", ""))
         evaluation.setdefault("topic", answers[idx].get("topic", ""))
         evaluation.setdefault("source_chunk_ids", answers[idx].get("source_chunk_ids", []))
+        evaluation.setdefault("question_text", answers[idx].get("question", ""))
+        evaluation.setdefault("student_answer", answers[idx].get("student_answer", ""))
 
     evaluation.setdefault("validation_warnings", [])
     evaluation.setdefault("requires_review", state.get("requires_review", False))
@@ -693,16 +696,34 @@ def sync_scores(state: EvaluatorState) -> dict:
     # Collect topic→score pairs for upsert after saving evaluations
     topic_score_pairs: list[dict] = []
 
+    exam_id: str = state.get("exam_id", "")
+
     for result in results:
         try:
+            feedback = {
+                "justification": result.get("justification", ""),
+                "conceptual_errors": result.get("conceptual_errors", []),
+                "suggestions": result.get("suggestions", []),
+                "is_evaluable": result.get("is_evaluable", True),
+                "non_evaluable_reason": result.get("non_evaluable_reason", ""),
+                "requires_review": result.get("requires_review", False),
+                "judge_score": (
+                    result.get("judge_verdict", {}).get("score")
+                    if isinstance(result.get("judge_verdict"), dict)
+                    else None
+                ),
+                "question_text": result.get("question_text", ""),
+                "student_answer": result.get("student_answer", ""),
+            }
             eval_record = {
                 "id": str(_uuid.uuid4()),
                 "session_id": session_id,
                 "student_id": student_id,
                 "question_id": result.get("question_id", ""),
+                "exam_id": exam_id,
                 "topic": result.get("topic", ""),
                 "score": result.get("score", 0.0),
-                "feedback_json": "",
+                "feedback_json": json.dumps(feedback, ensure_ascii=False),
             }
 
             # Run async DB write synchronously (acceptable for graph node)

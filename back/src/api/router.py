@@ -32,6 +32,7 @@ from src.api.schemas import (
     SessionCreate,
     SessionFile,
     SessionProfile,
+    ExamEvaluationSummary,
     SessionRename,
     StudentProfile,
 )
@@ -65,6 +66,49 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _build_exam_from_raw(raw: dict, topic: str = "", difficulty: str = "medium") -> Exam:
+    """Normalize raw exam dict from generate_exam tool into the Exam schema."""
+    questions = []
+    for q in raw.get("questions", []):
+        qtype = q.get("type", "open")
+        if qtype == "open_answer":
+            qtype = "open"
+        base_answer = q.get("baseAnswer", q.get("base_answer"))
+        if qtype == "mcq" and not base_answer:
+            options = q.get("options", [])
+            correct_idx = q.get("correct_option_index")
+            if isinstance(correct_idx, int) and 0 <= correct_idx < len(options):
+                base_answer = options[correct_idx]
+        questions.append(
+            ExamQuestion(
+                id=q.get("id", str(uuid.uuid4())),
+                type=qtype,
+                prompt=q.get("prompt", ""),
+                options=q.get("options"),
+                baseAnswer=base_answer,
+                sourceChunkIds=q.get("sourceChunkIds", q.get("source_chunk_ids")),
+                topic=q.get("topic", ""),
+                difficulty=q.get("difficulty", "medium"),
+            )
+        )
+
+    resolved_topic = topic or (raw.get("topics_covered") or [""])[0]
+    resolved_difficulty = difficulty or (
+        questions[0].difficulty if questions else "medium"
+    )
+    return Exam(
+        id=raw.get("exam_id", str(uuid.uuid4())),
+        questions=questions,
+        topic=resolved_topic,
+        difficulty=resolved_difficulty,
+        status=raw.get("status", "complete"),
+        warnings=raw.get("warnings", []),
+        topic_not_found=raw.get("topic_not_found", []),
+        topic_suggestions=raw.get("topic_suggestions", []),
+        topic_distribution=raw.get("topic_distribution", {}),
+    )
+
+
 @router.get("/health")
 async def health() -> dict:
     logger.info("Health check requested")
@@ -95,12 +139,15 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
         result["intent"],
         int(elapsed),
     )
+    raw_exam = result.get("exam")
+    exam = _build_exam_from_raw(raw_exam) if raw_exam else None
+
     return ApiResponse(
         data=ChatResponse(
             response=result["response"],
             intent=result["intent"],
             trace_id=result["trace_id"],
-            exam=result.get("exam"),
+            exam=exam,
         ),
         error=None,
         trace_id=result.get("trace_id", str(uuid.uuid4())),
@@ -252,6 +299,29 @@ async def get_session_profile_endpoint(session_id: str) -> ApiResponse[SessionPr
         error=None,
         trace_id=str(uuid.uuid4()),
     )
+
+
+@router.get(
+    "/sessions/{session_id}/evaluations",
+    response_model=ApiResponse[list[ExamEvaluationSummary]],
+)
+async def get_session_evaluations_endpoint(
+    session_id: str,
+) -> ApiResponse[list[ExamEvaluationSummary]]:
+    """Return all exam evaluations for a session, grouped by exam and newest first."""
+    from src.memory.schema import get_session_evaluations as _get_session_evaluations
+
+    groups = await _get_session_evaluations(session_id)
+    summaries = [
+        ExamEvaluationSummary(
+            examId=g["exam_id"],
+            createdAt=g["created_at"],
+            averageScore=g.get("averageScore"),
+            results=[EvaluationResult(**r) for r in g["results"]],
+        )
+        for g in groups
+    ]
+    return ApiResponse(data=summaries, error=None, trace_id=str(uuid.uuid4()))
 
 
 @router.post("/ingest", response_model=ApiResponse[list[IngestResult]])
@@ -407,44 +477,8 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
         },
     )
 
-    # Map tool output to Exam model
-    questions = []
-    for q in result.get("questions", []):
-        qtype = q.get("type", "open")
-        if qtype == "open_answer":
-            qtype = "open"
-        # Compute base_answer for MCQ from correct_option_index
-        base_answer = q.get("baseAnswer", q.get("base_answer"))
-        if qtype == "mcq" and not base_answer:
-            options = q.get("options", [])
-            correct_idx = q.get("correct_option_index")
-            if isinstance(correct_idx, int) and 0 <= correct_idx < len(options):
-                base_answer = options[correct_idx]
-        questions.append(
-            ExamQuestion(
-                id=q.get("id", str(uuid.uuid4())),
-                type=qtype,
-                prompt=q.get("prompt", ""),
-                options=q.get("options"),
-                baseAnswer=base_answer,
-                sourceChunkIds=q.get("sourceChunkIds", q.get("source_chunk_ids")),
-                topic=q.get("topic", ""),
-                difficulty=q.get("difficulty", "medium"),
-            )
-        )
-
     return ApiResponse(
-        data=Exam(
-            id=result.get("exam_id", str(uuid.uuid4())),
-            questions=questions,
-            topic=request.topic,
-            difficulty=request.preferences.difficulty,
-            status=result.get("status", "complete"),
-            warnings=result.get("warnings", []),
-            topic_not_found=result.get("topic_not_found", []),
-            topic_suggestions=result.get("topic_suggestions", []),
-            topic_distribution=result.get("topic_distribution", {}),
-        ),
+        data=_build_exam_from_raw(result, topic=request.topic, difficulty=request.preferences.difficulty),
         error=None,
         trace_id=str(uuid.uuid4()),
     )

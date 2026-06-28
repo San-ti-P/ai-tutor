@@ -11,7 +11,7 @@ import {
   UploadFileList,
   type FileStatus,
 } from "@/components/upload/UploadFileList";
-import type { ChatMessage, IngestResult } from "@/lib/types";
+import type { ChatMessage, ExamEvalSnapshot, IngestResult } from "@/lib/types";
 
 interface FileEntry {
   file: File;
@@ -45,11 +45,56 @@ export default function ChatPage() {
     }
   }, [sessionsLoading, sessions.length, createSession]);
 
-  // Clear messages when switching sessions
+  // Load persisted messages when session changes, clear file entries
   useEffect(() => {
-    setMessages([]);
     setFileEntries([]);
+    if (!sessionId) {
+      setMessages([]);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(`chat_msgs_${sessionId}`);
+      if (raw) {
+        const parsed: ChatMessage[] = JSON.parse(raw);
+        // Rehydrate timestamp strings back to Date objects
+        setMessages(parsed.map((m) => ({ ...m, timestamp: new Date(m.timestamp) })));
+      } else {
+        setMessages([]);
+      }
+    } catch {
+      setMessages([]);
+    }
   }, [sessionId]);
+
+  // Persist messages to localStorage — strip unevaluated exam fields to avoid blank forms on reload
+  useEffect(() => {
+    if (!sessionId || messages.length === 0) return;
+    try {
+      const toSave = messages.map((m) => {
+        if (m.exam && !m.evalSnapshot) {
+          const { exam: _exam, ...rest } = m;
+          return rest;
+        }
+        return m;
+      });
+      localStorage.setItem(`chat_msgs_${sessionId}`, JSON.stringify(toSave));
+    } catch {
+      // localStorage quota exceeded or unavailable — silently ignore
+    }
+  }, [sessionId, messages]);
+
+  const handleExamEvaluated = useCallback(
+    (messageId: string, snapshot: ExamEvalSnapshot) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, exam: undefined, evalSnapshot: snapshot }
+            : m,
+        ),
+      );
+    },
+    [],
+  );
 
   const handleFilesSelected = useCallback(
     async (newFiles: File[]) => {
@@ -190,7 +235,12 @@ export default function ChatPage() {
         className="flex flex-1 flex-col rounded-lg border border-border bg-card overflow-hidden"
         style={{ minHeight: "60vh" }}
       >
-        <ChatMessageList messages={messages} isLoading={isLoading} />
+        <ChatMessageList
+          messages={messages}
+          isLoading={isLoading}
+          sessionId={sessionId}
+          onExamEvaluated={handleExamEvaluated}
+        />
         {!sessionId ? (
           <div className="border-t border-border p-4 text-center text-muted-foreground text-sm">
             Inicializando sesión...

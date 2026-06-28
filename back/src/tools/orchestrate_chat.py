@@ -56,6 +56,12 @@ async def orchestrate_chat(
 
     graph = await get_orchestrator_graph()
 
+    # Use a unique thread_id per request to prevent LangGraph from restoring
+    # stale checkpoint state (results, plan, etc.) from previous requests on
+    # the same session. The session_id is preserved in initial_state so all
+    # tool calls (profile loading, ChromaDB queries) still target the right session.
+    run_thread_id = f"{session_id}:{uuid.uuid4()}"
+
     initial_state: dict = {
         "session_id": session_id,
         "user_message": user_message,
@@ -79,7 +85,7 @@ async def orchestrate_chat(
 
     tracer = get_tracer()
 
-    config = {"configurable": {"thread_id": session_id}}
+    config = {"configurable": {"thread_id": run_thread_id}}
 
     try:
         # Per Langfuse docs: CallbackHandler must be created INSIDE

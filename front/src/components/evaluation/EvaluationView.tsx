@@ -118,6 +118,19 @@ export function EvaluationView({
             )}
           </div>
 
+          {r.questionText && (
+            <p className="mb-2 font-medium text-foreground text-sm">
+              {r.questionText}
+            </p>
+          )}
+
+          {r.userAnswer && (
+            <div className="mb-3 rounded-md bg-muted/50 px-3 py-2">
+              <p className="mb-0.5 text-muted-foreground text-xs font-medium uppercase">Tu respuesta</p>
+              <p className="text-foreground text-sm whitespace-pre-wrap">{r.userAnswer}</p>
+            </div>
+          )}
+
           {r.justification && (
             <p className="mb-3 text-foreground text-sm">{r.justification}</p>
           )}

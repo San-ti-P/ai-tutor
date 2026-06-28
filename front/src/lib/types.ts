@@ -33,6 +33,12 @@ const DIFFICULTY = {
 
 type Difficulty = (typeof DIFFICULTY)[keyof typeof DIFFICULTY];
 
+interface ExamEvalSnapshot {
+  examId: string;
+  topic: string;
+  results: EvaluationResult[];
+}
+
 interface ChatMessage {
   id: string;
   role: MessageRole;
@@ -40,6 +46,7 @@ interface ChatMessage {
   timestamp: Date;
   traceId?: string;
   exam?: Exam;
+  evalSnapshot?: ExamEvalSnapshot;
   isError?: boolean;
 }
 
@@ -71,6 +78,15 @@ interface EvaluationResult {
   suggestions: string[];
   isEvaluable?: boolean;
   nonEvaluableReason?: string;
+  questionText?: string;
+  userAnswer?: string;
+}
+
+interface ExamEvaluationSummary {
+  examId: string;
+  createdAt: string;
+  results: EvaluationResult[];
+  averageScore: number | null;
 }
 
 interface ExamPreferences {
@@ -235,4 +251,6 @@ export type {
   SessionFile,
   SessionProfile,
   SessionCreate,
+  ExamEvaluationSummary,
+  ExamEvalSnapshot,
 };

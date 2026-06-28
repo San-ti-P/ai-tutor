@@ -2,15 +2,18 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ChatMessage as ChatMessageType } from "@/lib/types";
+import type { ChatMessage as ChatMessageType, ExamEvalSnapshot } from "@/lib/types";
 import { ExamWidget } from "@/components/chat/ExamWidget";
+import { EvaluationView } from "@/components/evaluation/EvaluationView";
 import { cn } from "@/lib/utils";
 
 interface ChatMessageProps {
   message: ChatMessageType;
+  sessionId?: string;
+  onExamEvaluated?: (messageId: string, snapshot: ExamEvalSnapshot) => void;
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, sessionId, onExamEvaluated }: ChatMessageProps) {
   const isUser = message.role === "user";
 
   return (
@@ -32,15 +35,30 @@ export function ChatMessage({ message }: ChatMessageProps) {
       >
         {isUser ? (
           <p className="whitespace-pre-wrap">{message.content}</p>
-        ) : (
+        ) : !message.exam && !message.evalSnapshot ? (
           <div className="prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {message.content}
             </ReactMarkdown>
           </div>
+        ) : null}
+
+        {!isUser && message.evalSnapshot && (
+          <div className="mt-3 rounded-lg border border-border bg-background p-4">
+            <h3 className="mb-3 font-semibold text-foreground text-sm">
+              Corrección — {message.evalSnapshot.topic}
+            </h3>
+            <EvaluationView results={message.evalSnapshot.results} />
+          </div>
         )}
 
-        {!isUser && message.exam && <ExamWidget exam={message.exam} />}
+        {!isUser && message.exam && !message.evalSnapshot && (
+          <ExamWidget
+            exam={message.exam}
+            sessionId={sessionId}
+            onEvaluated={(snapshot) => onExamEvaluated?.(message.id, snapshot)}
+          />
+        )}
 
         {message.traceId && (
           <span

@@ -382,25 +382,48 @@ def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> d
 
 
 def _extract_topics(message: str) -> list[str]:
-    """Extract topic keywords from user message using simple heuristics.
+    """Extract topic keywords from user message.
 
-    Looks for phrases like 'sobre X', 'acerca de X', 'de X'.
-    Returns ['general'] if no topics detected — caller should enrich
-    from session context when available.
+    Handles patterns like:
+      - 'examen sobre [el tema de] X'
+      - 'haceme un examen de X'
+      - 'quiero practicar X'
+    Returns ['general'] only when no topic is detectable.
     """
     import re
 
+    # Stopwords/filler phrases to strip from the captured topic
+    _FILLER = re.compile(
+        r"^(?:el\s+tema\s+de\s+|los?\s+temas?\s+de\s+|la\s+materia\s+de\s+|el\s+|la\s+|los?\s+|las?\s+)",
+        re.IGNORECASE,
+    )
+    # Trailing noise to remove from captured group
+    _TRAILING = re.compile(
+        r"\s*(?:con\s+\d+\s*(?:preguntas?)?|\d+\s+preguntas?|por\s+favor|,|\.|;|:)\s*$",
+        re.IGNORECASE,
+    )
+
+    # Ordered patterns: most specific first.
+    # Each captures the topic in group 1. End anchor uses (?=...|$) lookahead
+    # so it works at end-of-string without consuming trailing space.
     patterns = [
-        r"(?:sobre|acerca\s+de|de)\s+(?:los\s+)?(?:temas?\s+(?:de\s+)?)?['\"]?([^,.;!?\d]+?)['\"]?(?:\s+(?:con|y|,|\.|$|con\s+))",
-        r"(?:gener[áa]\w*\s+(?:un\s+)?(?:examen|ejercicio)\s+(?:sobre|acerca\s+de|de)\s+)(.+?)(?:\s+(?:con|de|y|,|\.|$|\d+\s+preguntas))",
+        # "sobre/acerca de [el tema de] TOPIC"
+        r"(?:sobre|acerca\s+de)\s+((?:el\s+tema\s+de\s+|los?\s+temas?\s+de\s+)?[A-Za-záéíóúüñÁÉÍÓÚÜÑ][^,.;!?\n]{1,80}?)(?=\s*(?:con\s+\d|\d+\s+preguntas?|,|\.|;|$))",
+        # "[examen|prueba|evaluación] de TOPIC"
+        r"(?:examen|prueba|evaluaci[oó]n)\s+de\s+((?:el\s+tema\s+de\s+)?[A-Za-záéíóúüñÁÉÍÓÚÜÑ][^,.;!?\n]{1,80}?)(?=\s*(?:con\s+\d|\d+\s+preguntas?|,|\.|;|$))",
+        # "practicar/estudiar/repasar TOPIC"
+        r"(?:practicar|estudiar|repasar|entender|aprender)\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ][^,.;!?\n]{1,80}?)(?=\s*(?:con\s+\d|\d+\s+preguntas?|,|\.|;|$))",
     ]
+
     for pattern in patterns:
         match = re.search(pattern, message, re.IGNORECASE)
         if match:
-            topic_text = match.group(1).strip().rstrip(".")
-            if topic_text and len(topic_text) > 2:
-                topics = re.split(r"\s+(?:y|e)\s+|,\s*", topic_text)
-                return [t.strip() for t in topics if len(t.strip()) > 2]
+            raw = match.group(1).strip()
+            raw = _FILLER.sub("", raw)
+            raw = _TRAILING.sub("", raw).strip().rstrip(".")
+            if len(raw) > 2:
+                parts = re.split(r"\s+(?:y|e)\s+|,\s*", raw)
+                return [p.strip() for p in parts if len(p.strip()) > 2]
 
     return ["general"]
 

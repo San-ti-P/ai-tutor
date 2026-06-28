@@ -34,7 +34,7 @@ class ChatResponse(BaseModel):
     response: str
     intent: IntentEnum
     trace_id: str | None = None
-    exam: dict | None = None  # Structured exam data for UI rendering (Epic 7 US-7.3)
+    exam: Exam | None = None  # Structured exam data for UI rendering (Epic 7 US-7.3)
 
 
 class ExamPreferences(BaseModel):
@@ -240,7 +240,20 @@ class SessionProfile(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ExamEvaluationSummary(BaseModel):
+    exam_id: str = Field(alias="examId")
+    created_at: str = Field(alias="createdAt")
+    results: list[EvaluationResult]
+    average_score: float | None = Field(default=None, alias="averageScore")
+
+    model_config = {"populate_by_name": True}
+
+
 class ApiResponse[T](BaseModel):
     data: T
     error: str | None = None
     trace_id: str | None = None
+
+
+# Resolve forward reference: ChatResponse.exam references Exam defined after it
+ChatResponse.model_rebuild()
