@@ -144,7 +144,7 @@ Cada criterio del TP debe ser cubierto EXPLÍCITAMENTE. La presentación es la d
 - 121 tests totales: 105 unitarios (mock, <5s) + 16 integración (LLM real)
 - Cobertura de los 12 casos PRD §8: 7 happy path, 3 edge cases, 2 adversarial
 - Tabla resumen: caso PRD, categoría, tipo de validación, estado
-- Mencionar honestamente: OCR diferido (casos 6 y 9 postergados por scope)
+- Mencionar honestamente: imágenes no soportadas (casos 6 y 9 postergados por scope)
 
 **Slide 13 — Resultados de Pruebas Clave**
 - Mostrar ejecución de tests unitarios representativos (captura de terminal):
