@@ -50,14 +50,14 @@ export default function ExamPage() {
         setCurrentIndex(0);
         if (res.data.questions.length === 0) {
           setError(
-            "El examen no tiene preguntas. Intent\u00e1 con otro tema o carg\u00e1 m\u00e1s material.",
+            "El examen no tiene preguntas. Intentá con otro tema o cargá más material.",
           );
         }
       } catch (err) {
         setError(
           err instanceof Error
             ? err.message
-            : "No se pudo generar el examen. Intent\u00e1 de nuevo.",
+            : "No se pudo generar el examen. Intentá de nuevo.",
         );
       } finally {
         setIsGenerating(false);
@@ -97,7 +97,7 @@ export default function ExamPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "No se pudo enviar el examen. Intent\u00e1 de nuevo.",
+          : "No se pudo enviar el examen. Intentá de nuevo.",
       );
     } finally {
       setIsSubmitting(false);
@@ -210,8 +210,8 @@ export default function ExamPage() {
             </h3>
             <p className="mb-4 text-muted-foreground text-sm">
               {unanswered > 0
-                ? `\u00bfEst\u00e1s seguro? Ten\u00e9s ${unanswered} pregunta${unanswered !== 1 ? "s" : ""} sin responder.`
-                : "\u00bfEst\u00e1s seguro de entregar el examen?"}
+                ? `¿Estás seguro? Tenés ${unanswered} pregunta${unanswered !== 1 ? "s" : ""} sin responder.`
+                : "¿Estás seguro de entregar el examen?"}
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setShowConfirm(false)}>
@@ -227,7 +227,7 @@ export default function ExamPage() {
         <div className="flex items-center gap-2 rounded-lg border border-border bg-accent p-4 text-accent-foreground text-sm">
           <FileText className="size-4 shrink-0" />
           <p>
-            Carg\u00e1 material de estudio primero para generar ex\u00e1menes
+            Cargá material de estudio primero para generar exámenes
             personalizados.
           </p>
         </div>

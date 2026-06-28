@@ -11,9 +11,9 @@ import { Spinner } from "@/components/ui/spinner";
 import type { Difficulty } from "@/lib/types";
 
 const DIFFICULTY_OPTIONS = [
-  { value: "easy", label: "F\u00e1cil" },
+  { value: "easy", label: "Fácil" },
   { value: "medium", label: "Medio" },
-  { value: "hard", label: "Dif\u00edcil" },
+  { value: "hard", label: "Difícil" },
 ];
 
 export default function SettingsPage() {
@@ -91,7 +91,7 @@ export default function SettingsPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "No se pudieron guardar las preferencias. Intent\u00e1 de nuevo.",
+          : "No se pudieron guardar las preferencias. Intentá de nuevo.",
       );
     } finally {
       setIsSaving(false);
@@ -102,10 +102,10 @@ export default function SettingsPage() {
     <div className="flex flex-col gap-8">
       <div>
         <h1 className="font-bold text-3xl text-foreground tracking-tight">
-          Configuraci\u00f3n
+          Configuración
         </h1>
         <p className="mt-1 text-muted-foreground">
-          Personaliz\u00e1 tu experiencia de estudio
+          Personalizá tu experiencia de estudio
         </p>
       </div>
 
@@ -199,7 +199,7 @@ export default function SettingsPage() {
               type="text"
               value={includeTopics}
               onChange={(e) => setIncludeTopics(e.target.value)}
-              placeholder="\u00c1lgebra, C\u00e1lculo, Probabilidad..."
+              placeholder="Álgebra, Cálculo, Probabilidad..."
             />
           </div>
 
@@ -211,7 +211,7 @@ export default function SettingsPage() {
               type="text"
               value={excludeTopics}
               onChange={(e) => setExcludeTopics(e.target.value)}
-              placeholder="Dejar vac\u00edo para no excluir ning\u00fan tema"
+              placeholder="Dejar vacío para no excluir ningún tema"
             />
           </div>
 

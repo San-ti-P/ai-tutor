@@ -5,7 +5,7 @@ import { ClientLayout } from "@/components/layout/ClientLayout";
 import "./globals.css";
 
 const inter = Inter({
-  subsets: ["latin"],
+  subsets: ["latin", "latin-ext"],
   variable: "--font-inter",
 });
 

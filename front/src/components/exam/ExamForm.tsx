@@ -9,9 +9,9 @@ import { Spinner } from "@/components/ui/spinner";
 import type { Difficulty } from "@/lib/types";
 
 const DIFFICULTY_OPTIONS = [
-  { value: "easy", label: "F\u00e1cil" },
+  { value: "easy", label: "Fácil" },
   { value: "medium", label: "Medio" },
-  { value: "hard", label: "Dif\u00edcil" },
+  { value: "hard", label: "Difícil" },
 ];
 
 const QUESTION_TYPES = [
@@ -70,7 +70,7 @@ export function ExamForm({ onSubmit, isLoading, defaultTopic }: ExamFormProps) {
           type="text"
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          placeholder="Ej: C\u00e1lculo/Derivadas"
+          placeholder="Ej: Cálculo/Derivadas"
         />
       </div>
 

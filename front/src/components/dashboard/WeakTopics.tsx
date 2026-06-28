@@ -11,10 +11,10 @@ export function WeakTopics({ topics }: WeakTopicsProps) {
     return (
       <div className="rounded-lg border border-border bg-card p-6">
         <h3 className="mb-2 font-semibold text-foreground text-sm">
-          Temas d\u00e9biles
+          Temas débiles
         </h3>
         <p className="text-green-600 dark:text-green-400 text-sm">
-          \u00a1Buen trabajo! No ten\u00e9s temas d\u00e9biles.
+          ¡Buen trabajo! No tenés temas débiles.
         </p>
       </div>
     );
