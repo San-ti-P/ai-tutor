@@ -164,6 +164,13 @@ def compute_progress_summary(state: SupportState) -> dict:
 
         weak = run_async_in_sync(_compute())
 
+        # Fallback: if DB returned empty but state has topic_scores, compute from them
+        if not weak and topic_scores:
+            weak = sorted(
+                [t["topic"] for t in topic_scores if t.get("score", 0) < 6.0],
+                key=lambda t: next((s["score"] for s in topic_scores if s["topic"] == t), 10),
+            )[:3]
+
         elapsed = (time.monotonic() - t0) * 1000
         logger.info(
             "[compute_progress] COMPLETE | student=%s | weak_topics=%s | %dms",

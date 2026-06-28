@@ -378,15 +378,17 @@ class TestTraceIdPropagation:
         provided_sid = str(_uuid.uuid4())
 
         with patch("src.tools.ingest_document") as mock_tool:
-            mock_tool.invoke.return_value = {
-                "session_id": provided_sid,
-                "status": "ok",
-                "classification": "apunte_teorico",
-                "topics": ["test"],
-                "chunks_created": 3,
-                "classification_confidence": 0.9,
-                "document_id": "doc-1",
-            }
+            mock_tool.ainvoke = AsyncMock(
+                return_value={
+                    "session_id": provided_sid,
+                    "status": "ok",
+                    "classification": "apunte_teorico",
+                    "topics": ["test"],
+                    "chunks_created": 3,
+                    "classification_confidence": 0.9,
+                    "document_id": "doc-1",
+                }
+            )
             response = _get_client().post(
                 "/api/ingest",
                 files=[("files", ("test.pdf", b"fake pdf content", "application/pdf"))],
@@ -399,7 +401,7 @@ class TestTraceIdPropagation:
         results = data["data"]
         assert len(results) >= 1
         # The tool should have been called with the provided session_id
-        call_kwargs = mock_tool.invoke.call_args[0][0]
+        call_kwargs = mock_tool.ainvoke.call_args[0][0]
         assert call_kwargs["session_id"] == provided_sid
 
     def test_ingest_generates_uuid_when_session_id_missing(self):
@@ -410,15 +412,17 @@ class TestTraceIdPropagation:
         from unittest.mock import patch
 
         with patch("src.tools.ingest_document") as mock_tool:
-            mock_tool.invoke.return_value = {
-                "session_id": "generated-uuid",
-                "status": "ok",
-                "classification": "apunte_teorico",
-                "topics": ["test"],
-                "chunks_created": 3,
-                "classification_confidence": 0.9,
-                "document_id": "doc-1",
-            }
+            mock_tool.ainvoke = AsyncMock(
+                return_value={
+                    "session_id": "generated-uuid",
+                    "status": "ok",
+                    "classification": "apunte_teorico",
+                    "topics": ["test"],
+                    "chunks_created": 3,
+                    "classification_confidence": 0.9,
+                    "document_id": "doc-1",
+                }
+            )
             response = _get_client().post(
                 "/api/ingest",
                 files=[("files", ("test.pdf", b"fake pdf content", "application/pdf"))],
@@ -442,15 +446,17 @@ class TestTraceIdPropagation:
         from unittest.mock import patch
 
         with patch("src.tools.ingest_document") as mock_tool:
-            mock_tool.invoke.return_value = {
-                "session_id": "should-be-uuid",
-                "status": "ok",
-                "classification": "apunte_teorico",
-                "topics": ["test"],
-                "chunks_created": 3,
-                "classification_confidence": 0.9,
-                "document_id": "doc-1",
-            }
+            mock_tool.ainvoke = AsyncMock(
+                return_value={
+                    "session_id": "should-be-uuid",
+                    "status": "ok",
+                    "classification": "apunte_teorico",
+                    "topics": ["test"],
+                    "chunks_created": 3,
+                    "classification_confidence": 0.9,
+                    "document_id": "doc-1",
+                }
+            )
             long_id = "x" * 100
             response = _get_client().post(
                 "/api/ingest",

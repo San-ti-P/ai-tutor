@@ -1353,6 +1353,9 @@ class TestIntegrationSqliteSaver:
         orch_mod._orchestrator_db_conn = None
 
         with patch.object(orch_mod.settings, "sqlite_db_path", str(db_path)):
+            from src.memory.schema import init_db
+
+            await init_db()
             graph = await orch_mod.get_orchestrator_graph()
 
             thread_id = "sqlite-persist-int-001"
@@ -1561,7 +1564,14 @@ class TestRealOrchestratorIntegration:
             "errors": [],
             "status": "pending",
         }
-        result = synthesize_response(state)
+        with patch("src.tools.query_material") as mock_qm:
+            mock_qm.invoke.return_value = {
+                "chunks_found": 1,
+                "sources": [
+                    "Un vector es un elemento de un espacio vectorial, caracterizado por magnitud y dirección."
+                ],
+            }
+            result = synthesize_response(state)
 
         assert len(result["response"]) > 20, f"Response too short: '{result['response']}'"
         assert result["status"] == "complete"

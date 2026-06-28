@@ -803,7 +803,7 @@ class TestRealIntegration:
     They verify product behavior, not just plumbing.
     """
 
-    def test_generate_exam_from_real_pdf(
+    async def test_generate_exam_from_real_pdf(
         self, requires_ollama, ingested_collection_name, real_pdf_text
     ):
         """Full pipeline: real PDF → real chunks → real LLM → validated exam.
@@ -815,7 +815,7 @@ class TestRealIntegration:
         from src.tools import retrieve_chunks
 
         # Extract topics from the real PDF to guide exam generation
-        topics_result = _extract_topics.invoke({"text": real_pdf_text[:3000]})
+        topics_result = await _extract_topics.ainvoke({"text": real_pdf_text[:3000]})
         detected_topics = topics_result.get("topics", [])
         if not detected_topics:
             detected_topics = ["agentes", "inteligencia artificial"]

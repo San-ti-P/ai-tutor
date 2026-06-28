@@ -175,8 +175,12 @@ class TestSessionApiEndpoints:
                 "average_score": None,
             }
         )
+        mock_ensure_student = AsyncMock(return_value=None)
         for client in self._client(
-            tmp_path, _create_session=mock_create, _get_session=mock_get
+            tmp_path,
+            _create_session=mock_create,
+            _get_session=mock_get,
+            _ensure_student_exists=mock_ensure_student,
         ):
             response = client.post(
                 "/api/sessions",

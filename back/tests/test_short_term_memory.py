@@ -195,10 +195,13 @@ class TestShortTermMemoryAcrossTurns:
         async def _get_summary(*a, **kw):
             return {}
 
+        _get_summary_mock = MagicMock()
+        _get_summary_mock.ainvoke = AsyncMock(side_effect=_get_summary)
+
         with patch("src.agents.orchestrator._get_llm") as mock_llm_factory, patch(
             "src.agents.orchestrator.get_structured_llm"
         ) as mock_structured, patch(
-            "src.tools.get_student_summary.get_student_summary", new=_get_summary
+            "src.tools.get_student_summary.get_student_summary", new=_get_summary_mock
         ):
             mock_structured.return_value = type(
                 "M",
