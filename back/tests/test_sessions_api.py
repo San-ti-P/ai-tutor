@@ -126,8 +126,8 @@ class TestSessionSchemaCrud:
                 }
             )
 
+            mock_client = MagicMock()
             with patch("src.memory.schema.get_chroma_client") as mock_get_client:
-                mock_client = AsyncMock()
                 mock_get_client.return_value = mock_client
                 await delete_session(session["id"])
                 mock_client.delete_collection.assert_called_once_with(

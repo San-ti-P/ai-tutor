@@ -192,10 +192,13 @@ class TestShortTermMemoryAcrossTurns:
         session_id = "stm-session-2"
         config = {"configurable": {"thread_id": session_id}}
 
+        async def _get_summary(*a, **kw):
+            return {}
+
         with patch("src.agents.orchestrator._get_llm") as mock_llm_factory, patch(
             "src.agents.orchestrator.get_structured_llm"
         ) as mock_structured, patch(
-            "src.tools.get_student_summary.get_student_summary", new=AsyncMock(return_value={})
+            "src.tools.get_student_summary.get_student_summary", new=_get_summary
         ):
             mock_structured.return_value = type(
                 "M",

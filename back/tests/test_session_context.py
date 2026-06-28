@@ -437,43 +437,44 @@ class TestSessionContextIntegration:
         session_id = "sc-session-1"
         config = {"configurable": {"thread_id": session_id}}
 
-        with patch(
-            "src.tools.get_student_summary.get_student_summary",
-            new=AsyncMock(return_value={"weak_topics": ["cálculo"]}),
-        ), patch(
-            "src.memory.schema.resolve_student_id",
-            new=AsyncMock(return_value="stu-1"),
-        ), patch(
-            "src.memory.schema.list_session_files",
-            new=AsyncMock(
-                return_value=[
-                    {
-                        "id": "d1",
-                        "file_name": "apunte.pdf",
-                        "classification": "apunte",
-                        "topics_json": '["cálculo"]',
-                        "chunks_count": 3,
-                        "ingested_at": "2026-06-26",
-                        "session_id": session_id,
-                    }
-                ]
-            ),
-        ), patch(
-            "src.memory.schema.get_session_profile",
-            new=AsyncMock(
-                return_value={
+        # Use real async functions instead of AsyncMock to avoid LangGraph
+        # checkpointer serialization warnings (AsyncMockMixin._execute_mock_call)
+        async def _get_summary(*a, **kw):
+            return {"weak_topics": ["cálculo"]}
+
+        async def _resolve_id(*a, **kw):
+            return "stu-1"
+
+        async def _list_files(*a, **kw):
+            return [
+                {
+                    "id": "d1",
+                    "file_name": "apunte.pdf",
+                    "classification": "apunte",
+                    "topics_json": '["cálculo"]',
+                    "chunks_count": 3,
+                    "ingested_at": "2026-06-26",
                     "session_id": session_id,
-                    "topic_scores": {"cálculo": [8.0]},
-                    "weak_topics": [],
-                    "exam_count": 1,
-                    "average_score": 8.0,
                 }
-            ),
-        ), patch(
-            "src.agents.orchestrator.get_structured_llm",
-        ) as mock_structured, patch(
-            "src.agents.orchestrator._get_llm",
-        ) as mock_llm_factory:
+            ]
+
+        async def _get_profile(*a, **kw):
+            return {
+                "session_id": session_id,
+                "topic_scores": {"cálculo": [8.0]},
+                "weak_topics": [],
+                "exam_count": 1,
+                "average_score": 8.0,
+            }
+
+        with (
+            patch("src.tools.get_student_summary.get_student_summary", new=_get_summary),
+            patch("src.memory.schema.resolve_student_id", new=_resolve_id),
+            patch("src.memory.schema.list_session_files", new=_list_files),
+            patch("src.memory.schema.get_session_profile", new=_get_profile),
+            patch("src.agents.orchestrator.get_structured_llm") as mock_structured,
+            patch("src.agents.orchestrator._get_llm") as mock_llm_factory,
+        ):
             mock_structured.return_value = type(
                 "M", (),
                 {
