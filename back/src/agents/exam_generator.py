@@ -82,6 +82,60 @@ class ExamGeneratorState(TypedDict):
     status: str
 
 
+# ── Helper for theme matching ────────────────────────────────────────────────
+
+def match_theme_to_session_topics(theme: str, session_topics: list[str]) -> list[str]:
+    """Match a user-requested theme to one or many session topics.
+
+    Returns matching topics if any are found, otherwise returns an empty list.
+    """
+    theme_clean = theme.strip().lower()
+    if not theme_clean or not session_topics:
+        return []
+
+    # 1. Exact match (case-insensitive)
+    exact = [t for t in session_topics if t.strip().lower() == theme_clean]
+    if exact:
+        return exact
+
+    # 2. Segment/path match (e.g. if theme is "derivadas" and session topic is "cálculo/derivadas")
+    path_matches = []
+    for t in session_topics:
+        parts = [p.strip().lower() for p in t.split("/")]
+        if theme_clean in parts:
+            path_matches.append(t)
+    if path_matches:
+        return path_matches
+
+    # 3. Substring match
+    substring_matches = []
+    for t in session_topics:
+        t_clean = t.strip().lower()
+        if theme_clean in t_clean or t_clean in theme_clean:
+            substring_matches.append(t)
+    if substring_matches:
+        return substring_matches
+
+    # 4. Jaccard similarity match on stems
+    try:
+        from src.topic_extraction.preprocess import jaccard_similarity, stem_topic
+        theme_stem = stem_topic(theme)
+        jaccard_matches = []
+        for t in session_topics:
+            topic_stem = stem_topic(t)
+            sim = jaccard_similarity(theme_stem, topic_stem)
+            if sim >= 0.4:
+                jaccard_matches.append((t, sim))
+        if jaccard_matches:
+            # Sort by similarity score descending
+            jaccard_matches.sort(key=lambda x: x[1], reverse=True)
+            return [item[0] for item in jaccard_matches]
+    except Exception:
+        pass
+
+    return []
+
+
 # ── Node implementations ─────────────────────────────────────────────────────
 
 
@@ -103,6 +157,50 @@ def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict:
         session_id: str = state.get("session_id", "")
         collection_name = state.get("collection_name") or f"session_{session_id}"
         student_profile = state.get("student_profile")
+
+        # Match user-requested theme/topics to topics extracted from session files
+        if session_id and topics:
+            from src.memory.schema import list_session_files
+            from src.utils.async_ import run_async_in_sync
+            import json as _json
+
+            try:
+                session_files = run_async_in_sync(list_session_files(session_id))
+                session_topics = []
+                for sf in session_files:
+                    topics_json = sf.get("topics_json")
+                    if topics_json:
+                        try:
+                            t_list = _json.loads(topics_json)
+                            if isinstance(t_list, list):
+                                session_topics.extend(t_list)
+                        except Exception:
+                            pass
+                session_topics = list(set(session_topics))
+
+                if session_topics:
+                    resolved_topics = []
+                    has_any_match = False
+                    for theme in topics:
+                        matches = match_theme_to_session_topics(theme, session_topics)
+                        if matches:
+                            resolved_topics.extend(matches)
+                            has_any_match = True
+                        else:
+                            resolved_topics.append(theme)
+
+                    if has_any_match:
+                        # Deduplicate preserving order
+                        seen_resolved = set()
+                        deduped_resolved = []
+                        for rt in resolved_topics:
+                            if rt not in seen_resolved:
+                                seen_resolved.add(rt)
+                                deduped_resolved.append(rt)
+                        logger.info("Matched themes %s to session topics %s", topics, deduped_resolved)
+                        topics = deduped_resolved
+            except Exception as e:
+                logger.warning("Failed to resolve theme to session topics: %s", e)
 
         # Determine topics with optional weak-topic boosting
         weak_topics: list[str] = []
@@ -192,6 +290,7 @@ def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict:
                 logger.debug("ThematicIndex suggestion lookup failed", exc_info=True)
 
         return {
+            "topics": topics,
             "retrieved_chunks": all_chunks,
             "topic_not_found": topic_not_found,
             "topic_suggestions": topic_suggestions,

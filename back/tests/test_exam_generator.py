@@ -57,6 +57,72 @@ class TestRetrieveRelevantChunks:
         chunk_ids = [c["chunk_id"] for c in result["retrieved_chunks"]]
         assert len(chunk_ids) == len(set(chunk_ids))
 
+    def test_retrieve_chunks_theme_matching(self, exam_generator_state, sample_chunks):
+        """When a user specifies a theme, it matches session document topics."""
+        from src.agents.exam_generator import retrieve_relevant_chunks
+        from unittest.mock import AsyncMock
+
+        # We request "derivadas", which is not exact, but matches cálculo/derivadas
+        state = {
+            **exam_generator_state,
+            "topics": ["derivadas"],
+            "session_id": "test_sess_1",
+        }
+
+        mock_files = [
+            {"topics_json": '["cálculo/derivadas", "álgebra/matrices"]'},
+        ]
+
+        def _fake_retrieve(input_dict):
+            query = input_dict.get("query", "")
+            if "cálculo/derivadas" in query:
+                return [sample_chunks[0]]
+            return []
+
+        with patch("src.memory.schema.list_session_files", new=AsyncMock(return_value=mock_files)), \
+             patch("src.tools.retrieve_chunks") as mock_tool:
+            mock_tool.invoke.side_effect = _fake_retrieve
+            result = retrieve_relevant_chunks(state)
+
+        assert "topics" in result
+        # "derivadas" should be resolved to ["cálculo/derivadas"]
+        assert result["topics"] == ["cálculo/derivadas"]
+        assert "retrieved_chunks" in result
+        assert len(result["retrieved_chunks"]) == 1
+        assert result["retrieved_chunks"][0]["chunk_id"] == sample_chunks[0]["chunk_id"]
+
+    def test_retrieve_chunks_theme_matching_fallback(self, exam_generator_state, sample_chunks):
+        """When a theme does not match any session topic, falls back to original theme."""
+        from src.agents.exam_generator import retrieve_relevant_chunks
+        from unittest.mock import AsyncMock
+
+        state = {
+            **exam_generator_state,
+            "topics": ["física/cuántica"],
+            "session_id": "test_sess_2",
+        }
+
+        mock_files = [
+            {"topics_json": '["cálculo/derivadas", "álgebra/matrices"]'},
+        ]
+
+        def _fake_retrieve(input_dict):
+            query = input_dict.get("query", "")
+            if "física/cuántica" in query:
+                return [sample_chunks[3]]
+            return []
+
+        with patch("src.memory.schema.list_session_files", new=AsyncMock(return_value=mock_files)), \
+             patch("src.tools.retrieve_chunks") as mock_tool:
+            mock_tool.invoke.side_effect = _fake_retrieve
+            result = retrieve_relevant_chunks(state)
+
+        assert "topics" in result
+        assert result["topics"] == ["física/cuántica"]
+        assert "retrieved_chunks" in result
+        assert len(result["retrieved_chunks"]) == 1
+        assert result["retrieved_chunks"][0]["chunk_id"] == sample_chunks[3]["chunk_id"]
+
 
 class TestGenerateQuestions:
     """Task 2.3–2.4: generate_questions node."""
