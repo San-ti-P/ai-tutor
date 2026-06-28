@@ -805,6 +805,7 @@ class TestSyncScoresTransaction:
                         session_id TEXT NOT NULL,
                         student_id TEXT NOT NULL,
                         question_id TEXT NOT NULL,
+                        exam_id TEXT DEFAULT '',
                         topic TEXT,
                         score REAL,
                         feedback_json TEXT
@@ -863,7 +864,7 @@ class TestSyncScoresTransaction:
                 await db.executescript("""
                     CREATE TABLE IF NOT EXISTS evaluations (
                         id TEXT PRIMARY KEY, session_id TEXT, student_id TEXT,
-                        question_id TEXT, topic TEXT, score REAL, feedback_json TEXT
+                        question_id TEXT, exam_id TEXT DEFAULT '', topic TEXT, score REAL, feedback_json TEXT
                     );
                     CREATE TABLE IF NOT EXISTS topic_scores (
                         topic TEXT, student_id TEXT, score REAL,

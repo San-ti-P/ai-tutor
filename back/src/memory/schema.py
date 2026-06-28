@@ -37,6 +37,8 @@ async def _run_migrations(db: aiosqlite.Connection) -> None:
         await db.execute(
             "ALTER TABLE ingested_documents ADD COLUMN topic_tree_json TEXT DEFAULT '{}'"
         )
+    if not await _column_exists(db, "evaluations", "exam_id"):
+        await db.execute("ALTER TABLE evaluations ADD COLUMN exam_id TEXT DEFAULT ''")
 
 
 async def init_db() -> None:
@@ -179,21 +181,81 @@ async def save_evaluation(evaluation: dict) -> None:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         await db.execute(
             """
-            INSERT INTO evaluations (id, session_id, student_id, question_id, topic, score,
-                                     feedback_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO evaluations (id, session_id, student_id, question_id, exam_id,
+                                     topic, score, feedback_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 evaluation["id"],
                 evaluation["session_id"],
                 evaluation["student_id"],
                 evaluation["question_id"],
+                evaluation.get("exam_id", ""),
                 evaluation.get("topic"),
                 evaluation.get("score"),
-                evaluation.get("feedback_json"),
+                evaluation.get("feedback_json", ""),
             ),
         )
         await db.commit()
+
+
+async def get_session_evaluations(session_id: str) -> list[dict]:
+    """Return evaluations for a session grouped by exam_id, newest first.
+
+    Each group contains the exam_id, created_at of the first question evaluated,
+    average score, and the list of per-question feedback dicts parsed from
+    feedback_json.
+    """
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT id, question_id, exam_id, topic, score, feedback_json, created_at
+            FROM evaluations
+            WHERE session_id = ?
+            ORDER BY exam_id, created_at ASC
+            """,
+            (session_id,),
+        )
+        rows = await cursor.fetchall()
+
+    groups: dict[str, dict] = {}
+    for row in rows:
+        row = dict(row)
+        exam_id = row["exam_id"] or "unknown"
+        if exam_id not in groups:
+            groups[exam_id] = {
+                "exam_id": exam_id,
+                "created_at": row["created_at"],
+                "results": [],
+            }
+        feedback = {}
+        if row["feedback_json"]:
+            try:
+                feedback = json.loads(row["feedback_json"])
+            except (json.JSONDecodeError, ValueError):
+                feedback = {}
+        groups[exam_id]["results"].append({
+            "questionId": row["question_id"],
+            "score": row["score"] or 0.0,
+            "justification": feedback.get("justification", ""),
+            "conceptualErrors": feedback.get("conceptual_errors", []),
+            "suggestions": feedback.get("suggestions", []),
+            "isEvaluable": feedback.get("is_evaluable", True),
+            "nonEvaluableReason": feedback.get("non_evaluable_reason", ""),
+            "requiresReview": feedback.get("requires_review", False),
+            "judgeScore": feedback.get("judge_score"),
+            "questionText": feedback.get("question_text", ""),
+            "userAnswer": feedback.get("student_answer", ""),
+        })
+
+    result_list = list(groups.values())
+    for g in result_list:
+        scores = [r["score"] for r in g["results"] if r["isEvaluable"]]
+        g["averageScore"] = round(sum(scores) / len(scores), 2) if scores else None
+
+    result_list.sort(key=lambda g: g["created_at"], reverse=True)
+    return result_list
 
 
 async def get_topic_scores(student_id: str) -> list[dict]:

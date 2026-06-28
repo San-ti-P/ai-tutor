@@ -4,6 +4,7 @@ import type {
   ChatResponse,
   ExamRequest,
   Exam,
+  ExamEvaluationSummary,
   ExerciseRequest,
   Exercise,
   EvaluationRequest,
@@ -146,4 +147,9 @@ export const api = {
 
   getSessionProfile: (sessionId: string) =>
     apiGet<ApiResponse<SessionProfile>>(`/api/sessions/${sessionId}/profile`),
+
+  getSessionEvaluations: (sessionId: string) =>
+    apiGet<ApiResponse<ExamEvaluationSummary[]>>(
+      `/api/sessions/${sessionId}/evaluations`,
+    ),
 };

@@ -12,6 +12,7 @@ configurable rate (default 10%) for quality assurance.
 
 from __future__ import annotations
 
+import json
 import logging
 import operator
 import random
@@ -674,11 +675,13 @@ def build_feedback(state: EvaluatorState) -> dict:
     if evaluation is None:
         return {"status": "no_evaluation"}
 
-    # Ensure question_id and topic are present
+    # Ensure question_id, topic, and answer context are present
     if idx < len(answers):
         evaluation.setdefault("question_id", answers[idx].get("question_id", ""))
         evaluation.setdefault("topic", answers[idx].get("topic", ""))
         evaluation.setdefault("source_chunk_ids", answers[idx].get("source_chunk_ids", []))
+        evaluation.setdefault("question_text", answers[idx].get("question", ""))
+        evaluation.setdefault("student_answer", answers[idx].get("student_answer", ""))
 
     evaluation.setdefault("validation_warnings", [])
     evaluation.setdefault("requires_review", state.get("requires_review", False))
@@ -720,77 +723,66 @@ def next_question(state: EvaluatorState) -> dict:
 
 
 def sync_scores(state: EvaluatorState) -> dict:
-    """Persist evaluation results to DB in a single transaction.
-
-    Writes each result to the ``evaluations`` table and the
-    ``topic_scores`` table within a BEGIN/COMMIT boundary.
-    If any write fails, the entire batch is rolled back.
-    """
+    """Persist evaluation results to DB."""
     import uuid as _uuid
 
-    import aiosqlite
-
-    from src.config import settings
+    from src.memory.schema import save_evaluation, upsert_topic_scores
     from src.utils.async_ import run_async_in_sync
 
     results: list[dict] = state.get("evaluation_results", [])
     session_id: str = state.get("session_id", "")
     student_id: str = state.get("student_id", "")
+    exam_id: str = state.get("exam_id", "")
 
     errors: list[str] = []
     topic_score_pairs: list[dict] = []
 
-    async def _transactional_write() -> None:
-        """Execute all evaluation writes in a single DB transaction."""
-        async with aiosqlite.connect(settings.sqlite_db_path) as db:
-            await db.execute("BEGIN TRANSACTION")
-            try:
-                for result in results:
-                    eval_id = str(_uuid.uuid4())
-                    await db.execute(
-                        """INSERT INTO evaluations
-                           (id, session_id, student_id, question_id, topic, score, feedback_json)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            eval_id,
-                            session_id,
-                            student_id,
-                            result.get("question_id", ""),
-                            result.get("topic", ""),
-                            result.get("score", 0.0),
-                            "",
-                        ),
-                    )
-                    topic = result.get("topic", "")
-                    score = result.get("score", 0.0)
-                    if topic and result.get("status") != "cannot_evaluate":
-                        topic_score_pairs.append({"topic": topic, "score": score})
+    for result in results:
+        try:
+            feedback = {
+                "justification": result.get("justification", ""),
+                "conceptual_errors": result.get("conceptual_errors", []),
+                "suggestions": result.get("suggestions", []),
+                "is_evaluable": result.get("is_evaluable", True),
+                "non_evaluable_reason": result.get("non_evaluable_reason", ""),
+                "requires_review": result.get("requires_review", False),
+                "judge_score": (
+                    result.get("judge_verdict", {}).get("score")
+                    if isinstance(result.get("judge_verdict"), dict)
+                    else None
+                ),
+                "question_text": result.get("question_text", ""),
+                "student_answer": result.get("student_answer", ""),
+            }
+            eval_record = {
+                "id": str(_uuid.uuid4()),
+                "session_id": session_id,
+                "student_id": student_id,
+                "question_id": result.get("question_id", ""),
+                "exam_id": exam_id,
+                "topic": result.get("topic", ""),
+                "score": result.get("score", 0.0),
+                "feedback_json": json.dumps(feedback, ensure_ascii=False),
+            }
+            run_async_in_sync(save_evaluation(eval_record))
 
-                # Upsert topic scores
-                if student_id and topic_score_pairs:
-                    deduped: dict[str, float] = {}
-                    for pair in topic_score_pairs:
-                        deduped[pair["topic"]] = pair["score"]
-                    for topic, score in deduped.items():
-                        await db.execute(
-                            """INSERT OR REPLACE INTO topic_scores
-                               (topic, student_id, score, evaluated_at)
-                               VALUES (?, ?, ?, datetime('now'))""",
-                            (topic, student_id, score),
-                        )
+            topic = result.get("topic", "")
+            score = result.get("score", 0.0)
+            if topic and result.get("status") != "cannot_evaluate":
+                topic_score_pairs.append({"topic": topic, "score": score})
+        except Exception as exc:
+            logger.exception("sync_scores failed for question %s", result.get("question_id", ""))
+            errors.append(f"Save error: {exc}")
 
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                raise
+    if student_id and topic_score_pairs:
+        try:
+            run_async_in_sync(upsert_topic_scores(student_id, topic_score_pairs))
+        except Exception as exc:
+            logger.exception("sync_scores topic_scores upsert failed")
+            errors.append(f"Topic scores error: {exc}")
 
-    try:
-        run_async_in_sync(_transactional_write())
-    except Exception as exc:
-        logger.exception("sync_scores transaction failed, rolled back")
-        errors.append(f"Transaction failed: {exc}")
+    if errors:
         return {"scores_synced": True, "errors": errors, "status": "synced_with_errors"}
-
     return {"scores_synced": True, "status": "synced"}
 
 
