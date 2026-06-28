@@ -137,7 +137,7 @@ export default function ExamPage() {
         </div>
       )}
 
-      {!exam ? (
+      {!exam || exam.questions.length === 0 ? (
         <div className="flex flex-col gap-6 rounded-lg border border-border bg-card p-6">
           <ExamForm onSubmit={handleGenerate} isLoading={isGenerating} />
         </div>
@@ -152,16 +152,22 @@ export default function ExamPage() {
             onSelect={setCurrentIndex}
           />
 
-          <ExamRenderer
-            key={exam.questions[currentIndex].id}
-            question={exam.questions[currentIndex]}
-            currentIndex={currentIndex}
-            total={exam.questions.length}
-            value={answers[exam.questions[currentIndex].id] ?? ""}
-            onChange={(v) =>
-              handleAnswerChange(exam.questions[currentIndex].id, v)
-            }
-          />
+          {exam.questions[currentIndex] ? (
+            <ExamRenderer
+              key={exam.questions[currentIndex].id}
+              question={exam.questions[currentIndex]}
+              currentIndex={currentIndex}
+              total={exam.questions.length}
+              value={answers[exam.questions[currentIndex].id] ?? ""}
+              onChange={(v) =>
+                handleAnswerChange(exam.questions[currentIndex].id, v)
+              }
+            />
+          ) : (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-amber-700 text-sm">
+              Pregunta no encontrada. Volvé a generar el examen.
+            </div>
+          )}
 
           <div className="flex items-center justify-between">
             <Button

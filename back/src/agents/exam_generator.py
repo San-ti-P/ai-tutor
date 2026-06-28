@@ -376,19 +376,35 @@ REQUISITOS:
 
         structured_llm = get_structured_llm(ExamGeneration)
         invoke_kwargs = {"config": config} if config is not None else {}
-        result: ExamGeneration = structured_llm.invoke(prompt, **invoke_kwargs)
 
-        # Convert Pydantic models to dicts
+        # ── LLM may generate fewer questions than requested (common with
+        #     smaller models like gemma4 via Ollama JSON mode). Retry the
+        #     LLM call up to 2 extra times to reach the target count. ──
+        max_generation_retries = 2
         new_questions: list[dict] = []
-        for mcq in result.mcq_questions:
-            q = mcq.model_dump()
-            q["type"] = "mcq"
-            q["prompt"] = q.pop("stem")  # map internal field to API field
-            new_questions.append(q)
-        for oa in result.open_questions:
-            q = oa.model_dump()
-            q["type"] = "open_answer"
-            new_questions.append(q)
+        for gen_attempt in range(1 + max_generation_retries):
+            result: ExamGeneration = structured_llm.invoke(prompt, **invoke_kwargs)
+
+            new_questions.clear()
+            for mcq in result.mcq_questions:
+                q = mcq.model_dump()
+                q["type"] = "mcq"
+                q["prompt"] = q.pop("stem")
+                new_questions.append(q)
+            for oa in result.open_questions:
+                q = oa.model_dump()
+                q["type"] = "open_answer"
+                new_questions.append(q)
+
+            if len(new_questions) >= target_count or gen_attempt == max_generation_retries:
+                break
+            logger.warning(
+                "[generate_questions] LLM returned %d/%d questions — retrying (%d/%d)",
+                len(new_questions),
+                target_count,
+                gen_attempt + 1,
+                max_generation_retries,
+            )
 
         # ── Post-filter: remove hallucinated source_chunk_ids ──────────
         valid_chunk_ids = {c.get("chunk_id", "") for c in chunks}
