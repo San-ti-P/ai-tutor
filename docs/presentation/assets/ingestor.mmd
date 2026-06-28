@@ -11,7 +11,8 @@ graph TD;
 	__end__([<p>__end__</p>]):::last
 	__start__ --> parse_document;
 	classify_document --> chunk_and_embed;
-	parse_document --> classify_document;
+	parse_document -. &nbsp;end&nbsp; .-> __end__;
+	parse_document -.-> classify_document;
 	chunk_and_embed --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
