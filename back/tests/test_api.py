@@ -66,7 +66,7 @@ class TestExamGenerateEndpoint:
         }
 
         with patch("src.tools.generate_exam") as mock_tool:
-            mock_tool.invoke.return_value = fake_exam
+            mock_tool.ainvoke = AsyncMock(return_value=fake_exam)
             response = _get_client().post(
                 "/api/exam/generate",
                 json={
@@ -97,7 +97,7 @@ class TestExamGenerateEndpoint:
     def test_exam_generate_uses_tool_with_correct_params(self):
         """GIVEN request with preferences → THEN tool receives correct args."""
         with patch("src.tools.generate_exam") as mock_tool:
-            mock_tool.invoke.return_value = {
+            mock_tool.ainvoke = AsyncMock(return_value={
                 "exam_id": "exam-002",
                 "total_questions": 1,
                 "questions": [
@@ -111,7 +111,7 @@ class TestExamGenerateEndpoint:
                 ],
                 "topics_covered": ["test"],
                 "status": "complete",
-            }
+            })
             _get_client().post(
                 "/api/exam/generate",
                 json={
@@ -127,7 +127,7 @@ class TestExamGenerateEndpoint:
                 },
             )
 
-        call_kwargs = mock_tool.invoke.call_args[0][0]
+        call_kwargs = mock_tool.ainvoke.call_args[0][0]
         assert call_kwargs["session_id"] == "sess-3"
         assert call_kwargs["topics"] == ["\u00e1lgebra"]
         assert call_kwargs["difficulty"] == "hard"
@@ -137,7 +137,7 @@ class TestExamGenerateEndpoint:
     def test_exam_generate_includes_trace_id(self):
         """GIVEN successful generation → THEN response includes trace_id."""
         with patch("src.tools.generate_exam") as mock_tool:
-            mock_tool.invoke.return_value = {
+            mock_tool.ainvoke = AsyncMock(return_value={
                 "exam_id": "exam-003",
                 "total_questions": 1,
                 "questions": [
@@ -150,7 +150,7 @@ class TestExamGenerateEndpoint:
                 ],
                 "topics_covered": ["test"],
                 "status": "complete",
-            }
+            })
             response = _get_client().post(
                 "/api/exam/generate",
                 json={

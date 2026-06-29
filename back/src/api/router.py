@@ -639,8 +639,7 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
     qtypes = request.preferences.question_types
     mcq_ratio = sum(1 for t in qtypes if t == "mcq") / max(len(qtypes), 1)
 
-    result = await asyncio.to_thread(
-        _gen_exam_tool.invoke,
+    result = await _gen_exam_tool.ainvoke(
         {
             "session_id": request.session_id,
             "topics": [request.topic],
