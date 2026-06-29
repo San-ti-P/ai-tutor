@@ -173,16 +173,149 @@ uv run pytest tests/ -m integration -v
 - **Comportamiento observado:** ✅ Tras agotar reintentos, el Orchestrator termina el loop
   y retorna estado parcial con el error registrado, sin colgarse.
 
+#### Caso 12 — Generar un ejercicio paso a paso *(ExerciseGenerator — happy path)*
+
+- **Test:** `test_ex01_happy_path` (`tests/test_exercise_generator.py`)
+- **Validación:** Determinística (estructura del ejercicio + claims validados) · Mock
+- **Comportamiento esperado:** El ExerciseGenerator recibe un topic válido, recupera chunks
+  relevantes y genera un ejercicio con `statement`, `steps` y `expected_answer`; el guardrail
+  `validate_claims` confirma que todos los claims tienen respaldo en los chunks reales.
+- **Comportamiento observado:** ✅ El grafo termina con `status=complete`; el ejercicio incluye
+  `steps` no vacíos y `expected_answer`; `validate_claims` retorna `all_matched=True`.
+
+#### Caso 13 — Historial de conversación restaurado entre sesiones *(T-015 — memoria)*
+
+- **Test:** `test_history_restored_across_invocations` (`tests/test_short_term_memory.py`)
+- **Validación:** Determinística (contenido de `messages_history` entre dos invocaciones) · Mock
+- **Comportamiento esperado:** Dos invocaciones sucesivas al grafo del Orchestrator con el mismo
+  `thread_id` (checkpointer LangGraph SQLite) → la segunda restaura automáticamente el
+  `messages_history` producido en la primera; el usuario no reenvía contexto.
+- **Comportamiento observado:** ✅ El historial del turno 2 contiene los mensajes de ambos
+  turnos; el mensaje del turno 1 (`"hola"`) está presente en el estado restaurado.
+
+#### Caso 14 — ExerciseGenerator cuando el tema no está cubierto por el material *(ex02 — límite)*
+
+- **Test:** `test_ex02_missing_topic` (`tests/test_exercise_generator.py`)
+- **Validación:** Determinística (status + sugerencias) · Mock
+- **Comportamiento esperado:** Si `retrieve_chunks` devuelve lista vacía para el topic
+  solicitado, el grafo termina con `status=no_material` y ofrece sugerencias alternativas;
+  nunca genera un ejercicio vacío ni inventa contenido.
+- **Comportamiento observado:** ✅ Estado final con `status=no_material` y campo `suggestions`
+  no vacío; no se lanza excepción ni se produce ejercicio con contenido fabricado.
+
+#### Caso 15 — ExerciseGenerator rechaza contenido fuera de dominio *(exnfr — adversarial)*
+
+- **Test:** `test_exnfr_adversarial` (`tests/test_exercise_generator.py`)
+- **Validación:** Determinística (flag del guardrail) · Mock
+- **Comportamiento esperado:** Chunks con contenido fuera del dominio académico provocan que
+  `validate_claims` marque los claims como no fundamentados; tras agotar reintentos el agente
+  termina en error sin devolver ejercicio inventado.
+- **Comportamiento observado:** ✅ `validate_claims` retorna `all_matched=False`; el grafo
+  reintenta hasta el límite configurado y cierra con status de error sin producir ejercicio
+  fabricado.
+
+### (d) Observabilidad como ciudadano de primera clase
+
+#### Caso 16 — Langfuse caído no bloquea ninguna operación del agente *(OBS-NFR-01 — adversarial)*
+
+- **Test:** `test_langfuse_unreachable_no_block` + `test_missing_keys_no_crash`
+  (`tests/test_observability.py::TestNoCrash`)
+- **Validación:** Determinística (estado del manager + ausencia de excepción) · Mock
+  (`ConnectionError` simulado en el constructor de Langfuse)
+- **Comportamiento esperado:** Si Langfuse lanza `ConnectionError` al inicializarse,
+  `ObservabilityManager` se deshabilita (`enabled=False`); `create_trace`,
+  `get_callback_handler`, `flush` y `shutdown` devuelven defaults seguros; se emite `WARNING`.
+- **Comportamiento observado:** ✅ `mgr.enabled=False`; todos los métodos retornan sin
+  excepción; el log registra `"keys not configured"` o equivalente.
+
+#### Caso 17 — Decoradores `@observe` aplicados correctamente en todas las tools *(OBS hardening)*
+
+- **Test:** `TestHardening::test_validate_claim_grounding_observed`,
+  `test_retrieve_chunks_observed`, `test_generate_exam_injects_callback_handler` y similares
+  (`tests/test_observability.py`)
+- **Validación:** Determinística (spy sobre `langfuse.observe` + inspección de
+  `config["callbacks"]`) · Mock
+- **Comportamiento esperado:** Cada tool tiene `@observe(as_type="tool")`; los graph builders
+  (`build_ingestor`, `build_exam_generator`, etc.) NO tienen `@observe` (evita volcar el
+  esquema del grafo como span); `graph.invoke` recibe el `CallbackHandler` en
+  `config["callbacks"]` cuando Langfuse está activo y lo omite cuando está deshabilitado.
+- **Comportamiento observado:** ✅ Spy confirma `as_type="tool"` en las 5+ tools
+  instrumentadas; los 5 graph builders no aparecen decorados; `config["callbacks"]` contiene
+  el handler activo o se omite graciosamente.
+
+#### Caso 18 — `trace_id` propagado a todos los endpoints HTTP
+
+- **Test:** `TestTraceIdPropagation` (`tests/test_api.py`)
+- **Validación:** Determinística (presencia del campo `trace_id` en la respuesta) · Mock
+  (TestClient)
+- **Comportamiento esperado:** Los endpoints `/api/chat`, `/api/ingest`, `/api/evaluate`,
+  `/api/health` y `/api/dashboard` incluyen `trace_id` no vacío; `/api/ingest` acepta
+  `session_id` externo, genera UUID cuando se omite y valida su longitud máxima.
+- **Comportamiento observado:** ✅ Todos los endpoints retornan `trace_id`; el campo
+  `session_id` se genera automáticamente si falta y se rechaza si supera el límite de longitud.
+
+### (e) Sesiones y persistencia
+
+#### Caso 19 — Ciclo de vida completo de sesión con estadísticas actualizadas *(session lifecycle)*
+
+- **Test:** `test_session_starts_empty_and_becomes_active_on_status_update`,
+  `test_exam_count_increments_on_generation_and_aggregates_correctly`,
+  `test_average_score_calculated_from_multiple_evaluations`
+  (`tests/test_session_lifecycle_bugs.py`)
+- **Validación:** Determinística (valores en SQLite después de cada evento) · Mock
+- **Comportamiento esperado:** Al crear la sesión el estado es `pending`; al subir un
+  archivo pasa a `active`; al generar un examen `exam_count` incrementa; al evaluar,
+  `average_score` se recalcula sobre todas las evaluaciones de la sesión.
+- **Comportamiento observado:** ✅ Los tres eventos actualizan la sesión de forma atómica en
+  SQLite; el endpoint `GET /api/sessions/{id}` refleja los valores correctos en la misma
+  request.
+
+### (f) RAG y extracción de tópicos
+
+#### Caso 20 — Extracción y conciliación de tópicos de un documento académico *(topic extraction)*
+
+- **Test:** `tests/test_topic_extraction.py` (segmentación, stemming, Jaccard, conciliación
+  entre archivos de la misma sesión)
+- **Validación:** Determinística (tópicos extraídos, similitudes, fusión de duplicados) · Mock
+- **Comportamiento esperado:** `extract_topics` segmenta el texto, descarta fragmentos
+  menores a `topic_min_section_chars`, llama al LLM estructurado y devuelve `summary`,
+  `topics` (lista no vacía) y `topic_tree`. Al ingestar un segundo archivo en la misma
+  sesión, los tópicos similares se unifican via Jaccard (evita duplicados entre archivos).
+- **Comportamiento observado:** ✅ Segmentos cortos se fusionan antes de ir al LLM;
+  la conciliación con Jaccard detecta tópicos equivalentes y los unifica sin perder
+  relaciones del primer archivo.
+
+### (g) Perfil del estudiante y agente de soporte
+
+#### Caso 21 — CRUD del perfil de estudiante y resumen del agente de soporte *(support agent)*
+
+- **Test:** `TestUpdateStudentProfileTool::test_update_student_profile_updates_db`,
+  `TestGetStudentSummaryTool::test_get_student_summary_returns_full_profile`,
+  `test_get_student_summary_unknown_id_returns_none` (`tests/test_support.py`) +
+  `test_profile_unknown_student_returns_404` (`tests/test_api.py`)
+- **Validación:** Determinística (valores en SQLite + respuesta HTTP) · Mock
+- **Comportamiento esperado:** `update_student_profile` hace upsert sin duplicados y
+  recalcula `weak_topics`; `get_student_summary` agrega perfil, scores por tema, temas
+  débiles y sesiones recientes en una sola respuesta; un ID inexistente devuelve 404
+  estructurado con mensaje descriptivo.
+- **Comportamiento observado:** ✅ Upsert idempotente en SQLite; `get_student_summary`
+  devuelve las tres fuentes correctamente; el 404 incluye mensaje descriptivo sin
+  exponer detalles internos.
+
 ---
 
 ## 3. Resumen de cobertura
 
 | Categoría | Casos | Determinísticos | LLM-as-judge | Con modelos reales |
 |---|---|---|---|---|
-| (a) Happy path | 1, 2, 3, 4 | 1, 2, 4 | 3 | 1, 2, 3 |
-| (b) Casos límite | 5, 6, 7 | 5, 7 | 6 | 6, 7 |
-| (c) Adversariales | 8, 9, 10, 11 | 8, 9, 10, 11 | — | 9, 10 |
-| **Total** | **11** | **8** | **2** | **7** |
+| (a) Happy path | 1, 2, 3, 4, 12, 13 | 1, 2, 4, 12, 13 | 3 | 1, 2, 3 |
+| (b) Casos límite | 5, 6, 7, 14 | 5, 7, 14 | 6 | 6, 7 |
+| (c) Adversariales | 8, 9, 10, 11, 15 | 8, 9, 10, 11, 15 | — | 9, 10 |
+| (d) Observabilidad | 16, 17, 18 | 16, 17, 18 | — | — |
+| (e) Sesiones y persistencia | 19 | 19 | — | — |
+| (f) RAG y extracción de tópicos | 20 | 20 | — | — |
+| (g) Perfil y agente de soporte | 21 | 21 | — | — |
+| **Total** | **21** | **18** | **2** | **7** |
 
 Las invocaciones a herramientas se validan de forma determinística en todos los casos; el
 LLM-as-judge se reserva para los dos criterios genuinamente subjetivos (calidad del score
@@ -236,5 +369,5 @@ muestran:
 
 ---
 
-*Mapa de trazabilidad completo casos PRD ↔ tests: ver `tests_documentation.md` §"PRD Test
+*Mapa de trazabilidad completo casos PRD ↔ tests: ver `tests_documentation.md` "PRD Test
 Case Coverage".*
