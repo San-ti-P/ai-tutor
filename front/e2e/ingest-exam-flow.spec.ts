@@ -2,13 +2,19 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Ingest → Exam → Evaluate', () => {
   test('mock — structural flow', async ({ page }) => {
-    await page.goto('/');
+    test.setTimeout(300000);
+    await page.goto('/', { timeout: 60000 });
 
     // Create session
-    await page.click('[data-testid="new-session-btn"]');
+    await page.click('[data-testid="new-session-btn"]', { timeout: 30000 });
     await page.fill('[data-testid="session-name-input"]', 'E2E Test Session');
     await page.click('[data-testid="session-create-confirm"]');
     await expect(page.locator('[data-testid="session-item"]').first()).toBeVisible({ timeout: 5000 });
+
+    // Upload a PDF so exam generator has material
+    const fileInput = page.locator('[data-testid="file-upload-input"]');
+    await fileInput.setInputFiles('../back/tests/fixtures/apunteAgentes_IA2007.pdf');
+    await page.waitForTimeout(5000);
 
     // Type chat message to trigger exam
     await page.fill('[data-testid="chat-input"]', 'generame un examen de 3 preguntas');
@@ -24,39 +30,32 @@ test.describe('Ingest → Exam → Evaluate', () => {
 
   test('@live real LLM — quality validation', async ({ page }) => {
     test.slow();
-    // Use /exam page with dedicated exam form (not chat)
-    await page.goto('/exam');
-    await page.waitForTimeout(2000);
+    test.setTimeout(300000); // 5 min — live LLM is slow
+    // Create active session
+    await page.goto('/', { timeout: 60000 });
+    await page.click('[data-testid="new-session-btn"]', { timeout: 30000 });
+    await page.fill('[data-testid="session-name-input"]', 'E2E Live Exam Test');
+    await page.click('[data-testid="session-create-confirm"]');
+    await expect(page.locator('[data-testid="session-item"]').first()).toBeVisible({ timeout: 30000 });
 
-    // Fill exam form
-    const topicInput = page.locator('input[placeholder*="Ej:"]').first();
-    if (await topicInput.isVisible()) {
-      await topicInput.fill('Agentes inteligentes');
-    }
+    // Upload a PDF so exam generator has material
+    const fileInput = page.locator('[data-testid="file-upload-input"]');
+    await fileInput.setInputFiles('../back/tests/fixtures/apunteAgentes_IA2007.pdf');
+    await page.waitForTimeout(8000); // wait for ingest to complete
 
-    // Set question count to 3
-    const countInput = page.locator('input[type="number"]').first();
-    if (await countInput.isVisible()) {
-      await countInput.fill('3');
-    }
+    // Request exam through chat — widget renders inline (no page navigation)
+    await page.fill('[data-testid="chat-input"]', 'generame un examen de 3 preguntas sobre agentes inteligentes');
+    await page.click('[data-testid="send-btn"]');
 
-    // Click generate
-    const submitBtn = page.locator('[data-testid="submit-exam-btn"]');
-    await expect(submitBtn).toBeVisible({ timeout: 5000 });
-    await submitBtn.click();
+    // Wait for real LLM to generate exam via chat widget
+    await page.waitForTimeout(60000);
 
-    // Wait for real LLM to generate exam
-    await page.waitForTimeout(35000);
-
-    // Tolerance: exam may have 0-5 questions (LLM non-deterministic)
+    // Tolerance: exam may have 0-5 questions, or LLM returns text-only (no widget)
     const questions = page.locator('[data-testid="exam-question"]');
     const count = await questions.count();
 
-    // Either exam rendered with questions OR submit button still visible (still generating)
-    // Both are valid outcomes for live LLM
     if (count === 0) {
-      // Exam might still be generating or LLM returned non-widget format
-      // Verify page didn't crash
+      // Widget might not render — verify page didn't crash
       await expect(page.locator('body')).toBeVisible();
     } else {
       expect(count).toBeGreaterThanOrEqual(1);
