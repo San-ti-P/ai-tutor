@@ -176,7 +176,9 @@ UTN Santa Fe — CIDISI
 | **Preguntas inventadas** | Validación claim-level contra ChromaDB (threshold 0.55) | Regenerar hasta 3×, luego skip |
 | **Loop infinito** | Máximo 15 iteraciones por task | Terminar y devolver parcial |
 | **Material no académico** | Clasificador del Ingestor | Rechazar, no contaminar BD |
-| **Evaluación inconsistente** | LLM-as-judge (10% sampling) | Marcar para revisión si discrepancia >2pts |
+| **Evaluación inconsistente** | LLM-as-judge: segundo LLM re-evalúa 30% de correcciones | Discrepancia >2pts → `requires_review` (nunca reemplaza score) |
+
+> **Speaker note — Cómo funciona LLM-as-judge**: El Evaluator primario corrige (score 0-10 + justificación). El nodo `validate_feedback` muestrea aleatoriamente el 30% (`judge_sample_rate = 0.30`) activando `judge_sample = True`. El nodo `llm_judge` hace una llamada LLM INDEPENDIENTE con el mismo contexto (pregunta, respuesta base, respuesta estudiante, chunks RAG, evaluación primaria) pero SIN ver el prompt del Evaluator — es una segunda opinión ciega. Produce `JudgeVerdict` (score propio, agrees_with_primary, discrepancy). Si `|primary.score - judge.score| > 2.0` → `requires_review = True`. El juez audita, no corrige.
 
 ---
 
@@ -230,7 +232,7 @@ UTN Santa Fe — CIDISI
 | Evaluator | Support |
 |---|---|
 | ![Evaluator](assets/graph_evaluator.png) | ![Support](assets/graph_support.png) |
-| **8 nodos**: check_evaluability → evaluate → validate → llm_judge → build_feedback → loop | **4 nodos**: fetch profile → fetch history → compute → respond. Salta historia si alumno nuevo |
+| **8 nodos**: check_evaluability → evaluate → validate → llm_judge (30% sample) → build_feedback → loop | **4 nodos**: fetch profile → fetch history → compute → respond. Salta historia si alumno nuevo |
 
 ---
 
