@@ -272,16 +272,19 @@ async def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
         if student_profile and isinstance(student_profile, dict):
             weak_topics = student_profile.get("weak_topics", [])
 
-        # Build weighted topic list: weak topics appear twice
-        weighted_topics: list[str] = list(topics)
-        for wt in weak_topics:
-            if wt not in topics:
-                weighted_topics.append(wt)
-            weighted_topics.append(wt)  # 2× weight
-
-        # If no topics at all, use weak topics
-        if not weighted_topics and weak_topics:
-            weighted_topics = list(set(weak_topics))
+        # Build topic list: prioritize explicit user topics over weak topics.
+        # When the user explicitly requests a topic (not "general"), only
+        # retrieve chunks for that topic — do NOT blend in unrelated weak
+        # topics that would dilute the user's explicit intent.
+        # When no explicit topic is given, fall back to weak topics as
+        # the primary focus.
+        explicit_topics = [t for t in topics if t != "general" and t.strip()]
+        if explicit_topics:
+            weighted_topics: list[str] = list(explicit_topics)
+        elif weak_topics:
+            weighted_topics = list(weak_topics)
+        else:
+            weighted_topics = list(topics)
 
         # Deduplicate while preserving order
         seen: set[str] = set()
@@ -464,8 +467,22 @@ def generate_questions(
         if not available_topics:
             available_topics = set(state.get("topics", []))
 
+        # Only apply weak-topic bias when the user did NOT request a specific
+        # topic.  When the user explicitly asked for a topic (not "general" /
+        # empty), weak-topic chunks are already excluded from retrieval by
+        # retrieve_relevant_chunks, so the bias is inert.  This guard is
+        # defense-in-depth.
+        user_topics = state.get("topics", [])
+        has_explicit_topics = bool(
+            [t for t in user_topics if t != "general" and t.strip()]
+        )
+
         weak_topics_set: set[str] = set()
-        if student_profile and isinstance(student_profile, dict):
+        if (
+            not has_explicit_topics
+            and student_profile
+            and isinstance(student_profile, dict)
+        ):
             weak_topics_set = {
                 wt for wt in student_profile.get("weak_topics", []) if wt in available_topics
             }

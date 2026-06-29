@@ -127,6 +127,86 @@ class TestRetrieveRelevantChunks:
         assert len(result["retrieved_chunks"]) == 1
         assert result["retrieved_chunks"][0]["chunk_id"] == sample_chunks[3]["chunk_id"]
 
+    def test_retrieve_explicit_topic_excludes_weak_topics(
+        self, exam_generator_state, sample_chunks
+    ):
+        """When user explicitly requests a topic, weak topics are NOT blended.
+
+        Regression: weak topics should only be injected when the user does NOT
+        specify a topic (i.e. topics=["general"] or empty).  An explicit query
+        like "matrices" must not be diluted with chunks from unrelated weak
+        topics such as "cálculo".
+        """
+        from src.agents.exam_generator import retrieve_relevant_chunks
+        from src.utils.async_ import run_async_in_sync
+
+        queries_called: list[str] = []
+
+        def _fake_retrieve(input_dict):
+            queries_called.append(input_dict.get("query", ""))
+            return [sample_chunks[0]]
+
+        state = {
+            **exam_generator_state,
+            "topics": ["matrices"],
+            "student_profile": {
+                "weak_topics": ["cálculo", "estadística"],
+                "preferences": {},
+            },
+            "session_id": "",  # skip session file resolution
+        }
+
+        with patch("src.tools.retrieve_chunks") as mock_tool:
+            mock_tool.invoke.side_effect = _fake_retrieve
+            result = run_async_in_sync(retrieve_relevant_chunks(state))
+
+        assert mock_tool.invoke.call_count >= 1
+        # Only the user's explicit topic should appear — NOT weak topics
+        assert "matrices" in queries_called[0], (
+            f"Expected user topic 'matrices' in query, got {queries_called}"
+        )
+        for q in queries_called:
+            assert "cálculo" not in q, (
+                f"Weak topic 'cálculo' should NOT appear when user gave explicit topic"
+            )
+            assert "estadística" not in q, (
+                f"Weak topic 'estadística' should NOT appear when user gave explicit topic"
+            )
+        assert "retrieved_chunks" in result
+
+    def test_retrieve_no_explicit_topic_uses_weak_topics(
+        self, exam_generator_state, sample_chunks
+    ):
+        """When user provides no explicit topic ("general"), weak topics ARE used."""
+        from src.agents.exam_generator import retrieve_relevant_chunks
+        from src.utils.async_ import run_async_in_sync
+
+        state = {
+            **exam_generator_state,
+            "topics": ["general"],
+            "student_profile": {
+                "weak_topics": ["cálculo/derivadas", "álgebra/matrices"],
+                "preferences": {},
+            },
+            "session_id": "",  # skip session file resolution
+        }
+
+        queries_called: list[str] = []
+
+        def _fake_retrieve(input_dict):
+            queries_called.append(input_dict.get("query", ""))
+            return [sample_chunks[0]]
+
+        with patch("src.tools.retrieve_chunks") as mock_tool:
+            mock_tool.invoke.side_effect = _fake_retrieve
+            result = run_async_in_sync(retrieve_relevant_chunks(state))
+
+        # Weak topics should be the query targets, not "general"
+        assert any("cálculo" in q or "derivadas" in q for q in queries_called), (
+            f"Expected weak topics in queries, got {queries_called}"
+        )
+        assert "retrieved_chunks" in result
+
 
 class TestGenerateQuestions:
     """Task 2.3–2.4: generate_questions node."""
