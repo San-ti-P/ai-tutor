@@ -26,6 +26,7 @@ from src.api.schemas import (
     ExamRequest,
     Exercise,
     ExerciseModelSolution,
+    ExerciseStepSchema,
     ExerciseRequest,
     IngestResult,
     PreferencesStatus,
@@ -118,6 +119,41 @@ def _build_exam_from_raw(raw: dict, topic: str = "", difficulty: str = "medium")
     )
 
 
+def _build_exercise_from_raw(raw: dict) -> Exercise:
+    """Normalize raw exercise dict from generate_exercise tool into the Exercise schema."""
+    ms = raw.get("model_solution", {}) or {}
+    steps = []
+    for step in ms.get("steps", []):
+        steps.append(
+            ExerciseStepSchema(
+                step_number=step.get("step_number") or step.get("stepNumber") or 0,
+                description=step.get("description", ""),
+                result=step.get("result", ""),
+                source_chunk_ids=step.get("source_chunk_ids") or step.get("sourceChunkIds") or [],
+            )
+        )
+    return Exercise(
+        exercise_id=raw.get("exercise_id") or raw.get("exerciseId") or "",
+        statement=raw.get("statement", ""),
+        given_data=raw.get("given_data") or raw.get("givenData"),
+        question=raw.get("question", ""),
+        model_solution=ExerciseModelSolution(
+            steps=steps,
+            final_answer=ms.get("final_answer") or ms.get("finalAnswer") or "",
+            key_concepts=ms.get("key_concepts") or ms.get("keyConcepts") or [],
+            source_chunk_ids=ms.get("source_chunk_ids") or ms.get("sourceChunkIds") or [],
+        ),
+        topics_covered=raw.get("topics_covered") or raw.get("topicsCovered") or [],
+        source_chunk_ids=raw.get("source_chunk_ids") or raw.get("sourceChunkIds"),
+        topic_not_found=raw.get("topic_not_found") or raw.get("topicNotFound") or [],
+        topic_suggestions=raw.get("topic_suggestions") or raw.get("topicSuggestions") or [],
+        status=raw.get("status", ""),
+    )
+
+
+
+
+
 @router.get("/health")
 async def health() -> dict:
     logger.info("Health check requested")
@@ -154,6 +190,9 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
     raw_exam = result.get("exam")
     exam = _build_exam_from_raw(raw_exam) if raw_exam else None
 
+    raw_exercise = result.get("exercise")
+    exercise = _build_exercise_from_raw(raw_exercise) if raw_exercise else None
+
     # ── Persist messages to DB (fire-and-forget) ───────────────────────────
     try:
         user_msg_id = str(uuid.uuid4())
@@ -183,6 +222,7 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
             intent=result["intent"],
             trace_id=result["trace_id"],
             exam=exam,
+            exercise=exercise,
         ),
         error=None,
         trace_id=result.get("trace_id", str(uuid.uuid4())),

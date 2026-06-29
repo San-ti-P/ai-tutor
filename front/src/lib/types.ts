@@ -46,6 +46,7 @@ interface ChatMessage {
   timestamp: Date;
   traceId?: string;
   exam?: Exam;
+  exercise?: Exercise;
   evalSnapshot?: ExamEvalSnapshot;
   isError?: boolean;
 }
@@ -178,6 +179,7 @@ interface ChatResponse {
   intent: Intent;
   trace_id?: string;
   exam?: Exam;
+  exercise?: Exercise;
 }
 
 interface ExamRequest {

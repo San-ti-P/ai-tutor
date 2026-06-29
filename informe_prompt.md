@@ -142,7 +142,7 @@ El sistema implementa **memoria conversacional** (short-term) y **memoria persis
   - `topic_scores`: id, student_id, session_id, topic_path, score, count, last_updated
   - `ingested_documents`: id, session_id, filename, collection_name, classification, topic_count, status
 
-- **Política de actualización**: las evaluaciones actualizan los `topic_scores` de forma incremental. Los temas con score < 6.0 se consideran "débiles" (weak topics). El perfil del estudiante se recalcula agregando scores de todas las sesiones usando el `ThematicIndex` (árbol jerárquico de temas con merge profundo para ingestion incremental).
+- **Política de actualización**: las evaluaciones actualizan los `topic_scores` de forma incremental. Las correcciones de ejercicios prácticos individuales también actualizan los `topic_scores` registrándose bajo el identificador de examen `"exercise-{exercise_id}"`, permitiendo que la resolución de problemas prácticos en el chat influya en tiempo real en el perfil cognitivo del estudiante. Los temas con score < 6.0 se consideran "débiles" (weak topics). El perfil del estudiante se recalcula agregando scores de todas las sesiones usando el `ThematicIndex` (árbol jerárquico de temas con merge profundo para ingestion incremental).
 
 - **WAL mode + foreign keys** en SQLite para concurrencia segura.
 
@@ -192,7 +192,7 @@ El sistema usa **Langfuse** como plataforma de observabilidad:
 #### 3.1 Casos de prueba definidos
 
 Los 12 casos de prueba requeridos por la PRD (sección 8) cubren:
-- **5 happy path**: ingestión exitosa de PDF, generación de examen MCQ, generación de ejercicio open-answer, evaluación de respuesta correcta, consulta de perfil de progreso
+- **5 happy path**: ingestión exitosa de PDF, generación de examen MCQ, generación de ejercicio open-answer, evaluación de respuesta correcta e integración de resolución/corrección de ejercicios en el chat, consulta de perfil de progreso
 - **4 edge cases**: documento sin estructura de apunte, pregunta fuera del material ingerido, respuesta vacía, sesión sin documentos ingeridos
 - **3 adversarial**: prompt injection para generar contenido no académico, subida de archivo no-PDF, texto sin sentido como respuesta
 
@@ -242,7 +242,7 @@ Los 10 requisitos TXR (Epic 11, extracción de tópicos) están todos cubiertos 
 
 | Ruta | Componentes clave |
 |------|-------------------|
-| `/` | ChatInput, ChatMessageList, ChatMessage, ExamWidget, SessionSidebar |
+| `/` | ChatInput, ChatMessageList, ChatMessage, ExamWidget, ExerciseWidget (interactivo, con entrada de resolución y evaluación integrada), SessionSidebar |
 | `/exam` | ExamRenderer, ExamForm, QuestionNavigator |
 | `/results` | EvaluationView con feedback por pregunta |
 | `/dashboard` | StatsCards, TopicChart, WeakTopics, SessionHistory |
@@ -261,19 +261,20 @@ Los 10 requisitos TXR (Epic 11, extracción de tópicos) están todos cubiertos 
 
 Redactar conclusiones que aborden:
 
-- **Logros**: implementación funcional de un sistema multi-agente completo con 6 agentes especializados, RAG funcional sobre material académico, evaluación automática con Chain-of-Thought, frontend web interactivo, pipeline completo de ingestion → generación → evaluación → seguimiento
+- **Logros**: implementación funcional de un sistema multi-agente completo con 6 agentes especializados, RAG funcional sobre material académico, evaluación automática con Chain-of-Thought, integración completa de la resolución y corrección de ejercicios prácticos individuales directamente en el chat, frontend web interactivo, pipeline completo de ingestion → generación → evaluación → seguimiento
 
 - **Decisiones de diseño acertadas**:
   - Pipeline lineal en lugar de ReAct para ingestion y generación (más rápido, más confiable)
   - Chain-of-Thought para evaluación (proceso que naturalmente requiere múltiples pasos)
   - Support Agent sin LLM (determinístico, sin alucinaciones para consultas de datos)
+  - Reutilización del agente Evaluador para calificar ejercicios prácticos individuales empaquetándolos como exámenes de pregunta única, evitando duplicación de código
   - Uso de SentenceTransformer local (sin dependencia de APIs externas para embeddings)
   - Multi-proveedor LLM (flexibilidad para usar modelos locales gratuitos o cloud)
 
 - **Desviaciones respecto a la PRD**:
   - ReAct reemplazado por pipelines lineales en Ingestor, ExamGenerator y ExerciseGenerator
   - OCR de matemática diferido post-MVP
-  - Algunos endpoints del frontend son stubs; dashboard con valores hardcodeados
+  - Dashboard con algunos gráficos de evolución académica precalculados o simplificados
 
 - **Trabajo futuro**:
   - Implementar OCR para extracción de fórmulas matemáticas

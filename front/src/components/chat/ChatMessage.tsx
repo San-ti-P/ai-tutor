@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage as ChatMessageType, ExamEvalSnapshot } from "@/lib/types";
 import { ExamWidget } from "@/components/chat/ExamWidget";
+import { ExerciseWidget } from "@/components/chat/ExerciseWidget";
 import { EvaluationView } from "@/components/evaluation/EvaluationView";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +59,10 @@ export function ChatMessage({ message, sessionId, onExamEvaluated }: ChatMessage
             sessionId={sessionId}
             onEvaluated={(snapshot) => onExamEvaluated?.(message.id, snapshot)}
           />
+        )}
+
+        {!isUser && message.exercise && (
+          <ExerciseWidget exercise={message.exercise} sessionId={sessionId} />
         )}
 
         {message.traceId && (

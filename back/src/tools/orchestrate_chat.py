@@ -120,10 +120,19 @@ async def orchestrate_chat(
                 exam = r["result"]
                 break
 
+    # Extract structured exercise data for inline chat rendering
+    exercise = None
+    if final_state.get("intent") == "generate_exercise":
+        for r in final_state.get("results", []):
+            if r.get("tool") == "generate_exercise" and isinstance(r.get("result"), dict):
+                exercise = r["result"]
+                break
+
     return {
         "response": final_state["response"],
         "intent": final_state["intent"],
         "status": final_state.get("status", "complete"),
         "trace_id": str(uuid.uuid4()),
         "exam": exam,
+        "exercise": exercise,
     }
