@@ -46,12 +46,17 @@ class LLMGroundingCheck(BaseModel):
 def _llm_grounding_check(
     claims_to_check: list[dict[str, Any]],
     all_chunks: list[dict[str, Any]],
+    context: str | None = None,
 ) -> list[ClaimVerdict]:
     """Use LLM to semantically validate claims against source chunks.
 
     Only called for claims that failed the embedding similarity check.
     The LLM sees the claim text and ALL available chunks, and determines
     whether the claim is factually supported — even if paraphrased.
+
+    When *context* is provided (full question/exercise text), it is included
+    before the claims so the LLM understands what the question is asking and
+    can properly evaluate whether answer-fragment claims are factually supported.
     """
     from src.llm import get_structured_llm
 
@@ -71,6 +76,12 @@ def _llm_grounding_check(
         f"  [{ci['index']}] {ci['claim'][:200]}" for ci in claims_to_check
     )
 
+    # Build context header — included BEFORE claims so the LLM can evaluate
+    # whether answer-fragment claims are factually supported by chunks
+    context_block = ""
+    if context:
+        context_block = f"CONTEXTO DE LA PREGUNTA/EJERCICIO:\n{context[:2000]}\n\n"
+
     prompt = f"""Revisa si las siguientes afirmaciones estan respaldadas por los fragmentos
 del material de estudio proporcionados. Para cada afirmacion, determina si
 el contenido FACTUAL esta presente en ALGUN fragmento, incluso si la redaccion
@@ -79,7 +90,7 @@ es diferente (parafraseo, sinonimos, terminos tecnicos equivalentes).
 FRAGMENTOS DEL MATERIAL:
 {chunk_context}
 
-AFIRMACIONES A VERIFICAR:
+{context_block}AFIRMACIONES A VERIFICAR:
 {claims_text}
 
 Para cada afirmacion, indica:
@@ -104,6 +115,7 @@ def validate_claim_grounding(
     chunks: list[dict[str, Any]],
     mode: Literal["flag_only", "retry_trigger"] = "flag_only",
     threshold: float | None = None,
+    context: str | None = None,
 ) -> dict[str, Any]:
     """Validate claims against source chunks via embedding + LLM fallback.
 
@@ -120,6 +132,9 @@ def validate_claim_grounding(
             ``"retry_trigger"`` adds ``should_retry`` boolean.
         threshold: Cosine similarity threshold. Defaults to
             ``settings.anti_hallucination_threshold``.
+        context: Optional full question/exercise text. When provided, it is
+            passed to the LLM fallback so it can properly evaluate whether
+            answer-fragment claims are factually supported by chunks.
 
     Returns:
         A dict with:
@@ -215,7 +230,7 @@ def validate_claim_grounding(
             len(llm_candidates),
             LLM_FALLBACK_FLOOR,
         )
-        verdicts = _llm_grounding_check(llm_candidates, chunks)
+        verdicts = _llm_grounding_check(llm_candidates, chunks, context=context)
 
         # Merge LLM verdicts back into claim_results
         for v in verdicts:

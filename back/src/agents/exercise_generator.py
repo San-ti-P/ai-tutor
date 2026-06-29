@@ -431,18 +431,36 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict[str, Any]:
         if not claims:
             return {"validation_passed": True, "validation_errors": []}
 
+        # ── Build exercise context for LLM semantic validation ──
+        stmt = exercise.get("statement", "")
+        given = exercise.get("given_data", "") or "N/A"
+        question_text = exercise.get("question", "")
+        solution = exercise.get("model_solution", {})
+        steps_desc = "; ".join(
+            s.get("description", "") for s in solution.get("steps", [])
+        )[:500]
+        final_ans = solution.get("final_answer", "")
+        exercise_context = (
+            f"Enunciado: {stmt}\n"
+            f"Datos: {given}\n"
+            f"Pregunta: {question_text}\n"
+            f"Solución: {steps_desc}. Respuesta final: {final_ans}"
+        )
+
         # ── Delegate to anti-hallucination tool ──
         result = validate_claim_grounding.invoke(
             {
                 "claims": claims,
                 "chunks": chunks,
                 "mode": "retry_trigger",
+                "context": exercise_context,
             }
         )
 
         # ── Flag claims below threshold ──
         all_errors: list[str] = []
         all_matched = result.get("all_matched", True)
+        missing_claims = result.get("missing_claims", [])
 
         if not all_matched:
             for cr in result.get("claim_results", []):
@@ -452,6 +470,92 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict[str, Any]:
                         f"{cr['similarity_score']:.4f} below threshold — "
                         f"not grounded in source chunks"
                     )
+
+        # ── RAG fallback: re-search missing claims individually ──
+        if missing_claims:
+            from src.tools import retrieve_chunks as _retrieve_chunks
+
+            collection_name = state.get("collection_name") or f"session_{state.get('session_id', '')}"
+            new_chunks_for_state: list[dict[str, Any]] = []
+            existing_chunk_ids = {c.get("chunk_id", "") for c in chunks}
+            resolved_indices: set[int] = set()
+
+            for mci, mc in enumerate(missing_claims):
+                claim_text = mc.get("claim", "")
+                try:
+                    rag_chunks = _retrieve_chunks.invoke(
+                        {
+                            "query": claim_text,
+                            "top_k": 3,
+                            "collection_name": collection_name,
+                            "topic_descriptions": None,
+                            "topic_tree": None,
+                        }
+                    )
+                    novel_chunks = [
+                        c for c in rag_chunks
+                        if c.get("chunk_id", "") not in existing_chunk_ids
+                    ]
+                    if novel_chunks:
+                        logger.info(
+                            "RAG fallback: found %d new chunks for claim '%s'",
+                            len(novel_chunks), claim_text[:60],
+                        )
+                        for nc in novel_chunks:
+                            existing_chunk_ids.add(nc.get("chunk_id", ""))
+                            new_chunks_for_state.append(nc)
+                        # Re-validate only this claim with enriched chunks
+                        enriched_chunks = chunks + new_chunks_for_state
+                        re_result = validate_claim_grounding.invoke(
+                            {
+                                "claims": [claim_text],
+                                "chunks": enriched_chunks,
+                                "mode": "retry_trigger",
+                            }
+                        )
+                        if re_result.get("all_matched", False):
+                            resolved_indices.add(mci)
+                            logger.info(
+                                "RAG fallback: resolved claim '%s'",
+                                claim_text[:60],
+                            )
+                    else:
+                        logger.info(
+                            "RAG fallback: no new chunks for claim '%s'",
+                            claim_text[:60],
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "RAG fallback failed for claim '%s': %s",
+                        claim_text[:60], e,
+                    )
+
+            # Rebuild all_errors: only keep claims still missing after RAG fallback
+            if resolved_indices:
+                all_errors = []
+                all_matched = True
+                for cr in result.get("claim_results", []):
+                    if not cr["matched"]:
+                        # Check if this claim was resolved via RAG fallback
+                        still_missing = True
+                        for mci, mc in enumerate(missing_claims):
+                            if mc.get("claim", "") == cr["claim_text"] and mci in resolved_indices:
+                                still_missing = False
+                                break
+                        if still_missing:
+                            all_matched = False
+                            all_errors.append(
+                                f"Claim '{cr['claim_text'][:80]}' similarity "
+                                f"{cr['similarity_score']:.4f} below threshold — "
+                                f"not grounded in source chunks (RAG re-search attempted)"
+                            )
+
+            if new_chunks_for_state:
+                return {
+                    "validation_passed": all_matched,
+                    "validation_errors": all_errors,
+                    "retrieved_chunks": new_chunks_for_state,
+                }
 
         return {
             "validation_passed": all_matched,

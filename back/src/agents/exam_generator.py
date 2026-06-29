@@ -730,12 +730,28 @@ def validate_questions(state: ExamGeneratorState) -> dict[str, Any]:
                 "invalid_question_indices": [],
             }
 
+        # ── Build per-question context for LLM semantic validation ──
+        question_contexts: list[str] = []
+        for qi, question in enumerate(questions):
+            qtype = question.get("type", "")
+            if qtype == "mcq":
+                stem = question.get("stem", "")
+                options_joined = "; ".join(question.get("options", []))
+                qctx = f"Pregunta: {stem}\nOpciones: {options_joined}"
+            else:
+                prompt_text = question.get("prompt", question.get("stem", ""))
+                base = question.get("base_answer", "")
+                qctx = f"Pregunta: {prompt_text}\nRespuesta esperada: {base}"
+            question_contexts.append(qctx)
+        full_context = "\n---\n".join(question_contexts)
+
         # ── Delegate to anti-hallucination tool ──
         result = validate_claim_grounding.invoke(
             {
                 "claims": all_claims,
                 "chunks": chunks,
                 "mode": "retry_trigger",
+                "context": full_context,
             }
         )
 
@@ -773,6 +789,77 @@ def validate_questions(state: ExamGeneratorState) -> dict[str, Any]:
                 }
             )
 
+        # ── RAG fallback: re-search missing claims individually ──
+        from src.tools import retrieve_chunks as _retrieve_chunks
+
+        collection_name = state.get("collection_name") or f"session_{state.get('session_id', '')}"
+        new_chunks_for_state: list[dict[str, Any]] = []
+        existing_chunk_ids = {c.get("chunk_id", "") for c in chunks}
+        rag_fallback_attempted: list[str] = []  # track which claims got RAG attempt
+
+        for qi in range(len(questions)):
+            pq = per_question[qi]
+            if pq["all_matched"]:
+                continue
+            still_missing: list[str] = []
+            for missing_claim_text in list(pq["missing_claims"]):
+                try:
+                    rag_chunks = _retrieve_chunks.invoke(
+                        {
+                            "query": missing_claim_text,
+                            "top_k": 3,
+                            "collection_name": collection_name,
+                            "topic_descriptions": None,
+                            "topic_tree": None,
+                        }
+                    )
+                    # Deduplicate against existing chunks
+                    novel_chunks = [
+                        c for c in rag_chunks
+                        if c.get("chunk_id", "") not in existing_chunk_ids
+                    ]
+                    if novel_chunks:
+                        logger.info(
+                            "RAG fallback Q%d: found %d new chunks for claim '%s'",
+                            qi, len(novel_chunks), missing_claim_text[:60],
+                        )
+                        for nc in novel_chunks:
+                            existing_chunk_ids.add(nc.get("chunk_id", ""))
+                            new_chunks_for_state.append(nc)
+                        # Re-validate only this claim with enriched chunks
+                        enriched_chunks = chunks + new_chunks_for_state
+                        re_result = validate_claim_grounding.invoke(
+                            {
+                                "claims": [missing_claim_text],
+                                "chunks": enriched_chunks,
+                                "mode": "retry_trigger",
+                            }
+                        )
+                        if re_result.get("all_matched", False):
+                            # Claim resolved — remove from missing
+                            rag_fallback_attempted.append(missing_claim_text[:60])
+                            continue
+                        else:
+                            still_missing.append(missing_claim_text)
+                            rag_fallback_attempted.append(missing_claim_text[:60])
+                    else:
+                        still_missing.append(missing_claim_text)
+                        rag_fallback_attempted.append(missing_claim_text[:60])
+                        logger.info(
+                            "RAG fallback Q%d: no new chunks for claim '%s'",
+                            qi, missing_claim_text[:60],
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "RAG fallback Q%d failed for claim '%s': %s",
+                        qi, missing_claim_text[:60], e,
+                    )
+                    still_missing.append(missing_claim_text)
+            # Update per_question after RAG fallback
+            pq["missing_claims"] = still_missing
+            if not still_missing:
+                pq["all_matched"] = True
+
         # ── Build final output ──
         validation_results: list[dict[str, Any]] = []
         all_errors: list[str] = []
@@ -793,14 +880,18 @@ def validate_questions(state: ExamGeneratorState) -> dict[str, Any]:
                 invalid_indices.append(qi)
                 all_errors.append(
                     f"Question {qi}: {len(pq['missing_claims'])} "
-                    "claim(s) not found in source chunks"
+                    "claim(s) not found in source chunks (RAG re-search attempted)"
                 )
 
-        return {
+        return_dict: dict[str, Any] = {
             "validation_results": validation_results,
             "validation_errors": all_errors,
             "invalid_question_indices": invalid_indices,
         }
+        if new_chunks_for_state:
+            return_dict["retrieved_chunks"] = new_chunks_for_state
+
+        return return_dict
 
     except Exception as exc:
         logger.exception("validate_questions failed")
