@@ -522,7 +522,7 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict[str, Any]
         pass  # file_path not in orchestrator state; tool will use its own
     elif tool_name == "retrieve":
         args["query"] = state["user_message"]
-        args["top_k"] = 5
+        args["top_k"] = settings.retrieval_top_k
     elif tool_name == "generate_exam":
         topics = _extract_topics(state["user_message"])
         # When user doesn't specify a topic, enrich from session files
@@ -948,7 +948,7 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig | None 
                         {
                             "query": message,
                             "session_id": state["session_id"],
-                            "top_k": 3,  # lighter probe
+                            "top_k": 5,  # lighter probe
                         }
                     )
 

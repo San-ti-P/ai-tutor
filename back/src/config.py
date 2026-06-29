@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     embedding_model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
     chunk_size: int = 800
     chunk_overlap: int = 64
-    retrieval_top_k: int = 5
+    retrieval_top_k: int = 8
 
     # ── Topic Extraction ───────────────────────────────────────────────────
     topic_segment_size: int = 15000

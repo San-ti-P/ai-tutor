@@ -300,7 +300,7 @@ async def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
             chunks = _retrieve_chunks.invoke(
                 {
                     "query": topic,
-                    "top_k": 5,
+                    "top_k": settings.retrieval_top_k,
                     "collection_name": collection_name,
                     "topic_descriptions": topic_descriptions,
                     "topic_tree": topic_tree if topic_tree else None,

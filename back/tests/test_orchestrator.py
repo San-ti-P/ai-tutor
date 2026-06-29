@@ -420,7 +420,7 @@ class TestExecuteStepSuccess:
 
         assert args["session_id"] == state["session_id"]
         assert args["query"] == "¿Qué dice el apunte?"
-        assert args["top_k"] == 5
+        assert args["top_k"] == 8  # retrieval_top_k default
 
 
 # ==============================================================================
@@ -1879,7 +1879,7 @@ class TestOrchestratorAcademicProbe:
         mock_qm.invoke.assert_called_once()
         call_args = mock_qm.invoke.call_args[0][0]
         assert call_args["query"] == "¿Qué dice el apunte sobre derivadas?"
-        assert call_args["top_k"] == 3  # lighter probe
+        assert call_args["top_k"] == 5  # lighter probe
 
         assert "derivadas" in result["response"].lower()
         assert result["status"] == "complete"

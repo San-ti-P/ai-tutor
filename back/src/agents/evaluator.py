@@ -140,6 +140,7 @@ def prepare_evaluation(state: EvaluatorState) -> dict[str, Any]:
     No LLM call — pure retrieval.
     """
     from src.tools import retrieve_chunks as _retrieve_chunks
+    from src.config import settings
 
     answers: list[dict[str, Any]] = state.get("answers", [])
     session_id: str = state.get("session_id", "")
@@ -200,7 +201,7 @@ def prepare_evaluation(state: EvaluatorState) -> dict[str, Any]:
             chunks = _retrieve_chunks.invoke(
                 {
                     "query": topic,
-                    "top_k": 5,
+                    "top_k": settings.retrieval_top_k,
                     "collection_name": collection_name,
                     "topic_descriptions": topic_descriptions,
                     "topic_tree": topic_tree,
