@@ -192,7 +192,7 @@ async def classify_document(state: IngestorState, config: RunnableConfig = None)
 
         from src.llm import get_structured_llm
 
-        structured_llm = get_structured_llm(Classification)
+        structured_llm = get_structured_llm(Classification, temperature=settings.ingestor_temperature)
 
         topics_str = ", ".join(pipeline_topics[:8]) if pipeline_topics else "(ninguno detectado)"
         prompt = f"""Analizá el siguiente texto académico y clasificalo.

@@ -16,6 +16,8 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
+from src.config import settings
+
 # ── Pydantic structured-output models ────────────────────────────────────────
 
 
@@ -473,7 +475,7 @@ REQUISITOS:
 - Cada pregunta debe tener los campos: topic y difficulty.
 """
 
-        structured_llm = get_structured_llm(ExamGeneration)
+        structured_llm = get_structured_llm(ExamGeneration, temperature=settings.exam_generator_temperature)
         invoke_kwargs = {"config": config} if config is not None else {}
         result: ExamGeneration = structured_llm.invoke(prompt, **invoke_kwargs)
 

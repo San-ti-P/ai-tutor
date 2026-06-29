@@ -77,6 +77,19 @@ class Settings(BaseSettings):
     ollama_model_name: str = "gemma4:e4b-it-q8_0"  # local 4B model, fast for dev
     ollama_base_url: str = "http://localhost:11434"
     ollama_temperature: float = 0.7
+
+    # -- Agent-specific temperatures --
+    # Classifiers / routers / evaluators → deterministic
+    orchestrator_temperature: float = 0.0
+    ingestor_temperature: float = 0.0
+    evaluator_temperature: float = 0.0
+    # Generators → creative but grounded
+    exam_generator_temperature: float = 0.6
+    exercise_generator_temperature: float = 0.7
+    # Retrieval / extraction → deterministic
+    query_material_temperature: float = 0.0
+    topic_extraction_temperature: float = 0.0
+    validate_grounding_temperature: float = 0.0
     # Set ollama_api_key for Ollama Cloud (https://ollama.com → Settings → Keys)
 
     # -- Groq --

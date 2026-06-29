@@ -236,7 +236,7 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
         }
 
     try:
-        structured = get_structured_llm(IntentClassification)
+        structured = get_structured_llm(IntentClassification, temperature=settings.orchestrator_temperature)
 
         prompt = (
             "Sos un clasificador de intents para un tutor académico. "
@@ -313,8 +313,8 @@ def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> 
                 "[classify_intent] First attempt failed: %s. Retrying.",
                 first_err,
             )
-            # Retry once with a fresh structured LLM (temperature=0 implicit)
-            retry_structured = get_structured_llm(IntentClassification)
+            # Retry once with a fresh structured LLM
+            retry_structured = get_structured_llm(IntentClassification, temperature=settings.orchestrator_temperature)
             result = retry_structured.invoke(prompt, **invoke_kwargs)
 
         intent = result.intent
@@ -387,7 +387,7 @@ def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> d
     )
 
     try:
-        structured = get_structured_llm(CompositePlan)
+        structured = get_structured_llm(CompositePlan, temperature=settings.orchestrator_temperature)
 
         prompt = (
             "Sos un planificador de tareas académicas. El usuario quiere:\n"
@@ -936,7 +936,7 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
 
     # Build prompt for LLM synthesis
     try:
-        llm = _get_llm()
+        llm = _get_llm(temperature=settings.orchestrator_temperature)
 
         if intent == "general_chat" and not results:
             # Academic probe: check if this looks like an academic question

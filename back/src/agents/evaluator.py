@@ -425,7 +425,7 @@ INSTRUCCIONES:
 6. Usa el material de referencia como contexto para verificar conceptos, pero la
    fuente principal para el puntaje es la comparacion con la RESPUESTA ESPERADA."""
 
-        structured_llm = get_structured_llm(SingleEvaluation)
+        structured_llm = get_structured_llm(SingleEvaluation, temperature=settings.evaluator_temperature)
 
         invoke_kwargs = {"config": config} if config is not None else {}
         result: SingleEvaluation = structured_llm.invoke(prompt, **invoke_kwargs)
@@ -634,7 +634,7 @@ INSTRUCCIONES:
 3. Si hay discrepancia significativa, explicala en español.
 4. Si sugerís un puntaje diferente, incluilo en suggested_score."""
 
-        structured_llm = get_structured_llm(JudgeVerdict)
+        structured_llm = get_structured_llm(JudgeVerdict, temperature=settings.evaluator_temperature)
 
         invoke_kwargs = {"config": config} if config is not None else {}
         judge: JudgeVerdict = structured_llm.invoke(prompt, **invoke_kwargs)

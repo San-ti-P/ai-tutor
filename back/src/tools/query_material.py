@@ -10,6 +10,7 @@ from langfuse import observe
 from src.llm import get_llm
 from src.rag import retrieve as _rag_retrieve
 from src.rag.policy import RAG_ONLY_SYSTEM_PROMPT, no_material_message
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def query_material(
     )
 
     try:
-        llm = get_llm()
+        llm = get_llm(temperature=settings.query_material_temperature)
         response = llm.invoke(prompt)
         answer = response.content if hasattr(response, "content") else str(response)
     except Exception as exc:

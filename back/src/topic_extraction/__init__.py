@@ -13,6 +13,7 @@ from src.llm import get_llm
 from src.topic_extraction.extract import _extract_segment_topics
 from src.topic_extraction.segment import segment_text
 from src.topic_extraction.tree import build_topic_tree
+from src.config import settings
 from src.topic_extraction.unify import reconcile_topics, unify_topics
 
 logger = logging.getLogger("tutor.topic_extraction")
@@ -52,7 +53,7 @@ async def extract_topics_pipeline(text: str) -> dict:
     segment_count = len(segments)
 
     # 2. Extract per segment (sequential await)
-    llm = get_llm()
+    llm = get_llm(temperature=settings.topic_extraction_temperature)
     all_topics: list[str] = []
     failed_segments: list[int] = []
 

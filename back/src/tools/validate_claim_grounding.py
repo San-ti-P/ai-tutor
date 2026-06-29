@@ -89,7 +89,7 @@ Para cada afirmacion, indica:
 Responde SOLO con JSON valido."""
 
     try:
-        structured_llm = get_structured_llm(LLMGroundingCheck)
+        structured_llm = get_structured_llm(LLMGroundingCheck, temperature=settings.validate_grounding_temperature)
         result: LLMGroundingCheck = structured_llm.invoke(prompt)
         return result.verdicts
     except Exception as exc:

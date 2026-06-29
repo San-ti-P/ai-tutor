@@ -41,6 +41,7 @@ _CLEAN_FENCES = re.compile(r"^```(?:json)?\s*|\s*```\s*$", re.MULTILINE)
 
 def get_llm(
     callbacks: list[Any] | None = None,
+    temperature: float | None = None,
 ) -> BaseChatModel:
     """Return a configured LLM instance for the current provider.
 
@@ -59,6 +60,8 @@ def get_llm(
     Args:
         callbacks: Optional list of LangChain callbacks (e.g. Langfuse
             CallbackHandler) injected into the LLM config.
+        temperature: Override the default temperature for this call.
+            When None, uses the provider-configured default.
 
     Returns:
         A configured BaseChatModel ready for .invoke() calls.
@@ -72,6 +75,8 @@ def get_llm(
     # Priority 1: Record mode — real LLM + response capture
     if e2e_record and e2e_live:
         llm_cls, llm_kwargs = settings.llm_kwargs
+        if temperature is not None:
+            llm_kwargs = {**llm_kwargs, "temperature": temperature}
         if callbacks:
             llm_kwargs = {**llm_kwargs, "callbacks": callbacks}
         real_llm = llm_cls(**llm_kwargs)
@@ -88,9 +93,11 @@ def get_llm(
 
     # Priority 3 & 4: Live LLM or normal operation
     llm_cls, llm_kwargs = settings.llm_kwargs
-    # Build a cache key from provider and model fingerprint
+    if temperature is not None:
+        llm_kwargs = {**llm_kwargs, "temperature": temperature}
+    # Build a cache key from provider, model, AND temperature fingerprint
     cls_name = getattr(llm_cls, "__name__", str(llm_cls))
-    raw_key = f"{settings.llm_provider}:{cls_name}:{llm_kwargs.get('model', '')}"
+    raw_key = f"{settings.llm_provider}:{cls_name}:{llm_kwargs.get('model', '')}:t{llm_kwargs.get('temperature', 'default')}"
     cache_key = hashlib.sha256(raw_key.encode()).hexdigest()[:16]
 
     if cache_key not in _llm_cache:
@@ -144,6 +151,7 @@ def _parse_json_for_schema(schema: type[BaseModel]):
 def _schema_in_prompt_chain(
     schema: type[BaseModel],
     callbacks: list[Any] | None = None,
+    temperature: float = 0.0,
 ) -> Runnable:
     """Build a chain that appends the JSON schema to the user prompt.
 
@@ -166,7 +174,7 @@ def _schema_in_prompt_chain(
         llm_kwargs: dict[str, Any] = {
             "model": settings.ollama_model_name,
             "base_url": settings.ollama_base_url,
-            "temperature": 0,
+            "temperature": temperature,
             "format": "json",
         }
         if settings.ollama_api_key:
@@ -177,7 +185,7 @@ def _schema_in_prompt_chain(
             llm_kwargs["callbacks"] = callbacks
         llm = ChatOllama(**llm_kwargs)
     else:
-        llm = get_llm(callbacks=callbacks)
+        llm = get_llm(callbacks=callbacks, temperature=temperature)
 
     prompt_template = ChatPromptTemplate.from_messages(
         [
@@ -206,6 +214,7 @@ def _schema_in_prompt_chain(
 def get_structured_llm(
     schema: type[BaseModel],
     callbacks: list[Any] | None = None,
+    temperature: float = 0.0,
 ) -> Runnable:
     """Return an LLM configured with structured output for a Pydantic schema.
 
@@ -216,11 +225,12 @@ def get_structured_llm(
     Args:
         schema: A Pydantic BaseModel subclass defining the output structure.
         callbacks: Optional list of LangChain callbacks injected into the LLM.
+        temperature: Sampling temperature (default 0.0 for deterministic output).
 
     Returns:
         A Runnable that takes a prompt string and returns a validated
         instance of *schema*.
     """
     if settings.llm_provider in ("ollama", "opencode-go"):
-        return _schema_in_prompt_chain(schema, callbacks)
-    return get_llm(callbacks=callbacks).with_structured_output(schema)
+        return _schema_in_prompt_chain(schema, callbacks, temperature)
+    return get_llm(callbacks=callbacks, temperature=temperature).with_structured_output(schema)

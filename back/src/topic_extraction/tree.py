@@ -13,6 +13,7 @@ import logging
 import re
 
 from src.llm import get_llm
+from src.config import settings
 
 logger = logging.getLogger("tutor.topic_extraction.tree")
 
@@ -45,7 +46,7 @@ async def build_topic_tree(topics: list[str]) -> dict:
 
     # ≥5 topics: LLM call
     try:
-        llm = get_llm()
+        llm = get_llm(temperature=settings.topic_extraction_temperature)
 
         schema_desc = '{"Categoría Principal": {"Subtema": {}, ...}, ...}'
         prompt = (

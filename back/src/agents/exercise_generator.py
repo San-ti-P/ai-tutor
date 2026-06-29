@@ -17,6 +17,8 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
+from src.config import settings
+
 # ── Pydantic structured-output models ────────────────────────────────────────
 
 
@@ -260,7 +262,7 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = No
             "- El ejercicio debe tener campos: topic, difficulty.\n"
         )
 
-        structured_llm = get_structured_llm(ExerciseGeneration)
+        structured_llm = get_structured_llm(ExerciseGeneration, temperature=settings.exercise_generator_temperature)
         invoke_kwargs = {"config": config} if config is not None else {}
         result: ExerciseGeneration = structured_llm.invoke(prompt, **invoke_kwargs)
 
