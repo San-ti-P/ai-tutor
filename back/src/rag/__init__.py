@@ -1,4 +1,4 @@
-"""RAG module — ChromaDB vector store, E5 embeddings, and thematic index.
+"""RAG module — ChromaDB vector store, MiniLM embeddings, and thematic index.
 
 Provides the persistence and retrieval backbone consumed by all agents:
 - Lazy singletons for the ChromaDB PersistentClient and SentenceTransformer model
@@ -6,10 +6,7 @@ Provides the persistence and retrieval backbone consumed by all agents:
 - embed_and_store / retrieve for the full write and read paths
 - ThematicIndex for hierarchical topic tracking across sessions
 
-Note: The E5 embedding model requires asymmetric prefixes:
-- Documents/chunks use ``"passage: "`` prefix
-- Queries use ``"query: "`` prefix
-These are applied automatically by embed_and_store and retrieve.
+Uses ``paraphrase-multilingual-MiniLM-L12-v2`` (configurable via ``embedding_model_name``).
 """
 
 from __future__ import annotations
@@ -91,7 +88,7 @@ def chunk_text(text: str, metadata: dict[str, Any] | None = None) -> list[Docume
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
-        separators=["\n\n", "\n", ". ", " ", ""],
+        separators=["\n\n", ". ", "! ", "? ", "\n", " ", ""],
     )
 
     chunks = splitter.split_text(text)
@@ -140,8 +137,7 @@ def embed_and_store(
 
     chunk_ids = [str(uuid.uuid4()) for _ in chunks]
     with _embedding_lock:
-        prefixed = [f"passage: {c}" for c in chunks]
-        embeddings = model.encode(prefixed).tolist()
+        embeddings = model.encode([f"passage: {c}" for c in chunks]).tolist()
 
     if metadatas is None:
         metadatas = [{} for _ in chunks]

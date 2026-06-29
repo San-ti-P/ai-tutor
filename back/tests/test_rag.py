@@ -60,9 +60,9 @@ class TestChunkText:
         long_text = "This is a test. " * 200  # ~3600 chars
         docs = chunk_text(long_text)
         assert len(docs) > 1
-        # Each chunk should be <= 512 chars (plus some overlap)
+        # Each chunk should be <= 800 chars (chunk_size) + overlap buffer
         for doc in docs:
-            assert len(doc.page_content) <= 600  # 512 + overlap buffer
+            assert len(doc.page_content) <= 900  # 800 + overlap buffer
 
     def test_chunks_empty_text(self):
         docs = chunk_text("")
@@ -303,7 +303,7 @@ class TestRealRAG:
         assert len(docs) >= 5, f"Expected ≥5 chunks from real PDF, got {len(docs)}"
         # Chunks should not exceed chunk_size + overlap
         for doc in docs:
-            assert len(doc.page_content) <= 600, f"Chunk too large: {len(doc.page_content)} chars"
+            assert len(doc.page_content) <= 900, f"Chunk too large: {len(doc.page_content)} chars"
         # At least one chunk should contain agent-related content
         agent_content = any("agente" in doc.page_content.lower() for doc in docs)
         assert agent_content, "No chunk contains agent-related content"
