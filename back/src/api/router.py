@@ -14,6 +14,8 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from src.api.schemas import (
     ApiResponse,
+    ChatHistoryResponse,
+    ChatMessageRecord,
     ChatRequest,
     ChatResponse,
     EvaluationRequest,
@@ -61,6 +63,11 @@ from src.memory.schema import (
     rename_session as _rename_session,
     update_session_status as _update_session_status,
     insert_generated_exam as _insert_generated_exam,
+)
+from src.memory.schema import (
+    save_chat_message as _save_chat_message,
+    get_chat_messages as _get_chat_messages,
+    get_chat_message_count as _get_chat_message_count,
 )
 
 logger = logging.getLogger(__name__)
@@ -146,6 +153,29 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
     )
     raw_exam = result.get("exam")
     exam = _build_exam_from_raw(raw_exam) if raw_exam else None
+
+    # ── Persist messages to DB (fire-and-forget) ───────────────────────────
+    try:
+        user_msg_id = str(uuid.uuid4())
+        assistant_msg_id = str(uuid.uuid4())
+        await _save_chat_message({
+            "id": user_msg_id,
+            "session_id": request.session_id,
+            "role": "user",
+            "content": request.message,
+        })
+        await _save_chat_message({
+            "id": assistant_msg_id,
+            "session_id": request.session_id,
+            "role": "assistant",
+            "content": result["response"],
+            "metadata_json": json.dumps({"intent": result["intent"]}),
+        })
+    except Exception:
+        logger.exception(
+            "Failed to persist chat messages for session %s — chat response unaffected",
+            request.session_id,
+        )
 
     return ApiResponse(
         data=ChatResponse(
@@ -327,6 +357,62 @@ async def get_session_evaluations_endpoint(
         for g in groups
     ]
     return ApiResponse(data=summaries, error=None, trace_id=str(uuid.uuid4()))
+
+
+@router.get(
+    "/sessions/{session_id}/messages",
+    response_model=ApiResponse[ChatHistoryResponse],
+)
+async def get_session_messages_endpoint(
+    session_id: str,
+    limit: int = 10,
+    before_id: str | None = None,
+) -> ApiResponse[ChatHistoryResponse]:
+    """Return paginated chat messages for a session, newest-first.
+
+    - ``limit``: number of messages to return (1-50, default 10).
+    - ``before_id``: cursor for pagination — returns messages older than this id.
+    """
+    logger.info(
+        "Chat messages requested | session=%s | limit=%d | before_id=%s",
+        session_id,
+        limit,
+        before_id,
+    )
+    detail = await _get_session(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+
+    limit = min(max(1, limit), 50)
+    rows = await _get_chat_messages(session_id, limit=limit + 1, before_id=before_id)
+    has_more = len(rows) > limit
+    rows = rows[:limit]  # trim the extra row used for has_more probe
+
+    total = await _get_chat_message_count(session_id)
+    oldest_id = rows[-1]["id"] if rows else None
+
+    messages = [
+        ChatMessageRecord(
+            id=row["id"],
+            sessionId=row["session_id"],
+            role=row["role"],
+            content=row["content"],
+            metadata=json.loads(row.get("metadata_json") or "{}"),
+            createdAt=row["created_at"],
+        )
+        for row in rows
+    ]
+
+    return ApiResponse(
+        data=ChatHistoryResponse(
+            messages=messages,
+            hasMore=has_more,
+            oldestId=oldest_id,
+            total=total,
+        ),
+        error=None,
+        trace_id=str(uuid.uuid4()),
+    )
 
 
 @router.post("/ingest", response_model=ApiResponse[list[IngestResult]])

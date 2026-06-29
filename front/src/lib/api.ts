@@ -1,5 +1,6 @@
 import type {
   ApiResponse,
+  ChatHistoryResponse,
   ChatRequest,
   ChatResponse,
   ExamRequest,
@@ -151,5 +152,16 @@ export const api = {
   getSessionEvaluations: (sessionId: string) =>
     apiGet<ApiResponse<ExamEvaluationSummary[]>>(
       `/api/sessions/${sessionId}/evaluations`,
+    ),
+
+  getMessages: (
+    sessionId: string,
+    limit = 10,
+    beforeId?: string,
+  ) =>
+    apiGet<ApiResponse<ChatHistoryResponse>>(
+      `/api/sessions/${sessionId}/messages?limit=${limit}${
+        beforeId ? `&before_id=${encodeURIComponent(beforeId)}` : ""
+      }`,
     ),
 };
