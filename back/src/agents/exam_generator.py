@@ -230,7 +230,7 @@ async def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
                             from src.rag import match_user_topics_to_session
 
                             llm_matches = await match_user_topics_to_session(
-                                topics, session_topics, topic_descriptions
+                                topics, session_topics, topic_descriptions, topic_tree
                             )
                             if llm_matches:
                                 resolved_topics = list(llm_matches.keys())
