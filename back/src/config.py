@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     topic_min_section_chars: int = 1000
     """Merge adjacent markdown sections below this character count."""
 
+    retrieval_use_topic_descriptions: bool = True
+    """When True, use topic descriptions (if available) as embedding queries
+    instead of bare topic labels.  Set to False to bypass globally.
+    """
+
     # ── LLM Provider ──────────────────────────────────────────────────────
     # "ollama" | "groq" | "opencode-go" | "opencode-go-anthropic" | "openai"
     llm_provider: str = "opencode-go"

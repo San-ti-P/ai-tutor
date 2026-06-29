@@ -22,11 +22,18 @@ logger = logging.getLogger("tutor.topic_extraction.extract")
 # ── Pydantic schema (embedded in system prompt as JSON string) ────────────────
 
 
+class TopicItem(BaseModel):
+    """A single academic topic with a one-sentence description."""
+
+    topic: str = Field(description="Academic topic phrase (3-8 words)")
+    description: str = Field(description="One-sentence description, max 15 words, academic Spanish")
+
+
 class SegmentTopics(BaseModel):
     """Expected LLM response shape for per-segment topic extraction."""
 
-    topics: list[str] = Field(
-        description="3-8 academic topics detected in this segment",
+    topics: list[TopicItem] = Field(
+        description="3-8 academic topics detected in this segment, each with a description",
         min_length=1,
         max_length=12,
     )
@@ -42,7 +49,10 @@ _SYSTEM_PROMPT = (
     f"{_TOPIC_SCHEMA_JSON}\n\n"
     "Extraé entre 3 y 8 temas académicos concretos del fragmento de texto a continuación. "
     "Los temas deben ser frases específicas, no palabras genéricas sueltas. "
-    "Devolvé solo JSON válido."
+    "Para cada tema, agregá una breve descripción (máximo 15 palabras) que "
+    "explique el concepto. IMPORTANTE: usá la terminología y vocabulario "
+    "exacto del texto fuente en las descripciones, no parafrasees con "
+    "sinónimos. Devolvé solo JSON válido."
 )
 
 # ── Regex for extracting JSON from LLM output ─────────────────────────────────
@@ -74,7 +84,7 @@ async def _extract_segment_topics(
     llm: Any,  # BaseChatModel — passed in to avoid re-creating per call
     segment_index: int = 0,
     total: int = 1,
-) -> list[str]:
+) -> list[TopicItem]:
     """Extract topics from a single text segment via LLM.
 
     Args:
@@ -84,7 +94,7 @@ async def _extract_segment_topics(
         total: Total segment count (for logging).
 
     Returns:
-        List of topic strings, or empty list on failure.
+        List of TopicItem objects, or empty list on failure.
     """
     from langchain_core.messages import HumanMessage, SystemMessage
 

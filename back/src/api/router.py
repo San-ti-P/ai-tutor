@@ -104,12 +104,11 @@ def _build_exam_from_raw(raw: dict[str, Any], topic: str = "", difficulty: str =
         )
 
     resolved_topic = topic or (raw.get("topics_covered") or [""])[0]
-    resolved_difficulty = difficulty or (
-        questions[0].difficulty if questions else "medium"
-    )
+    resolved_difficulty = difficulty or (questions[0].difficulty if questions else "medium")
     if resolved_difficulty not in ("easy", "medium", "hard"):
         resolved_difficulty = "medium"
     from src.api.schemas import DifficultyEnum
+
     difficulty_enum = cast(DifficultyEnum, resolved_difficulty)
     return Exam(
         id=raw.get("exam_id", str(uuid.uuid4())),
@@ -156,9 +155,6 @@ def _build_exercise_from_raw(raw: dict[str, Any]) -> Exercise:
     )
 
 
-
-
-
 @router.get("/health")
 async def health() -> dict[str, Any]:
     logger.info("Health check requested")
@@ -181,7 +177,9 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
             "student_id": request.student_id,
             "exam_id": request.exam_id,
             "answers": request.answers,
-            "exam_questions": [eq.model_dump(by_alias=True) for eq in request.exam_questions] if request.exam_questions else None,
+            "exam_questions": [eq.model_dump(by_alias=True) for eq in request.exam_questions]
+            if request.exam_questions
+            else None,
         }
     )
 
@@ -202,19 +200,23 @@ async def chat(request: ChatRequest) -> ApiResponse[ChatResponse]:
     try:
         user_msg_id = str(uuid.uuid4())
         assistant_msg_id = str(uuid.uuid4())
-        await _save_chat_message({
-            "id": user_msg_id,
-            "session_id": request.session_id,
-            "role": "user",
-            "content": request.message,
-        })
-        await _save_chat_message({
-            "id": assistant_msg_id,
-            "session_id": request.session_id,
-            "role": "assistant",
-            "content": result["response"],
-            "metadata_json": json.dumps({"intent": result["intent"]}),
-        })
+        await _save_chat_message(
+            {
+                "id": user_msg_id,
+                "session_id": request.session_id,
+                "role": "user",
+                "content": request.message,
+            }
+        )
+        await _save_chat_message(
+            {
+                "id": assistant_msg_id,
+                "session_id": request.session_id,
+                "role": "assistant",
+                "content": result["response"],
+                "metadata_json": json.dumps({"intent": result["intent"]}),
+            }
+        )
     except Exception:
         logger.exception(
             "Failed to persist chat messages for session %s — chat response unaffected",
@@ -351,6 +353,13 @@ async def get_session_files(session_id: str) -> ApiResponse[list[SessionFile]]:
                 topic_tree = json.loads(row["topic_tree_json"])
             except Exception:
                 pass
+        topic_descriptions = None
+        raw_descs = row.get("topic_descriptions_json")
+        if raw_descs:
+            try:
+                topic_descriptions = json.loads(raw_descs)
+            except Exception:
+                pass
         files.append(
             SessionFile(
                 id=row["id"],
@@ -358,6 +367,7 @@ async def get_session_files(session_id: str) -> ApiResponse[list[SessionFile]]:
                 classification=row.get("classification", ""),
                 topics=topics,
                 topic_tree=topic_tree,
+                topic_descriptions=topic_descriptions,
                 chunks_count=row.get("chunks_count", 0),
                 ingested_at=row["ingested_at"],
             )
@@ -494,6 +504,7 @@ async def ingest(
                     status="error",
                     classification="",
                     topics_detected=[],
+                    topic_descriptions=None,
                     chunks_created=0,
                 )
             )
@@ -530,6 +541,7 @@ async def ingest(
                         "classification": result.get("classification"),
                         "topics_json": json.dumps(result.get("topics", [])),
                         "topic_tree_json": result.get("topic_tree", "{}"),
+                        "topic_descriptions_json": json.dumps(result.get("topic_descriptions", {})),
                         "chunks_count": result.get("chunks_created", 0),
                         "session_id": effective_session_id,
                     }
@@ -554,6 +566,7 @@ async def ingest(
                     classification=result.get("classification", ""),
                     topics_detected=result.get("topics", []),
                     topic_tree=topic_tree,
+                    topic_descriptions=result.get("topic_descriptions"),
                     chunks_created=result.get("chunks_created", 0),
                     classification_confidence=result.get("classification_confidence"),
                     document_id=document_id,
@@ -567,6 +580,7 @@ async def ingest(
                     status="error",
                     classification="",
                     topics_detected=[],
+                    topic_descriptions=None,
                     chunks_created=0,
                 )
             )
@@ -610,7 +624,9 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
     if student_id:
         from src.tools.get_student_summary import get_student_summary as _summary_tool
 
-        profile = await _summary_tool.ainvoke({"student_id": student_id, "session_id": request.session_id})
+        profile = await _summary_tool.ainvoke(
+            {"student_id": student_id, "session_id": request.session_id}
+        )
         if profile is not None:
             student_profile = profile
             logger.info(
@@ -635,7 +651,9 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
         },
     )
 
-    exam = _build_exam_from_raw(result, topic=request.topic, difficulty=request.preferences.difficulty)
+    exam = _build_exam_from_raw(
+        result, topic=request.topic, difficulty=request.preferences.difficulty
+    )
     try:
         await _insert_generated_exam(exam.id, request.session_id, exam.topic, exam.difficulty)
     except Exception:
@@ -742,7 +760,9 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
                 if isinstance(r.get("judge_verdict"), dict)
                 else None,
                 question_text=answers_by_id.get(r.get("question_id", ""), {}).get("question", ""),
-                user_answer=answers_by_id.get(r.get("question_id", ""), {}).get("student_answer", ""),
+                user_answer=answers_by_id.get(r.get("question_id", ""), {}).get(
+                    "student_answer", ""
+                ),
                 source_chunks=r.get("source_chunks", []),
             )
             for r in results

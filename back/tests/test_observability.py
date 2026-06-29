@@ -616,35 +616,37 @@ class TestHardening:
         config = mock_graph.ainvoke.call_args.kwargs["config"]
         assert "callbacks" not in config
 
-    def test_generate_exam_injects_callback_handler(self):
-        """3.1b: generate_exam passes CallbackHandler to graph.invoke."""
+    async def test_generate_exam_injects_callback_handler(self):
+        """3.1b: generate_exam passes CallbackHandler to graph.ainvoke."""
+        from unittest.mock import AsyncMock
+
         tools_mod = self._reload_tools()
         mock_graph = MagicMock()
-        mock_graph.invoke.return_value = {"exam": {"exam_id": "e1"}}
+        mock_graph.ainvoke = AsyncMock(return_value={"exam": {"exam_id": "e1"}})
         mock_handler = MagicMock()
 
         with (
             patch("src.tools._get_or_compile", return_value=mock_graph),
             patch("src.observability.get_tracer", return_value=self._mock_tracer(mock_handler)),
         ):
-            tools_mod.generate_exam.invoke(
+            await tools_mod.generate_exam.ainvoke(
                 {"session_id": "s1", "topics": ["algebra"], "question_count": 1}
             )
 
-        config = mock_graph.invoke.call_args.kwargs["config"]
+        config = mock_graph.ainvoke.call_args.kwargs["config"]
         assert config["callbacks"] == [mock_handler]
 
         # Graceful when disabled
-        mock_graph.invoke.reset_mock()
+        mock_graph.ainvoke.reset_mock()
         with (
             patch("src.tools._get_or_compile", return_value=mock_graph),
             patch("src.observability.get_tracer", return_value=self._mock_tracer(None)),
         ):
-            tools_mod.generate_exam.invoke(
+            await tools_mod.generate_exam.ainvoke(
                 {"session_id": "s1", "topics": ["algebra"], "question_count": 1}
             )
 
-        config = mock_graph.invoke.call_args.kwargs["config"]
+        config = mock_graph.ainvoke.call_args.kwargs["config"]
         assert "callbacks" not in config
 
     def test_generate_exercise_injects_callback_handler(self):
@@ -765,7 +767,7 @@ class TestHardening:
             mock_graph.ainvoke = AsyncMock(return_value=_mock_graph_result)
             with patch("src.tools._get_or_compile", return_value=mock_graph):
                 await tools_mod.ingest_document.ainvoke({"file_path": str(sample_txt), "session_id": "s1"})
-                tools_mod.generate_exam.invoke(
+                await tools_mod.generate_exam.ainvoke(
                     {"session_id": "s1", "topics": ["t"], "question_count": 1}
                 )
                 tools_mod.generate_exercise.invoke({"session_id": "s1", "topic": "t"})
@@ -1184,13 +1186,13 @@ class TestContextPropagation:
             f"Expected session_id='ctx-s1', got {update_kwargs}"
         )
 
-    def test_generate_exam_calls_propagate_attributes(self):
+    async def test_generate_exam_calls_propagate_attributes(self):
         """Gap-4: generate_exam wraps graph.invoke in propagate_attributes."""
         import importlib
 
         tools_mod = importlib.import_module("src.tools")
         mock_graph = MagicMock()
-        mock_graph.invoke.return_value = {"exam": {"exam_id": "e1"}}
+        mock_graph.ainvoke = AsyncMock(return_value={"exam": {"exam_id": "e1"}})
 
         with (
             patch("src.tools._get_or_compile", return_value=mock_graph),
@@ -1202,7 +1204,7 @@ class TestContextPropagation:
             mock_get_tracer.return_value = mock_tracer
 
             importlib.reload(tools_mod)
-            tools_mod.generate_exam.invoke(
+            await tools_mod.generate_exam.ainvoke(
                 {"session_id": "ctx-s2", "topics": ["algebra"], "question_count": 1}
             )
 

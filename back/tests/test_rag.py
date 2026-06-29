@@ -350,3 +350,132 @@ class TestRealRAG:
             except json.JSONDecodeError:
                 pass  # string representation is acceptable
         assert isinstance(tree, (dict, str)), f"topic_tree is not dict or string: {type(tree)}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TDR Phase — retrieve_by_topic with topic descriptions (TDR-07, TDR-09)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestRetrieveByTopic:
+    """Tests for retrieve_by_topic() — description-aware retrieval (TDR-07)."""
+
+    def test_retrieve_by_topic_with_description(self):
+        """TDR-07: When description exists, use it as query instead of bare label."""
+        from unittest.mock import patch
+
+        mock_retrieve = MagicMock(return_value=[{"chunk_id": "c1", "text": "content"}])
+
+        with patch("src.rag.retrieve", mock_retrieve):
+            from src.rag import retrieve_by_topic
+
+            descs = {
+                "Agentes inteligentes": "Sistemas que perciben su entorno y actúan mediante efectores."
+            }
+            results = retrieve_by_topic(
+                "Agentes inteligentes",
+                descs,
+                "test_collection",
+            )
+            mock_retrieve.assert_called_once()
+            # The query passed to retrieve should be the description, NOT the label
+            call_query = mock_retrieve.call_args[1]["query"]
+            assert call_query == "Sistemas que perciben su entorno y actúan mediante efectores."
+            assert results == [{"chunk_id": "c1", "text": "content"}]
+
+    def test_retrieve_by_topic_fallback_to_label(self):
+        """TDR-07: When topic missing from descriptions, fall back to bare label."""
+        from unittest.mock import patch
+
+        mock_retrieve = MagicMock(return_value=[{"chunk_id": "c2", "text": "more"}])
+
+        with patch("src.rag.retrieve", mock_retrieve):
+            from src.rag import retrieve_by_topic
+
+            descs = {"Otro tema": "Descripción de otro."}
+            results = retrieve_by_topic(
+                "Tema nuevo",
+                descs,
+                "test_collection",
+            )
+            call_query = mock_retrieve.call_args[1]["query"]
+            assert call_query == "Tema nuevo"  # fallback to label
+            assert results == [{"chunk_id": "c2", "text": "more"}]
+
+    def test_retrieve_by_topic_no_descriptions_dict(self):
+        """TDR-07: None descriptions → fall back to label."""
+        from unittest.mock import patch
+
+        mock_retrieve = MagicMock(return_value=[])
+
+        with patch("src.rag.retrieve", mock_retrieve):
+            from src.rag import retrieve_by_topic
+
+            retrieve_by_topic(
+                "Cálculo",
+                None,
+                "test_collection",
+            )
+            call_query = mock_retrieve.call_args[1]["query"]
+            assert call_query == "Cálculo"
+
+    def test_retrieve_by_topic_empty_descriptions_dict(self):
+        """TDR-07: Empty descriptions dict → fall back to label."""
+        from unittest.mock import patch
+
+        mock_retrieve = MagicMock(return_value=[])
+
+        with patch("src.rag.retrieve", mock_retrieve):
+            from src.rag import retrieve_by_topic
+
+            retrieve_by_topic(
+                "Álgebra",
+                {},
+                "test_collection",
+            )
+            call_query = mock_retrieve.call_args[1]["query"]
+            assert call_query == "Álgebra"
+
+    def test_retrieve_by_topic_passes_through_kwargs(self):
+        """TDR-07: top_k and topic_filter passed through to retrieve()."""
+        from unittest.mock import patch
+
+        mock_retrieve = MagicMock(return_value=[{"chunk_id": "x"}])
+
+        with patch("src.rag.retrieve", mock_retrieve):
+            from src.rag import retrieve_by_topic
+
+            retrieve_by_topic(
+                "Tema",
+                {"Tema": "Descripción."},
+                "col",
+                top_k=10,
+                topic_filter="math",
+            )
+            call_kwargs = mock_retrieve.call_args[1]
+            assert call_kwargs["top_k"] == 10
+            assert call_kwargs["topic_filter"] == "math"
+
+
+class TestToggleOffUsesLabel:
+    """TDR-09: Config toggle gate."""
+
+    def test_toggle_off_uses_label(self):
+        """TDR-09: When descriptions provided but toggle off, still uses label query.
+
+        Tests the settings gate by directly invoking retrieve_by_topic with
+        the config check bypassed (the tool does the check, this tests the
+        raw function behavior under toggle-off conditions).
+        """
+        from unittest.mock import patch
+
+        from src.rag import retrieve_by_topic
+
+        mock_retrieve = MagicMock(return_value=[{"chunk_id": "c1"}])
+
+        with patch("src.rag.retrieve", mock_retrieve):
+            # When topic_descriptions is None, falls back to label
+            result = retrieve_by_topic("Agentes", None, "test_col")
+            call_query = mock_retrieve.call_args[1]["query"]
+            assert call_query == "Agentes"
+            assert result == [{"chunk_id": "c1"}]

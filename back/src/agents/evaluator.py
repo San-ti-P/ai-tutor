@@ -118,6 +118,15 @@ class EvaluatorState(TypedDict):
     status: str
 
 
+def _deep_merge_tree_ev(target: dict[str, Any], source: dict[str, Any]) -> None:
+    """Deep-merge nested dict, mutating target."""
+    for key, value in source.items():
+        if key not in target:
+            target[key] = {}
+        if isinstance(value, dict) and isinstance(target[key], dict):
+            _deep_merge_tree_ev(target[key], value)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Node: prepare_evaluation
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -135,6 +144,44 @@ def prepare_evaluation(state: EvaluatorState) -> dict[str, Any]:
     answers: list[dict[str, Any]] = state.get("answers", [])
     session_id: str = state.get("session_id", "")
     collection_name = state.get("collection_name") or f"session_{session_id}"
+
+    # Load topic descriptions from session files
+    topic_descriptions: dict[str, str] | None = None
+    topic_tree: dict[str, Any] | None = None
+    if session_id:
+        from src.memory.schema import list_session_files
+        from src.utils.async_ import run_async_in_sync
+        import json as _json
+
+        try:
+            session_files = run_async_in_sync(list_session_files(session_id))
+            _all_descs: dict[str, str] = {}
+            _merged_tree: dict[str, Any] = {}
+            for sf in session_files:
+                descs_json = sf.get("topic_descriptions_json")
+                if descs_json:
+                    try:
+                        sf_descs = _json.loads(descs_json)
+                        if isinstance(sf_descs, dict):
+                            for k, v in sf_descs.items():
+                                if isinstance(v, str) and v.strip():
+                                    _all_descs[k] = v
+                    except Exception:
+                        pass
+                tree_json = sf.get("topic_tree_json")
+                if tree_json:
+                    try:
+                        sf_tree = _json.loads(tree_json)
+                        if isinstance(sf_tree, dict) and sf_tree:
+                            _deep_merge_tree_ev(_merged_tree, sf_tree)
+                    except Exception:
+                        pass
+            if _all_descs:
+                topic_descriptions = _all_descs
+            if _merged_tree:
+                topic_tree = _merged_tree
+        except Exception:
+            pass
 
     # Deduplicate topics preserving order
     seen_topics: set[str] = set()
@@ -155,6 +202,8 @@ def prepare_evaluation(state: EvaluatorState) -> dict[str, Any]:
                     "query": topic,
                     "top_k": 5,
                     "collection_name": collection_name,
+                    "topic_descriptions": topic_descriptions,
+                    "topic_tree": topic_tree,
                 }
             )
             for chunk in chunks:
@@ -341,9 +390,11 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig | None = None)
     if qtype == "mcq":
         clean_student = student_answer.strip()
         clean_base = base_answer.strip()
-        is_correct = clean_student.lower() == clean_base.lower() if clean_student and clean_base else False
+        is_correct = (
+            clean_student.lower() == clean_base.lower() if clean_student and clean_base else False
+        )
         score = 10.0 if is_correct else 0.0
-        
+
         if is_correct:
             justification = f"Respuesta correcta. Seleccionaste la opción correcta: '{clean_base}'."
             conceptual_errors = []
@@ -355,7 +406,7 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig | None = None)
                 justification = f"Respuesta incorrecta. No seleccionaste ninguna opción. La opción correcta era '{clean_base}'."
             conceptual_errors = ["Selección de opción incorrecta"]
             suggestions = ["Repasar el material de lectura y reintentar el examen."]
-            
+
         evaluation_dict = {
             "question_id": current.get("question_id", ""),
             "score": score,
@@ -427,7 +478,9 @@ INSTRUCCIONES:
 6. Usa el material de referencia como contexto para verificar conceptos, pero la
    fuente principal para el puntaje es la comparacion con la RESPUESTA ESPERADA."""
 
-        structured_llm = get_structured_llm(SingleEvaluation, temperature=settings.evaluator_temperature)
+        structured_llm = get_structured_llm(
+            SingleEvaluation, temperature=settings.evaluator_temperature
+        )
 
         invoke_kwargs = {"config": config} if config is not None else {}
         result: SingleEvaluation = structured_llm.invoke(prompt, **invoke_kwargs)
@@ -636,7 +689,9 @@ INSTRUCCIONES:
 3. Si hay discrepancia significativa, explicala en español.
 4. Si sugerís un puntaje diferente, incluilo en suggested_score."""
 
-        structured_llm = get_structured_llm(JudgeVerdict, temperature=settings.evaluator_temperature)
+        structured_llm = get_structured_llm(
+            JudgeVerdict, temperature=settings.evaluator_temperature
+        )
 
         invoke_kwargs = {"config": config} if config is not None else {}
         judge: JudgeVerdict = structured_llm.invoke(prompt, **invoke_kwargs)

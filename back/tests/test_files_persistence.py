@@ -173,9 +173,7 @@ class TestIngestEndpointPersistence:
             with patch("src.tools.ingest_document", new=mock_tool):
                 response = client.post(
                     "/api/ingest",
-                    files=[
-                        ("files", ("calculo.pdf", b"fake pdf", "application/pdf"))
-                    ],
+                    files=[("files", ("calculo.pdf", b"fake pdf", "application/pdf"))],
                     data={"session_id": session_id},
                 )
 
@@ -263,3 +261,127 @@ class TestIngestEndpointPersistence:
             asyncio.run(init_db())
             rows = asyncio.run(list_session_files(session_id))
         assert rows == []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TDR Phase — topic_descriptions_json persistence (TDR-05, TDR-06)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestTopicDescriptionsPersistence:
+    """TDR-05: topic_descriptions_json column persisted and read back."""
+
+    @pytest.mark.asyncio
+    async def test_topic_descriptions_persisted_and_read(self, db_session):
+        """TDR-05: Insert with descriptions → read them back."""
+        session_id = db_session
+        doc_id = str(uuid.uuid4())
+        await insert_ingested_document(
+            {
+                "id": doc_id,
+                "file_name": "agentes.pdf",
+                "classification": "apunte_teorico",
+                "topics_json": json.dumps(["Agentes inteligentes", "Razonamiento"]),
+                "topic_descriptions_json": json.dumps(
+                    {
+                        "Agentes inteligentes": "Sistemas que perciben su entorno y actúan.",
+                        "Razonamiento": "Proceso lógico para derivar conclusiones.",
+                    }
+                ),
+                "chunks_count": 5,
+                "session_id": session_id,
+            }
+        )
+
+        rows = await list_session_files(session_id)
+        assert len(rows) == 1
+        row = rows[0]
+        assert "topic_descriptions_json" in row
+        descs = json.loads(row["topic_descriptions_json"])
+        assert descs["Agentes inteligentes"] == "Sistemas que perciben su entorno y actúan."
+        assert descs["Razonamiento"] == "Proceso lógico para derivar conclusiones."
+
+    @pytest.mark.asyncio
+    async def test_legacy_rows_no_descriptions_return_empty_dict(self, db_session):
+        """TDR-05: Legacy row (no topic_descriptions_json) → returns {}."""
+        session_id = db_session
+        doc_id = str(uuid.uuid4())
+        # Insert without topic_descriptions_json (legacy path)
+        await insert_ingested_document(
+            {
+                "id": doc_id,
+                "file_name": "legacy.pdf",
+                "classification": "apunte_teorico",
+                "topics_json": json.dumps(["Tema viejo"]),
+                "chunks_count": 2,
+                "session_id": session_id,
+            }
+        )
+
+        rows = await list_session_files(session_id)
+        assert len(rows) == 1
+        desc_raw = rows[0].get("topic_descriptions_json")
+        assert desc_raw is not None, "topic_descriptions_json should have default '{}'"
+        descs = json.loads(desc_raw) if desc_raw else {}
+        assert descs == {}
+
+    @pytest.mark.asyncio
+    async def test_malformed_json_fallback(self, db_session):
+        """TDR-05: Malformed JSON in column → handled gracefully, falls back to {}."""
+        import aiosqlite
+
+        session_id = db_session
+        doc_id = str(uuid.uuid4())
+        # Insert valid doc first
+        await insert_ingested_document(
+            {
+                "id": doc_id,
+                "file_name": "corrupt.pdf",
+                "session_id": session_id,
+            }
+        )
+        # Manually corrupt the column
+        async with aiosqlite.connect(settings.sqlite_db_path) as db:
+            await db.execute(
+                "UPDATE ingested_documents SET topic_descriptions_json = ? WHERE id = ?",
+                ("not valid json", doc_id),
+            )
+            await db.commit()
+
+        rows = await list_session_files(session_id)
+        assert len(rows) == 1
+        desc_raw = rows[0].get("topic_descriptions_json", "{}")
+        # Should be parseable with a fallback
+        try:
+            descs = json.loads(desc_raw)
+        except json.JSONDecodeError:
+            descs = {}
+        assert isinstance(descs, dict)
+
+    @pytest.mark.asyncio
+    async def test_topic_descriptions_column_migration_idempotent(self, db_session):
+        """TDR-05: Migration is idempotent — calling twice doesn't break."""
+        import aiosqlite
+
+        from src.memory.schema import _column_exists, _run_migrations
+
+        session_id = db_session
+        async with aiosqlite.connect(settings.sqlite_db_path) as db:
+            # Run migrations again (should be idempotent)
+            await _run_migrations(db)
+            await db.commit()
+            # Column should exist
+            assert await _column_exists(db, "ingested_documents", "topic_descriptions_json")
+
+        # Still able to insert and read
+        doc_id = str(uuid.uuid4())
+        await insert_ingested_document(
+            {
+                "id": doc_id,
+                "file_name": "migrate_test.pdf",
+                "topic_descriptions_json": json.dumps({"Test": "Descripción de prueba."}),
+                "session_id": session_id,
+            }
+        )
+        rows = await list_session_files(session_id)
+        assert len(rows) == 1

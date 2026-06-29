@@ -219,14 +219,15 @@ class TestSessionLifecycle:
                 ) as mock_build:
                     mock_graph = MagicMock()
                     mock_graph.compile.return_value = mock_graph
-                    mock_graph.invoke.return_value = {
+                    from unittest.mock import AsyncMock
+                    mock_graph.ainvoke = AsyncMock(return_value={
                         "exam": {"exam_id": "e1", "questions": []},
-                    }
+                    })
                     mock_build.return_value = mock_graph
 
                     from src.tools import generate_exam
 
-                    result = generate_exam.invoke({
+                    result = await generate_exam.ainvoke({
                         "session_id": session_id,
                         "topics": ["cálculo"],
                         "difficulty": "medium",

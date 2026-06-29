@@ -16,10 +16,31 @@ from src.topic_extraction.preprocess import jaccard_similarity, stem_topic
 logger = logging.getLogger("tutor.topic_extraction.unify")
 
 
+def _pick_richer_desc(
+    all_topics: list[str],
+    i: int,
+    j: int,
+    descriptions: dict[str, str] | None,
+) -> str:
+    """Pick the richer (longer) description when merging two topic indices.
+
+    Returns the description of the longer counterpart, or falls back to
+    empty string when no descriptions dict is available.
+    """
+    if descriptions is None:
+        return ""
+    desc_i = descriptions.get(all_topics[i], "")
+    desc_j = descriptions.get(all_topics[j], "")
+    if len(desc_i) >= len(desc_j):
+        return desc_i
+    return desc_j
+
+
 def unify_topics(
     all_topics: list[str],
     threshold: float | None = None,
     max_count: int | None = None,
+    descriptions: dict[str, str] | None = None,
 ) -> list[str]:
     """Merge near-duplicate topics using Jaccard similarity on stemmed keywords.
 
@@ -35,6 +56,10 @@ def unify_topics(
             ``settings.topic_similarity_threshold`` (0.6).
         max_count: Maximum number of unified topics.  Defaults to
             ``settings.max_topics_per_document`` (30).
+        descriptions: Optional mapping from topic string → description.
+            When provided, the richer (longer) description is picked
+            during canonical name selection.  ``None`` (default) for
+            backward compatibility.
 
     Returns:
         Sorted list of canonical topic strings.
@@ -168,4 +193,3 @@ def reconcile_topics(
             unique_reconciled.append(t)
 
     return unique_reconciled, topic_map
-
