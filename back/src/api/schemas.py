@@ -40,6 +40,7 @@ class ChatResponse(BaseModel):
     intent: IntentEnum
     trace_id: str | None = None
     exam: Exam | None = None  # Structured exam data for UI rendering (Epic 7 US-7.3)
+    exercise: Exercise | None = None  # Structured exercise data for inline chat rendering
 
 
 class ExamPreferences(BaseModel):

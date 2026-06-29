@@ -941,6 +941,59 @@ class TestChatEndpoint:
         assert data["data"]["intent"] == "general_chat"
         assert data["data"]["trace_id"] is not None
 
+    def test_chat_endpoint_returns_exercise_when_present(self):
+        """POST /chat returns the exercise when it's present in the orchestrator results."""
+        from unittest.mock import AsyncMock, patch
+        from fastapi.testclient import TestClient
+        from src.main import app
+
+        client = TestClient(app)
+
+        mock_tool = AsyncMock()
+        mock_tool.ainvoke = AsyncMock(
+            return_value={
+                "response": "Acá tenés un ejercicio.",
+                "intent": "generate_exercise",
+                "status": "complete",
+                "trace_id": "fake-trace-123",
+                "exercise": {
+                    "exercise_id": "ex-001",
+                    "statement": "Calcular la derivada de x^2",
+                    "question": "¿Cuál es la derivada?",
+                    "model_solution": {
+                        "steps": [
+                            {
+                                "stepNumber": 1,
+                                "description": "Aplicar regla de potencia",
+                                "result": "2x",
+                                "sourceChunkIds": []
+                            }
+                        ],
+                        "finalAnswer": "2x",
+                        "keyConcepts": ["derivada", "regla de potencia"],
+                    },
+                    "topics_covered": ["derivadas"],
+                    "status": "complete"
+                }
+            }
+        )
+
+        with patch("src.tools.orchestrate_chat", mock_tool):
+            response = client.post(
+                "/api/chat",
+                json={"session_id": "test-session-99", "message": "Dame un ejercicio de derivadas"},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["error"] is None
+        assert "data" in data
+        assert data["data"]["exercise"] is not None
+        assert data["data"]["exercise"]["exercise_id"] == "ex-001"
+        assert data["data"]["exercise"]["statement"] == "Calcular la derivada de x^2"
+        assert data["data"]["exercise"]["model_solution"]["finalAnswer"] == "2x"
+        assert data["data"]["intent"] == "generate_exercise"
+
 
 # ==============================================================================
 # TASK-ORCH-011b: orchestrate_chat tool boundary

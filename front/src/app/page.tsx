@@ -205,6 +205,7 @@ export default function ChatPage() {
           timestamp: new Date(),
           traceId: res.data.trace_id ?? res.trace_id,
           exam: res.data.exam,
+          exercise: res.data.exercise,
         };
         setMessages((prev) => [...prev, assistantMsg]);
       } catch (err) {
