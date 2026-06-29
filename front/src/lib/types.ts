@@ -129,10 +129,12 @@ interface IngestResult {
 }
 
 interface ExerciseStep {
-  stepNumber: number;
+  stepNumber?: number;
+  step_number?: number;
   description: string;
   result: string;
-  sourceChunkIds: string[];
+  sourceChunkIds?: string[];
+  source_chunk_ids?: string[];
 }
 
 interface Exercise {
@@ -140,11 +142,15 @@ interface Exercise {
   statement: string;
   given_data?: string;
   question: string;
+  difficulty?: string;
   model_solution: {
     steps: ExerciseStep[];
-    finalAnswer: string;
-    keyConcepts: string[];
+    finalAnswer?: string;
+    final_answer?: string;
+    keyConcepts?: string[];
+    key_concepts?: string[];
     sourceChunkIds?: string[];
+    source_chunk_ids?: string[];
   };
   topics_covered: string[];
   source_chunk_ids?: string[];
@@ -231,8 +237,25 @@ interface SessionCreate {
   studentId: string;
 }
 
+interface ChatMessageRecord {
+  id: string;
+  sessionId: string;
+  role: MessageRole;
+  content: string;
+  metadata?: {
+    intent?: Intent;
+    exam?: Exam;
+    exercise?: Exercise;
+    evalSnapshot?: ExamEvalSnapshot;
+    isError?: boolean;
+    traceId?: string;
+    [key: string]: any;
+  };
+  createdAt: string;
+}
+
 interface ChatHistoryResponse {
-  messages: ChatMessage[];
+  messages: ChatMessageRecord[];
   hasMore: boolean;
   oldestId: string | null;
   total: number;
@@ -246,6 +269,7 @@ export type {
   QuestionType,
   Difficulty,
   ChatMessage,
+  ChatMessageRecord,
   ChatHistoryResponse,
   ExamQuestion,
   Exam,

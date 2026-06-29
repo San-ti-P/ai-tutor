@@ -40,11 +40,10 @@ export function UploadDropzone({
     <div>
       <div
         {...getRootProps()}
-        className={`cursor-pointer rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
-          isDragActive
+        className={`cursor-pointer rounded-lg border-2 border-dashed p-8 text-center transition-colors ${isDragActive
             ? "border-primary bg-primary/5"
             : "border-border hover:border-primary/50 hover:bg-muted/50"
-        }`}
+          }`}
       >
         <input {...getInputProps()} data-testid="file-upload-input" />
         <Upload className="mx-auto mb-3 size-8 text-muted-foreground" />
@@ -54,7 +53,7 @@ export function UploadDropzone({
             : "Arrastrá archivos acá o hacé clic para seleccionar"}
         </p>
         <p className="mt-1 text-muted-foreground text-xs">
-          PDF, TXT, PNG o JPG (máx. 50 MB)
+          PDF o TXT (máx. 50 MB)
         </p>
       </div>
 

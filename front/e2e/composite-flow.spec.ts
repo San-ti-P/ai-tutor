@@ -44,7 +44,7 @@ test.describe('Composite Plan-and-Execute', () => {
     await expect(sendBtn).toBeVisible({ timeout: 30000 });
 
     // Get full page text to check for exam/exercise artifacts
-    const pageText = await page.textContent('body').catch(() => '');
+    const pageText = (await page.textContent('body').catch(() => '')) || '';
 
     // Tolerance assertions — LLM output is non-deterministic but should contain both artifacts
     const hasExamContent =
@@ -92,7 +92,7 @@ test.describe('Composite Plan-and-Execute', () => {
     await expect(sendBtn).toBeVisible({ timeout: 15000 });
 
     // Verify system responds gracefully (no crash, no 500 error)
-    const pageText = await page.textContent('body').catch(() => '');
+    const pageText = (await page.textContent('body').catch(() => '')) || '';
 
     // Should mention material not found or suggest uploading
     const gracefulResponse =

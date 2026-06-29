@@ -34,7 +34,7 @@ export function ExerciseWidget({ exercise, sessionId }: ExerciseWidgetProps) {
   const givenData = exercise.given_data || (exercise as any).givenData || "";
   const question = exercise.question || "";
   const topics = exercise.topics_covered || (exercise as any).topicsCovered || [];
-  
+
   const modelSolution = exercise.model_solution || (exercise as any).modelSolution || {};
   const steps = modelSolution.steps || [];
   const finalAnswer = modelSolution.finalAnswer || modelSolution.final_answer || "";

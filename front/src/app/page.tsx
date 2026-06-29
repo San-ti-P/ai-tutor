@@ -72,6 +72,11 @@ export default function ChatPage() {
             role: m.role,
             content: m.content,
             timestamp: new Date(m.createdAt),
+            traceId: m.metadata?.traceId,
+            exam: m.metadata?.exam,
+            exercise: m.metadata?.exercise,
+            evalSnapshot: m.metadata?.evalSnapshot,
+            isError: m.metadata?.isError,
           }));
         setMessages(msgs);
         setHasMore(res.data.hasMore);
@@ -98,6 +103,11 @@ export default function ChatPage() {
           role: m.role,
           content: m.content,
           timestamp: new Date(m.createdAt),
+          traceId: m.metadata?.traceId,
+          exam: m.metadata?.exam,
+          exercise: m.metadata?.exercise,
+          evalSnapshot: m.metadata?.evalSnapshot,
+          isError: m.metadata?.isError,
         }));
       setMessages((prev) => [...older, ...prev]);
       setHasMore(res.data.hasMore);
