@@ -266,6 +266,7 @@ def chunk_and_embed(state: IngestorState) -> dict[str, Any]:
     import time
 
     from src.rag import chunk_text, embed_and_store
+    from src.utils.text import dehyphenate_text
 
     t0 = time.monotonic()
     logger.info(
@@ -277,6 +278,9 @@ def chunk_and_embed(state: IngestorState) -> dict[str, Any]:
 
         from pathlib import Path
 
+        # Dehyphenate before chunking — merge markitdown hyphenation artifacts
+        clean_text = dehyphenate_text(state["raw_text"])
+
         # Build metadata for each chunk
         base_metadata: dict[str, object] = {
             "document_id": document_id,
@@ -286,7 +290,7 @@ def chunk_and_embed(state: IngestorState) -> dict[str, Any]:
         }
 
         # Chunk the raw text
-        chunks = chunk_text(state["raw_text"])
+        chunks = chunk_text(clean_text)
         if not chunks:
             return {
                 "document_id": document_id,

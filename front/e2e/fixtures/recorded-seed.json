@@ -118,5 +118,35 @@
     "label": "Organizá estos temas académicos en un árbol jerárquico. IMPORTANTE: Creá entre 3",
     "response": "```json\n{\n  \"Tipologías de Agentes Inteligentes\": {\n    \"Agentes reactivos simples\": {},\n    \"Agentes reactivos basados en modelos\": {},\n    \"Agentes basados en objetivos\": {},\n    \"Agentes basados en utilidad\": {},\n    \"Arquitecturas de software para agentes inteligentes\": {}\n  },\n  \"Interacción y Entornos\": {\n    \"Interacción agente-ambiente\": {},\n    \"Ambientes deterministas vs. estocásticos\": {},\n    \"Ambientes totalmente observables vs. parcialmente observables\": {},\n    \"Modelado de estados del entorno\": {},\n    \"Sensores y actuadores en entornos físicos\": {},\n    \"Sensores y actuadores en inteligencia artificial\": {}\n  },\n  \"Mecanismos de Operación y Control\": {\n    \"Ciclo de percepción y acción en agentes\": {},\n    \"Relación funcional entre percepciones y acciones\": {},\n    \"Estados internos de los agentes\": {},\n    \"Mecanismos de toma de decisiones en agentes\": {},\n    \"Sistemas de control y seguridad\": {}\n  },\n  \"Autonomía y Cognición\": {\n    \"Concepto de autonomía en agentes\": {},\n    \"Autonomía en agentes de software\": {},\n    \"Propiedades de reactividad y proactividad\": {},\n    \"Sistemas computacionales autónomos\": {},\n    \"Racionalidad y acciones correctas en IA\": {}\n  },\n  \"Aprendizaje y Performance\": {\n    \"Aprendizaje a partir de la experiencia\": {},\n    \"Autonomía y capacidad de aprendizaje en agentes\": {},\n    \"Funciones de utilidad en inteligencia artificial\": {},\n    \"Medidas de performance en agentes inteligentes\": {}\n  },\n  \"Sistemas Multiagentes y Socialidad\": {\n    \"Sistemas multiagentes y colaboración\": {},\n    \"Cooperación y competencia entre agentes\": {},\n    \"Interacción y habilidad social de agentes\": {}\n  },\n  \"Fundamentos y Diseño\": {\n    \"Definición y ejecución de agentes inteligentes\": {},\n    \"Diseño de capacidades de agentes inteligentes\": {}\n  }\n}\n```",
     "tool_calls": []
+  },
+  {
+    "prompt_hash": "1e2aaa7bea93",
+    "label": "unknown",
+    "response": "Lo siento, pero no he podido generar el examen que solicitaste.\n\nEl sistema indica que **no se encontró material de estudio o contenido disponible** sobre el tema solicitado para poder redactar las preguntas. Para que pueda ayudarte a crear un examen preciso y educativo, por favor proporcióname el texto, el tema específico o los documentos sobre los cuales deseas que base las preguntas.\n\n¡Quedo atento a tu información para intentarlo de nuevo!",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "417df02913fe",
+    "label": "unknown",
+    "response": "Lamentablemente, no ha sido posible generar el examen solicitado ya que el sistema no encontró material de estudio o temas específicos en la base de conocimientos para basar las preguntas.\n\nPara poder ayudarte a crear un examen preciso y educativo, por favor indícame:\n1. **El tema o materia** sobre la cual quieres las preguntas.\n2. **El nivel de dificultad** (por ejemplo: básico, intermedio o avanzado).\n3. O bien, **adjunta el texto o documento** que deseas que utilice como fuente para generar las preguntas.\n\n¡Quedo atento a tu información para redactar tu examen!",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "9fd9e1720057",
+    "label": "unknown",
+    "response": "Lamentablemente, no he podido generar el examen porque **no cuento con material de estudio o temas específicos** cargados en el sistema para basar las preguntas.\n\nPara que pueda ayudarte a crear un examen de 3 preguntas de calidad, por favor:\n\n1. **Indícame el tema** sobre el cual quieres que sea la evaluación.\n2. O bien, **proporciona el texto o documento** que debo utilizar como fuente de información.\n\nQuedo atento a tus indicaciones para generar el examen inmediatamente.",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "6cca74b591ac",
+    "label": "unknown",
+    "response": "Lo siento, pero no ha sido posible generar el examen.\n\nEl sistema indica que **no se encontró material de estudio o contenido disponible** sobre el tema solicitado (en este caso, el tema \"general\"). Para que yo pueda crear un examen preciso y educativo, necesito que primero me proporciones la información, el texto o los temas específicos sobre los cuales deseas ser evaluado.\n\n**¿Cómo podemos solucionarlo?**\n1. Proporcióname el texto o documento que quieres que use como base.\n2. Indícame temas específicos (por ejemplo: \"Historia Universal\", \"Biología Celular\", etc.) para buscar la información correspondiente.\n\n¡Quedo atento a tus instrucciones para ayudarte con tu examen!",
+    "tool_calls": []
+  },
+  {
+    "prompt_hash": "411757c38250",
+    "label": "unknown",
+    "response": "Aquí tienes el examen basado en el material de **Agentes Inteligentes**. He seleccionado preguntas que evalúan tanto la capacidad de reconocimiento como la de análisis sobre los agentes basados en objetivos.\n\n***\n\n### 📝 Examen de Agentes Inteligentes\n\n**Pregunta 1: Opción Múltiple**\n¿Cuáles son los subcampos encargados de encontrar la secuencia de acciones que permitan a un agente alcanzar sus metas en casos de procesos complejos?\n*   A) Reactividad y Proactividad\n*   B) Búsqueda y Planificación\n*   C) Crítica y Aprendizaje\n*   D) Percepción y Acción\n\n**Pregunta 2: Respuesta Abierta**\nExplique la relación entre la búsqueda, la planificación y el alcance de los objetivos en agentes que enfrentan procesos complejos.\n\n*(Sugerencia de respuesta: El estudiante debe mencionar que, cuando un agente no puede resolver un problema mediante una respuesta simple, recurre a la búsqueda y planificación para determinar la secuencia exacta de pasos necesarios para lograr su meta).*\n\n***\n\n**Nota:** Aunque solicitaste 3 preguntas, el sistema ha generado estas 2 preguntas enfocadas específicamente en el tema de **Agentes basados en objetivos**. Si deseas más preguntas sobre otros temas (como agentes de utilidad o tipos de ambientes), no dudes en pedírmelo.",
+    "tool_calls": []
   }
 ]

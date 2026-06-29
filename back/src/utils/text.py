@@ -18,6 +18,11 @@ from pathlib import Path
 # Regex matching sentence boundaries: . ! ? followed by whitespace.
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
+# Matches lowercase word breaks: lowercase-letter-hyphen-newline-lowercase-letter.
+# Only merges when BOTH sides are lowercase Latin (incl. Spanish accents).
+# Preserves legitimate hyphens (uppercase, mixed-case, numbers).
+_DEHYPHENATE_RE = re.compile(r"([a-záéíóúñ])-\n([a-záéíóúñ])")
+
 
 def split_sentences(text: str) -> list[str]:
     """Split text on sentence boundaries (. ! ? followed by whitespace).
@@ -63,6 +68,26 @@ def split_into_claims(text: str, min_length: int = 10) -> list[str]:
         claims.extend(parts)
 
     return [c for c in claims if len(c) > min_length]
+
+
+def dehyphenate_text(raw_text: str) -> str:
+    """Merge lowercase words hyphenated across line breaks.
+
+    Academic PDFs parsed by markitdown contain mid-word breaks
+    (e.g. ``"am-\\nbiente"``) that produce incoherent vectors.
+    This function joins only lowercase-to-lowercase splits;
+    uppercase or mixed-case hyphen patterns are left unchanged
+    (legitimate hyphens in names, acronyms, etc.).
+
+    Uses pure stdlib ``re`` — no dependencies.
+
+    Args:
+        raw_text: Raw text from markitdown or another PDF parser.
+
+    Returns:
+        Text with line-break hyphenation artifacts removed.
+    """
+    return _DEHYPHENATE_RE.sub(r"\1\2", raw_text)
 
 
 def parse_file_to_text(file_path: str) -> str:

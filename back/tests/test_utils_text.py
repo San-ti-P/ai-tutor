@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.utils.text import parse_file_to_text, split_into_claims, split_sentences
+from src.utils.text import dehyphenate_text, parse_file_to_text, split_into_claims, split_sentences
 
 
 class TestSplitSentences:
@@ -103,3 +103,42 @@ class TestParseFileToText:
         missing = str(temp_dir / "nonexistent.txt")
         with pytest.raises(FileNotFoundError):
             parse_file_to_text(missing)
+
+
+class TestDehyphenateText:
+    """dehyphenate_text merges lowercase words hyphenated across linebreaks."""
+
+    def test_dehyphenate_spanish(self):
+        """Spanish hyphen break: 'am-\nbiente' → 'ambiente'."""
+        result = dehyphenate_text("am-\nbiente")
+        assert result == "ambiente"
+
+    def test_dehyphenate_consecutive(self):
+        """Consecutive breaks: 'inves-\ntiga-\nción' → 'investigación'."""
+        result = dehyphenate_text("inves-\ntiga-\nción")
+        assert result == "investigación"
+
+    def test_dehyphenate_english(self):
+        """English hyphen break: 'under-\nstanding' → 'understanding'."""
+        result = dehyphenate_text("under-\nstanding")
+        assert result == "understanding"
+
+    def test_dehyphenate_preserves_uppercase(self):
+        """Legitimate hyphen with uppercase: 'Dr.-\nSmith' → unchanged."""
+        result = dehyphenate_text("Dr.-\nSmith")
+        assert result == "Dr.-\nSmith"
+
+    def test_dehyphenate_empty(self):
+        """Empty string stays empty."""
+        result = dehyphenate_text("")
+        assert result == ""
+
+    def test_dehyphenate_no_hyphens(self):
+        """No hyphens — no change."""
+        result = dehyphenate_text("hola mundo")
+        assert result == "hola mundo"
+
+    def test_dehyphenate_non_latin(self):
+        """Non-Latin chars (Cyrillic): 'обу-\nчение' → unchanged (no a-z match)."""
+        result = dehyphenate_text("обу-\nчение")
+        assert result == "обу-\nчение"

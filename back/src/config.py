@@ -52,7 +52,7 @@ class Settings(BaseSettings):
 
     # ── RAG / Embedding ───────────────────────────────────────────────────
     embedding_model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
-    chunk_size: int = 512
+    chunk_size: int = 800
     chunk_overlap: int = 64
     retrieval_top_k: int = 5
 
