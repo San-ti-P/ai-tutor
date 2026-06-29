@@ -47,11 +47,12 @@ Cada criterio del TP debe ser cubierto EXPLÍCITAMENTE. La presentación es la d
 **Slide 4 — Visión General de Componentes**
 - Diagrama de 3 capas: UI (Next.js) → Orquestación (LangGraph) → Datos (ChromaDB + SQLite)
 - Stack tecnológico completo con justificación de cada choice:
-  - LangGraph → StateGraph con conditional edges y loops
-  - ChromaDB → vector store local sin dependencias externas
-   - SentenceTransformer → embeddings multilingües
-  - Langfuse → observabilidad open-source con spans anidados
-  - FastAPI + Next.js → async, tipado, separación clara front/back
+- LangGraph → StateGraph con conditional edges y loops
+- ChromaDB → vector store local sin dependencias externas
+- SentenceTransformer → `paraphrase-multilingual-MiniLM-L12-v2` (384-dim, multilingüe, local)
+- Langfuse → observabilidad open-source con spans anidados
+- FastAPI + Next.js → async, tipado, separación clara front/back
+- Chunking: markdown-aware con dehyphenation, separadores jerárquicos
 
 **Slide 5 — Taxonomía del Agente**
 - Tabla del PRD §3: percepciones (6 tipos) y acciones (8 tools)
@@ -115,9 +116,11 @@ Cada criterio del TP debe ser cubierto EXPLÍCITAMENTE. La presentación es la d
 ### Bloque 4: RAG, Guardrails y Observabilidad (4 min)
 
 **Slide 8 — Pipeline RAG**
-- Diagrama: Load (markitdown) → Split (chunking semántico, 512 tokens, 64 overlap) → Embed (`paraphrase-multilingual-MiniLM-L12-v2`) → Store (ChromaDB, colecciones por sesión) → Retrieve (top-K=5-8, similarity search con filtro temático)
-- Índice temático: árbol jerárquico extraído por LLM del Ingestor. Permite filtrar chunks por tema antes del similarity search
-- Actualización incremental: nuevos chunks sin reprocesar existentes, índice fusionado
+- Diagrama: Load (markitdown con dehyphenation) → Split (chunking semántico markdown-aware, 512 chars, 64 overlap, separadores jerárquicos: `\n\n## ` → `\n\n` → `\n` → `. `) → Embed (`paraphrase-multilingual-MiniLM-L12-v2`, 384-dim, local) → Store (ChromaDB, colecciones por sesión, cosine similarity) → Retrieve (top-K=5, query enrichment por jerarquía de temas)
+- **Chunking semántico**: dehyphenation pre-procesa guiones de final de línea en PDFs. Separadores markdown-aware preservan headings, párrafos y listas como unidades semánticas en lugar de cortar a ciegas cada 512 chars
+- **Query enrichment**: descripciones de temas extraídas durante la ingestión. Al recuperar, el LLM matchea el tema del usuario con los temas de la sesión, y el árbol jerárquico (`topic_tree`) enriquece la query con descripciones del padre, hijos y hermanos. Zero llamadas LLM extra en query-time
+- **Índice temático**: árbol jerárquico (3 niveles) extraído por LLM durante la ingestión. Cada tema con descripción de una frase usando vocabulario del texto fuente para máxima similitud coseno
+- Actualización incremental: nuevos chunks sin reprocesar existentes, índice fusionado con `ThematicIndex.merge()`
 
 **Slide 9 — Guardrails Anti-Alucinación**
 - Post-generación: validación claim-level contra ChromaDB (threshold 0.55)
@@ -141,7 +144,7 @@ Cada criterio del TP debe ser cubierto EXPLÍCITAMENTE. La presentación es la d
 ### Bloque 5: Evaluación del Sistema (3 min)
 
 **Slide 12 — Suite de Pruebas**
-- 121 tests totales: 105 unitarios (mock, <5s) + 16 integración (LLM real)
+- 615 tests totales: 583 unitarios (mock, <5s) + 32 integración (LLM real)
 - Cobertura de los 12 casos PRD §8: 7 happy path, 3 edge cases, 2 adversarial
 - Tabla resumen: caso PRD, categoría, tipo de validación, estado
 - Mencionar honestamente: imágenes no soportadas (casos 6 y 9 postergados por scope)
@@ -164,8 +167,9 @@ Cada criterio del TP debe ser cubierto EXPLÍCITAMENTE. La presentación es la d
 **Slide 15 — Lo Construido (Resumen Cuantitativo)**
 - 6 agentes en LangGraph con StateGraphs independientes
 - 8 tools funcionales con tool calling nativo
-- RAG completo: ChromaDB + SentenceTransformer + índice temático jerárquico
-- 121 tests (105 unit + 16 integración), 12 casos PRD cubiertos
+- RAG completo: ChromaDB + SentenceTransformer MiniLM + chunking semántico markdown-aware + índice temático jerárquico con descripciones + query enrichment por árbol de temas
+- LLM topic matching: fuzzy matching entre temas del usuario y temas de sesión
+- 615 tests (583 unit + 32 integración), 12 casos PRD cubiertos
 - Observabilidad con Langfuse (trazas estructuradas con spans anidados)
 - UI web en Next.js + API en FastAPI
 - Memoria long-term con SQLite (perfil de estudiante persistente)
@@ -198,19 +202,19 @@ La demo en vivo muestra el flujo completo pero paso a paso (no composite — int
 
 **0:30-2:00 — Ingesta de PDF (Agente: Ingestor)**
 - Arrastrar `apunteAgentes_IA2007.pdf` al dropzone
-- Mientras procesa: "El Ingestor ejecuta: markitdown parsea el PDF → el LLM clasifica como apunte teórico → extrae índice temático jerárquico → chunking semántico → embeddings → ChromaDB."
-- Resultado: "6 temas detectados. 23 chunks creados. Todo incremental."
-- Cambiar a Langfuse: "Trazas de `parse_document`, `classify_document`, `chunk_and_embed`."
+- Mientras procesa: "El Ingestor ejecuta: markitdown parsea el PDF con dehyphenation → el LLM clasifica como apunte teórico → extrae índice temático jerárquico de 3 niveles con descripciones por tema → chunking semántico markdown-aware → embeddings MiniLM 384-dim → ChromaDB."
+- Resultado: "30 temas detectados con descripciones. ~25 chunks creados. Árbol jerárquico de 3 niveles. Todo incremental."
+- Cambiar a Langfuse: "Trazas de `parse_document`, `classify_document`, `extract_topics`, `chunk_and_embed`."
 
 **2:00-4:00 — Generar Examen (Agente: ExamGenerator)**
 - Chat: "Generame un examen de 5 preguntas sobre agentes inteligentes"
 - Mientras se genera, explicar el grafo del ExamGenerator:
-  - `retrieve_relevant_chunks`: busca en ChromaDB los 5 chunks más relevantes para cada tópico
+  - `retrieve_relevant_chunks`: LLM matchea "agentes inteligentes" con temas de la sesión, obtiene descripciones, enriquece la query con temas relacionados del árbol jerárquico (padre + hijos + hermanos). Busca en ChromaDB los 5 chunks más relevantes por query enriquecida
   - `generate_questions`: LLM con structured output (Pydantic) genera MCQ + abiertas
-  - `validate_questions`: anti-alucinación — cada claim se valida contra embeddings
+  - `validate_questions`: anti-alucinación — cada claim se valida contra embeddings (threshold 0.55)
   - `format_exam`: estructura final con source_chunk_ids
 - Resultado: "5 preguntas. 3 MCQ, 2 abiertas. Cada una anclada en chunks reales del apunte."
-- Mostrar Langfuse: "Traza: retrieve_chunks (×5), ChatOllama (2850 tokens), validate_claim_grounding (×10 claims)."
+- Mostrar Langfuse: "Traza: retrieve_chunks (×5 con topic_descriptions + topic_tree), ChatOllama, validate_claim_grounding."
 
 **4:00-5:30 — Generar Ejercicio (Agente: ExerciseGenerator)**
 - Chat: "Ahora generame un ejercicio práctico sobre racionalidad en agentes inteligentes"
