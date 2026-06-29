@@ -259,6 +259,30 @@ class ExamEvaluationSummary(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ChatMessageRecord(BaseModel):
+    """A single persisted chat message returned by the history endpoint."""
+
+    id: str
+    session_id: str = Field(alias="sessionId")
+    role: MessageRoleEnum
+    content: str
+    metadata: dict = Field(default_factory=dict)
+    created_at: str = Field(alias="createdAt")
+
+    model_config = {"populate_by_name": True}
+
+
+class ChatHistoryResponse(BaseModel):
+    """Paginated chat history response."""
+
+    messages: list[ChatMessageRecord]
+    has_more: bool = Field(alias="hasMore")
+    oldest_id: str | None = Field(default=None, alias="oldestId")
+    total: int
+
+    model_config = {"populate_by_name": True}
+
+
 class ApiResponse[T](BaseModel):
     data: T
     error: str | None = None

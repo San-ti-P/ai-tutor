@@ -36,6 +36,11 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
 
+  // ── History pagination state ────────────────────────────────────────────
+  const [hasMore, setHasMore] = useState(false);
+  const [oldestId, setOldestId] = useState<string | null>(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
   const sessionId = activeSession?.id ?? "";
 
   // Auto-create default session if none exist after load
@@ -45,43 +50,64 @@ export default function ChatPage() {
     }
   }, [sessionsLoading, sessions.length, createSession]);
 
-  // Load persisted messages when session changes, clear file entries
+  // Load last 10 messages from API when session changes
   useEffect(() => {
     setFileEntries([]);
-    if (!sessionId) {
-      setMessages([]);
-      return;
-    }
-    try {
-      const raw = localStorage.getItem(`chat_msgs_${sessionId}`);
-      if (raw) {
-        const parsed: ChatMessage[] = JSON.parse(raw);
-        // Rehydrate timestamp strings back to Date objects
-        setMessages(parsed.map((m) => ({ ...m, timestamp: new Date(m.timestamp) })));
-      } else {
+    setMessages([]);
+    setHasMore(false);
+    setOldestId(null);
+
+    if (!sessionId) return;
+
+    setIsLoadingHistory(true);
+    api
+      .getMessages(sessionId, 10)
+      .then((res) => {
+        // API returns newest-first; reverse to render oldest at top
+        const msgs: ChatMessage[] = res.data.messages
+          .slice()
+          .reverse()
+          .map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            timestamp: new Date(m.createdAt),
+          }));
+        setMessages(msgs);
+        setHasMore(res.data.hasMore);
+        setOldestId(res.data.oldestId ?? null);
+      })
+      .catch(() => {
+        // Session might be brand-new with no messages — that's fine
         setMessages([]);
-      }
-    } catch {
-      setMessages([]);
-    }
+      })
+      .finally(() => setIsLoadingHistory(false));
   }, [sessionId]);
 
-  // Persist messages to localStorage — strip unevaluated exam fields to avoid blank forms on reload
-  useEffect(() => {
-    if (!sessionId || messages.length === 0) return;
+  const handleLoadMore = useCallback(async () => {
+    if (!sessionId || !oldestId || isLoadingHistory) return;
+    setIsLoadingHistory(true);
     try {
-      const toSave = messages.map((m) => {
-        if (m.exam && !m.evalSnapshot) {
-          const { exam: _exam, ...rest } = m;
-          return rest;
-        }
-        return m;
-      });
-      localStorage.setItem(`chat_msgs_${sessionId}`, JSON.stringify(toSave));
+      const res = await api.getMessages(sessionId, 10, oldestId);
+      // Older messages come newest-first; reverse before prepending
+      const older: ChatMessage[] = res.data.messages
+        .slice()
+        .reverse()
+        .map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          timestamp: new Date(m.createdAt),
+        }));
+      setMessages((prev) => [...older, ...prev]);
+      setHasMore(res.data.hasMore);
+      setOldestId(res.data.oldestId ?? null);
     } catch {
-      // localStorage quota exceeded or unavailable — silently ignore
+      // Silently ignore — the user can try again
+    } finally {
+      setIsLoadingHistory(false);
     }
-  }, [sessionId, messages]);
+  }, [sessionId, oldestId, isLoadingHistory]);
 
   const handleExamEvaluated = useCallback(
     (messageId: string, snapshot: ExamEvalSnapshot) => {
@@ -238,6 +264,9 @@ export default function ChatPage() {
         <ChatMessageList
           messages={messages}
           isLoading={isLoading}
+          hasMore={hasMore}
+          isLoadingHistory={isLoadingHistory}
+          onLoadMore={handleLoadMore}
           sessionId={sessionId}
           onExamEvaluated={handleExamEvaluated}
         />
