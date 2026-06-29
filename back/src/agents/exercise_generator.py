@@ -86,6 +86,15 @@ class ExerciseGeneratorState(TypedDict):
     status: str
 
 
+def _deep_merge_tree_ex(target: dict[str, Any], source: dict[str, Any]) -> None:
+    """Deep-merge nested dict, mutating target."""
+    for key, value in source.items():
+        if key not in target:
+            target[key] = {}
+        if isinstance(value, dict) and isinstance(target[key], dict):
+            _deep_merge_tree_ex(target[key], value)
+
+
 def retrieve_relevant_chunks(state: ExerciseGeneratorState) -> dict[str, Any]:
     """Retrieve top-K relevant chunks from ChromaDB for the requested topic.
 
@@ -113,11 +122,51 @@ def retrieve_relevant_chunks(state: ExerciseGeneratorState) -> dict[str, Any]:
                 "status": "no_material",
             }
 
+        # Load topic descriptions from session files
+        topic_descriptions: dict[str, str] | None = None
+        topic_tree: dict[str, Any] | None = None
+        if session_id:
+            from src.memory.schema import list_session_files
+            from src.utils.async_ import run_async_in_sync
+            import json as _json
+
+            try:
+                session_files = run_async_in_sync(list_session_files(session_id))
+                _all_descs: dict[str, str] = {}
+                _merged_tree: dict[str, Any] = {}
+                for sf in session_files:
+                    descs_json = sf.get("topic_descriptions_json")
+                    if descs_json:
+                        try:
+                            sf_descs = _json.loads(descs_json)
+                            if isinstance(sf_descs, dict):
+                                for k, v in sf_descs.items():
+                                    if isinstance(v, str) and v.strip():
+                                        _all_descs[k] = v
+                        except Exception:
+                            pass
+                    tree_json = sf.get("topic_tree_json")
+                    if tree_json:
+                        try:
+                            sf_tree = _json.loads(tree_json)
+                            if isinstance(sf_tree, dict) and sf_tree:
+                                _deep_merge_tree_ex(_merged_tree, sf_tree)
+                        except Exception:
+                            pass
+                if _all_descs:
+                    topic_descriptions = _all_descs
+                if _merged_tree:
+                    topic_tree = _merged_tree
+            except Exception:
+                pass
+
         chunks = _retrieve_chunks.invoke(
             {
                 "query": topic,
-                "top_k": 5,
+                "top_k": settings.retrieval_top_k,
                 "collection_name": collection_name,
+                "topic_descriptions": topic_descriptions,
+                "topic_tree": topic_tree,
             }
         )
 
@@ -180,7 +229,9 @@ def retrieve_relevant_chunks(state: ExerciseGeneratorState) -> dict[str, Any]:
         }
 
 
-def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig | None = None) -> dict[str, Any]:
+def generate_exercise(
+    state: ExerciseGeneratorState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
     """Generate a practice exercise via a single structured LLM call.
 
     Builds a prompt from retrieved chunks, topic, difficulty, and type.
@@ -262,7 +313,9 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig | No
             "- El ejercicio debe tener campos: topic, difficulty.\n"
         )
 
-        structured_llm = get_structured_llm(ExerciseGeneration, temperature=settings.exercise_generator_temperature)
+        structured_llm = get_structured_llm(
+            ExerciseGeneration, temperature=settings.exercise_generator_temperature
+        )
         invoke_kwargs = {"config": config} if config is not None else {}
         result: ExerciseGeneration = structured_llm.invoke(prompt, **invoke_kwargs)
 

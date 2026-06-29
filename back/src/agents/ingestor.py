@@ -32,6 +32,7 @@ class IngestorState(TypedDict):
     classification_confidence: float
     topics: list[str]
     topic_tree: str
+    topic_descriptions: dict[str, str]
     chunks_created: int
     errors: Annotated[list[str], operator.add]
     status: str
@@ -102,7 +103,9 @@ def parse_document(state: IngestorState) -> dict[str, Any]:
         return {"errors": [f"Parse error: {e}"], "status": "error"}
 
 
-async def classify_document(state: IngestorState, config: RunnableConfig | None = None) -> dict[str, Any]:
+async def classify_document(
+    state: IngestorState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
     """Classify document type and detect topics using LLM.
 
     Runs the full-document topic extraction pipeline BEFORE the classification
@@ -141,6 +144,7 @@ async def classify_document(state: IngestorState, config: RunnableConfig | None 
         pipeline_result = await extract_topics_pipeline(raw_text)
         pipeline_topics = pipeline_result.get("topics", [])
         topic_tree = pipeline_result.get("topic_tree", "{}")
+        topic_descriptions = pipeline_result.get("topic_descriptions", {})
 
         # ── Conciliate topics with other files in the same session (cross-file conciliation) ──
         session_id = state.get("session_id")
@@ -173,7 +177,9 @@ async def classify_document(state: IngestorState, config: RunnableConfig | None 
                         try:
                             tree_data = json.loads(topic_tree)
 
-                            def update_tree_keys(d: dict[str, Any], mapping: dict[str, str]) -> dict[str, Any]:
+                            def update_tree_keys(
+                                d: dict[str, Any], mapping: dict[str, str]
+                            ) -> dict[str, Any]:
                                 new_dict = {}
                                 for k, v in d.items():
                                     new_k = mapping.get(k, k)
@@ -188,11 +194,15 @@ async def classify_document(state: IngestorState, config: RunnableConfig | None 
                         except Exception as e:
                             logger.warning("Failed to update topic tree keys: %s", e)
             except Exception as e:
-                logger.warning("Failed to retrieve existing session files for topic conciliation: %s", e)
+                logger.warning(
+                    "Failed to retrieve existing session files for topic conciliation: %s", e
+                )
 
         from src.llm import get_structured_llm
 
-        structured_llm = get_structured_llm(Classification, temperature=settings.ingestor_temperature)
+        structured_llm = get_structured_llm(
+            Classification, temperature=settings.ingestor_temperature
+        )
 
         topics_str = ", ".join(pipeline_topics[:8]) if pipeline_topics else "(ninguno detectado)"
         prompt = f"""Analizá el siguiente texto académico y clasificalo.
@@ -218,6 +228,7 @@ Texto (vista previa):
                 "classification_confidence": result.confidence,
                 "topics": pipeline_topics,
                 "topic_tree": topic_tree,
+                "topic_descriptions": topic_descriptions,
                 "errors": ["Content rejected: non-academic material"],
                 "status": "rejected_non_academic",
             }
@@ -235,6 +246,7 @@ Texto (vista previa):
                 "classification_confidence": result.confidence,
                 "topics": pipeline_topics,
                 "topic_tree": topic_tree,
+                "topic_descriptions": topic_descriptions,
                 "status": "classification_uncertain",
             }
 
@@ -251,6 +263,7 @@ Texto (vista previa):
             "classification_confidence": result.confidence,
             "topics": pipeline_topics,
             "topic_tree": topic_tree,
+            "topic_descriptions": topic_descriptions,
             "status": "classified",
         }
     except Exception as e:

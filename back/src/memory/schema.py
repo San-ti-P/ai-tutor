@@ -49,6 +49,10 @@ async def _run_migrations(db: aiosqlite.Connection) -> None:
         )
     if not await _column_exists(db, "evaluations", "exam_id"):
         await db.execute("ALTER TABLE evaluations ADD COLUMN exam_id TEXT DEFAULT ''")
+    if not await _column_exists(db, "ingested_documents", "topic_descriptions_json"):
+        await db.execute(
+            "ALTER TABLE ingested_documents ADD COLUMN topic_descriptions_json TEXT DEFAULT '{}'"
+        )
     await db.execute("""
         CREATE TABLE IF NOT EXISTS exams (
             id TEXT PRIMARY KEY,
@@ -641,8 +645,8 @@ async def insert_ingested_document(doc: dict[str, Any]) -> None:
             """
             INSERT INTO ingested_documents
             (id, file_name, classification, topics_json, topic_tree_json,
-             chunks_count, session_id, ingested_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             topic_descriptions_json, chunks_count, session_id, ingested_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 doc["id"],
@@ -650,6 +654,7 @@ async def insert_ingested_document(doc: dict[str, Any]) -> None:
                 doc.get("classification"),
                 doc.get("topics_json"),
                 doc.get("topic_tree_json", "{}"),
+                doc.get("topic_descriptions_json", "{}"),
                 doc.get("chunks_count", 0),
                 doc.get("session_id"),
                 ingested_at,
@@ -663,7 +668,8 @@ async def list_session_files(session_id: str) -> list[dict[str, Any]]:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT id, file_name, classification, topics_json, topic_tree_json, chunks_count, "
+            "SELECT id, file_name, classification, topics_json, topic_tree_json, "
+            "topic_descriptions_json, chunks_count, "
             "ingested_at, session_id FROM ingested_documents "
             "WHERE session_id = ? ORDER BY ingested_at DESC, rowid DESC",
             (session_id,),

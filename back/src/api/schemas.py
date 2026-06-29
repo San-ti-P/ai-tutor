@@ -129,6 +129,7 @@ class IngestResult(BaseModel):
     classification: str
     topics_detected: list[str] = Field(alias="topicsDetected")
     topic_tree: dict[str, Any] | None = Field(default=None, alias="topicTree")
+    topic_descriptions: dict[str, str] | None = Field(default=None, alias="topicDescriptions")
     chunks_created: int = Field(alias="chunksCreated")
     classification_confidence: float | None = Field(default=None, alias="classificationConfidence")
     document_id: str | None = Field(default=None, alias="documentId")
@@ -235,6 +236,7 @@ class SessionFile(BaseModel):
     classification: str = ""
     topics: list[str] = Field(default_factory=list)
     topic_tree: dict[str, Any] | None = Field(default=None, alias="topicTree")
+    topic_descriptions: dict[str, str] | None = Field(default=None, alias="topicDescriptions")
     chunks_count: int = Field(default=0, alias="chunksCount")
     ingested_at: str = Field(alias="ingestedAt")
 

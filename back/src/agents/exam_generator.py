@@ -86,6 +86,16 @@ class ExamGeneratorState(TypedDict):
 
 # ── Helper for theme matching ────────────────────────────────────────────────
 
+
+def _deep_merge_tree(target: dict[str, Any], source: dict[str, Any]) -> None:
+    """Deep-merge *source* nested dict into *target*, mutating *target*."""
+    for key, value in source.items():
+        if key not in target:
+            target[key] = {}
+        if isinstance(value, dict) and isinstance(target[key], dict):
+            _deep_merge_tree(target[key], value)
+
+
 def match_theme_to_session_topics(theme: str, session_topics: list[str]) -> list[str]:
     """Match a user-requested theme to one or many session topics.
 
@@ -121,6 +131,7 @@ def match_theme_to_session_topics(theme: str, session_topics: list[str]) -> list
     # 4. Jaccard similarity match on stems
     try:
         from src.topic_extraction.preprocess import jaccard_similarity, stem_topic
+
         theme_stem = stem_topic(theme)
         jaccard_matches = []
         for t in session_topics:
@@ -141,7 +152,7 @@ def match_theme_to_session_topics(theme: str, session_topics: list[str]) -> list
 # ── Node implementations ─────────────────────────────────────────────────────
 
 
-def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
+async def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
     """Retrieve top-K relevant chunks from ChromaDB for the requested topics.
 
     Iterates state["topics"], calling retrieve_chunks per topic. Handles empty
@@ -161,6 +172,8 @@ def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
         student_profile = state.get("student_profile")
 
         # Match user-requested theme/topics to topics extracted from session files
+        topic_descriptions: dict[str, str] | None = None
+        topic_tree: dict[str, Any] | None = None
         if session_id and topics:
             from src.memory.schema import list_session_files
             from src.utils.async_ import run_async_in_sync
@@ -180,16 +193,64 @@ def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
                             pass
                 session_topics = list(set(session_topics))
 
+                # Build topic_descriptions and topic_tree from session files
+                _all_descs: dict[str, str] = {}
+                _merged_tree: dict[str, Any] = {}
+                for sf in session_files:
+                    descs_json = sf.get("topic_descriptions_json")
+                    if descs_json:
+                        try:
+                            sf_descs = _json.loads(descs_json)
+                            if isinstance(sf_descs, dict):
+                                for k, v in sf_descs.items():
+                                    if isinstance(v, str) and v.strip():
+                                        _all_descs[k] = v
+                        except Exception:
+                            pass
+                    tree_json = sf.get("topic_tree_json")
+                    if tree_json:
+                        try:
+                            sf_tree = _json.loads(tree_json)
+                            if isinstance(sf_tree, dict) and sf_tree:
+                                _deep_merge_tree(_merged_tree, sf_tree)
+                        except Exception:
+                            pass
+                if _all_descs:
+                    topic_descriptions = _all_descs
+                if _merged_tree:
+                    topic_tree = _merged_tree
+
                 if session_topics:
-                    resolved_topics = []
+                    resolved_topics: list[str] = []
                     has_any_match = False
-                    for theme in topics:
-                        matches = match_theme_to_session_topics(theme, session_topics)
-                        if matches:
-                            resolved_topics.extend(matches)
-                            has_any_match = True
-                        else:
-                            resolved_topics.append(theme)
+
+                    # Try LLM-based fuzzy matching when descriptions available
+                    if topic_descriptions:
+                        try:
+                            from src.rag import match_user_topics_to_session
+
+                            llm_matches = await match_user_topics_to_session(
+                                topics, session_topics, topic_descriptions
+                            )
+                            if llm_matches:
+                                resolved_topics = list(llm_matches.keys())
+                                has_any_match = True
+                                logger.info(
+                                    "LLM matched themes %s → session topics %s",
+                                    topics, resolved_topics,
+                                )
+                        except Exception:
+                            logger.warning("LLM topic matching failed, falling back to token matching")
+
+                    # Fall back to token-based matching if LLM didn't match
+                    if not has_any_match:
+                        for theme in topics:
+                            matches = match_theme_to_session_topics(theme, session_topics)
+                            if matches:
+                                resolved_topics.extend(matches)
+                                has_any_match = True
+                            else:
+                                resolved_topics.append(theme)
 
                     if has_any_match:
                         # Deduplicate preserving order
@@ -199,7 +260,9 @@ def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
                             if rt not in seen_resolved:
                                 seen_resolved.add(rt)
                                 deduped_resolved.append(rt)
-                        logger.info("Matched themes %s to session topics %s", topics, deduped_resolved)
+                        logger.info(
+                            "Matched themes %s to session topics %s", topics, deduped_resolved
+                        )
                         topics = deduped_resolved
             except Exception as e:
                 logger.warning("Failed to resolve theme to session topics: %s", e)
@@ -237,8 +300,10 @@ def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
             chunks = _retrieve_chunks.invoke(
                 {
                     "query": topic,
-                    "top_k": 5,
+                    "top_k": settings.retrieval_top_k,
                     "collection_name": collection_name,
+                    "topic_descriptions": topic_descriptions,
+                    "topic_tree": topic_tree if topic_tree else None,
                 }
             )
             if not chunks:
@@ -308,7 +373,9 @@ def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
         }
 
 
-def generate_questions(state: ExamGeneratorState, config: RunnableConfig | None = None) -> dict[str, Any]:
+def generate_questions(
+    state: ExamGeneratorState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
     """Generate exam questions via a single structured LLM call.
 
     Builds a prompt from retrieved chunks, user preferences, student profile,
@@ -475,7 +542,9 @@ REQUISITOS:
 - Cada pregunta debe tener los campos: topic y difficulty.
 """
 
-        structured_llm = get_structured_llm(ExamGeneration, temperature=settings.exam_generator_temperature)
+        structured_llm = get_structured_llm(
+            ExamGeneration, temperature=settings.exam_generator_temperature
+        )
         invoke_kwargs = {"config": config} if config is not None else {}
         result: ExamGeneration = structured_llm.invoke(prompt, **invoke_kwargs)
 

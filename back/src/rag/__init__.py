@@ -162,6 +162,51 @@ def embed_and_store(
 # ---------------------------------------------------------------------------
 
 
+def _find_related_descriptions(
+    topic: str,
+    descs: dict[str, str],
+    tree: dict[str, Any],
+) -> list[str]:
+    """Walk *tree* to find parent, children, and siblings of *topic*.
+
+    Returns descriptions of related topics (excluding *topic* itself).
+    """
+    related: list[str] = []
+
+    def _walk(node: dict[str, Any], ancestors: list[str]) -> bool:
+        """Return True when *topic* is found as a key in *node*."""
+        for key, children in node.items():
+            if key == topic:
+                # Parent description (direct parent = last ancestor)
+                if ancestors:
+                    parent_name = ancestors[-1]
+                    if parent_name in descs:
+                        related.append(descs[parent_name])
+                # Children descriptions (topic's own children, recursively)
+                if isinstance(children, dict) and children:
+                    _collect_leaf_descs(children, descs, related)
+                # Sibling descriptions at same level (excluding self, shallow)
+                for sibling in node:
+                    if sibling != topic and sibling in descs:
+                        related.append(descs[sibling])
+                return True
+            # Recurse: add current key to ancestors for children's context
+            if isinstance(children, dict) and children:
+                if _walk(children, ancestors + [key]):
+                    return True
+        return False
+
+    def _collect_leaf_descs(node: dict[str, Any], descs: dict[str, str], out: list[str]) -> None:
+        for key, children in node.items():
+            if key in descs:
+                out.append(descs[key])
+            if isinstance(children, dict) and children:
+                _collect_leaf_descs(children, descs, out)
+
+    _walk(tree, [])
+    return related
+
+
 @observe(name="rag_retrieve", as_type="retriever")
 def retrieve(
     query: str,
@@ -244,8 +289,57 @@ def retrieve(
 
 
 # ---------------------------------------------------------------------------
-# ThematicIndex
+# Topic-description-aware retrieval (TDR-07)
 # ---------------------------------------------------------------------------
+
+
+def retrieve_by_topic(
+    topic: str,
+    topic_descriptions: dict[str, str] | None,
+    collection_name: str,
+    top_k: int = 5,
+    topic_filter: str | None = None,
+    topic_tree: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Retrieve chunks using topic description as query, falling back to label.
+
+    When *topic_tree* is provided, the matched topic's parent, children, and
+    sibling topics are discovered from the hierarchical tree, and their
+    descriptions are appended to the query for richer semantic coverage.
+
+    Args:
+        topic: The topic label (e.g. "Agentes inteligentes").
+        topic_descriptions: Mapping from topic → description.  When the topic
+            has an entry, the description is used as the embedding query
+            instead of the bare label.  ``None`` or missing key → label used.
+        collection_name: ChromaDB collection name.
+        top_k: Number of chunks to retrieve.
+        topic_filter: Optional prefix filter on ``metadata["topic"]``.
+        topic_tree: Optional nested dict from ``ThematicIndex.to_dict()``
+            representing the hierarchical topic tree.  Used to discover
+            related topics whose descriptions enrich the query.
+
+    Returns:
+        List of chunk dicts from ``retrieve()``.
+    """
+    descs = topic_descriptions or {}
+    query = descs.get(topic, topic)
+
+    # Enrich query with related topic descriptions from the topic tree
+    if topic_tree and topic in descs:
+        related_descs = _find_related_descriptions(topic, descs, topic_tree)
+        if related_descs:
+            query = query + " " + " ".join(related_descs)
+
+    # Ensure non-empty query
+    if not query or not query.strip():
+        query = topic
+    return retrieve(
+        query=query,
+        collection_name=collection_name,
+        top_k=top_k,
+        topic_filter=topic_filter,
+    )
 
 
 class ThematicIndex:
@@ -310,3 +404,87 @@ class ThematicIndex:
                 return []
             node = node[part]
         return list(node.keys())
+
+
+# ---------------------------------------------------------------------------
+# LLM Topic Matching
+# ---------------------------------------------------------------------------
+
+
+async def match_user_topics_to_session(
+    user_topics: list[str],
+    session_topics: list[str],
+    topic_descriptions: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Match user-requested topics to session topics via LLM fuzzy matching.
+
+    Returns a dict mapping matched session topic names to their descriptions
+    (description comes from ``topic_descriptions`` when available, else the
+    topic label itself). Unmatched user topics are omitted.
+
+    The LLM call is small (< 200 tokens) — one per request, not per chunk.
+    Uses ``get_llm()`` with temperature=0 for deterministic matching.
+    """
+    if not user_topics or not session_topics:
+        return {}
+
+    from src.llm import get_llm
+
+    descs = topic_descriptions or {}
+    # Build a catalogue line per session topic
+    topic_lines: list[str] = []
+    for t in session_topics:
+        desc = descs.get(t, "").strip()
+        if desc:
+            topic_lines.append(f"- {t}: {desc}")
+        else:
+            topic_lines.append(f"- {t}")
+
+    catalogue = "\n".join(topic_lines)
+    user_list = "\n".join(f"- {t}" for t in user_topics)
+
+    prompt = (
+        "Sos un asistente que empareja temas académicos. Tu tarea es "
+        "asociar cada tema solicitado por un estudiante con el tema más "
+        "relevante del catálogo de la sesión.\n\n"
+        "Reglas:\n"
+        "1. Si un tema del estudiante coincide exactamente o es claramente "
+        "equivalente a un tema del catálogo, devolvé ese tema del catálogo.\n"
+        "2. Si un tema del estudiante es una versión más general de un tema "
+        "del catálogo (ej: \"agentes\" → \"Agentes inteligentes\"), "
+        "devolvé el tema del catálogo.\n"
+        "3. Si un tema del estudiante NO tiene equivalente claro en el "
+        "catálogo, devolvé \"<<NO_MATCH>>\".\n"
+        "4. Respondé SOLO con el mapeo, una línea por tema del estudiante, "
+        "en el formato exacto:\n"
+        "   tema_estudiante → tema_catalogo\n\n"
+        f"Catálogo de temas disponibles:\n{catalogue}\n\n"
+        f"Temas solicitados por el estudiante:\n{user_list}\n\n"
+        "Mapeo:"
+    )
+
+    try:
+        llm = get_llm(temperature=0.0)
+        response = llm.invoke(prompt)
+        text = response.content if hasattr(response, "content") else str(response)
+    except Exception:
+        logger.exception("LLM topic matching failed")
+        return {}
+
+    # Parse LLM response: "tema_estudiante → tema_catalogo"
+    result: dict[str, str] = {}
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if not line or "→" not in line:
+            continue
+        parts = line.split("→", 1)
+        if len(parts) != 2:
+            continue
+        matched = parts[1].strip()
+        if matched == "<<NO_MATCH>>":
+            continue
+        # Only keep matches that actually exist in session_topics
+        if matched in session_topics:
+            result[matched] = descs.get(matched, matched)
+
+    return result

@@ -295,17 +295,130 @@ class TestSegmentText:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# TDR Phase — TopicItem model and description extraction
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestTopicItemModel:
+    """Tests for TopicItem Pydantic model (TDR-01, TDR-02)."""
+
+    def test_topic_item_creation_valid(self):
+        """TDR-01: TopicItem created with topic + description."""
+        from src.topic_extraction.extract import TopicItem
+
+        item = TopicItem(
+            topic="Agentes inteligentes",
+            description="Sistemas que perciben su entorno y actúan mediante efectores.",
+        )
+        assert item.topic == "Agentes inteligentes"
+        assert item.description == "Sistemas que perciben su entorno y actúan mediante efectores."
+
+    def test_topic_item_serializes_to_dict(self):
+        """TopicItem serializes to dict via model_dump()."""
+        from src.topic_extraction.extract import TopicItem
+
+        item = TopicItem(
+            topic="Redes neuronales",
+            description="Modelos computacionales inspirados en el cerebro.",
+        )
+        d = item.model_dump()
+        assert d == {
+            "topic": "Redes neuronales",
+            "description": "Modelos computacionales inspirados en el cerebro.",
+        }
+
+    def test_topic_item_empty_description_allowed(self):
+        """TDR-02 edge: empty description is allowed at Pydantic level (validation happens in pipeline)."""
+        from src.topic_extraction.extract import TopicItem
+
+        item = TopicItem(topic="Tema nuevo", description="")
+        assert item.topic == "Tema nuevo"
+        assert item.description == ""
+
+
+class TestSegmentTopicsWithDescriptions:
+    """Tests for SegmentTopics model with list[TopicItem] (TDR-03)."""
+
+    def test_segment_topics_accepts_topic_items(self):
+        """TDR-03: SegmentTopics validates list of TopicItem objects."""
+        from src.topic_extraction.extract import SegmentTopics, TopicItem
+
+        topics = SegmentTopics(
+            topics=[
+                TopicItem(
+                    topic="Agentes inteligentes",
+                    description="Sistemas que perciben y actúan en un entorno.",
+                ),
+                TopicItem(
+                    topic="Razonamiento",
+                    description="Proceso lógico para derivar conclusiones a partir de premisas.",
+                ),
+            ]
+        )
+        assert len(topics.topics) == 2
+        assert isinstance(topics.topics[0], TopicItem)
+        assert topics.topics[0].topic == "Agentes inteligentes"
+        assert "perciben" in topics.topics[0].description
+
+    def test_segment_topics_schema_includes_description_field(self):
+        """TDR-03: JSON schema includes 'description' field for structured output."""
+        from src.topic_extraction.extract import SegmentTopics
+
+        schema = SegmentTopics.model_json_schema()
+        assert "properties" in schema
+        props = schema["properties"]
+        topics_prop = props.get("topics")
+        assert topics_prop is not None
+        # topics is an array of objects with topic + description
+        items = topics_prop.get("items")
+        assert items is not None
+
+    def test_segment_topics_min_length_enforced(self):
+        """SegmentTopics must have at least 1 topic (unchanged constraint)."""
+        from pydantic import ValidationError
+
+        from src.topic_extraction.extract import SegmentTopics
+
+        with pytest.raises(ValidationError):
+            SegmentTopics(topics=[])
+
+
 class TestExtractTopicsFromSegment:
     """Tests for _extract_segment_topics() — LLM per-segment extraction."""
 
     @pytest.fixture
-    def mock_llm(self):
-        """Mock get_llm() to return a fake LLM with ainvoke."""
+    def mock_llm_with_descriptions(self):
+        """Mock get_llm() returning new TopicItem-shaped JSON."""
         from unittest.mock import AsyncMock, patch
 
         fake_response = AsyncMock()
         fake_response.content = (
-            '{"topics": ["Agentes inteligentes", "Tipos de agentes", "Entorno"]}'
+            '{"topics": ['
+            '{"topic": "Agentes inteligentes", "description": "Sistemas que perciben su entorno y actúan."},'
+            '{"topic": "Tipos de agentes", "description": "Clasificación de agentes según su arquitectura."},'
+            '{"topic": "Entorno", "description": "Contexto externo donde opera el agente."}'
+            "]}"
+        )
+
+        fake_llm = AsyncMock()
+        fake_llm.ainvoke.return_value = fake_response
+
+        with patch("src.topic_extraction.get_llm", return_value=fake_llm):
+            yield fake_llm
+
+    @pytest.fixture
+    def mock_llm(self):
+        """Mock get_llm() to return a fake LLM with ainvoke (old-style list[str] for backward compat)."""
+        from unittest.mock import AsyncMock, patch
+
+        fake_response = AsyncMock()
+        fake_response.content = (
+            '{"topics": ['
+            '{"topic": "Agentes inteligentes", "description": "Sistemas que perciben y actúan."},'
+            '{"topic": "Tipos de agentes", "description": "Diferentes arquitecturas de agente."},'
+            '{"topic": "Entorno", "description": "Contexto donde opera el agente."}'
+            "]}"
         )
 
         fake_llm = AsyncMock()
@@ -315,16 +428,34 @@ class TestExtractTopicsFromSegment:
             yield fake_llm
 
     @pytest.mark.asyncio
-    async def test_extracts_topics_from_segment(self, mock_llm):
-        """TXR-03: LLM returns valid JSON → parsed topic list."""
-        from src.topic_extraction.extract import _extract_segment_topics
+    async def test_extracts_topic_items_from_segment(self, mock_llm_with_descriptions):
+        """TDR-01: LLM returns TopicItem JSON → parsed list[TopicItem]."""
+        from src.topic_extraction.extract import TopicItem, _extract_segment_topics
 
-        topics = await _extract_segment_topics(
+        items = await _extract_segment_topics(
+            "Agentes inteligentes y su entorno",
+            mock_llm_with_descriptions,
+            segment_index=0,
+            total=1,
+        )
+        assert isinstance(items, list)
+        assert len(items) == 3
+        assert isinstance(items[0], TopicItem)
+        assert items[0].topic == "Agentes inteligentes"
+        assert "perciben" in items[0].description
+
+    @pytest.mark.asyncio
+    async def test_topic_item_has_description(self, mock_llm):
+        """TDR-01: Every extracted TopicItem has a non-empty description."""
+        from src.topic_extraction.extract import TopicItem, _extract_segment_topics
+
+        items = await _extract_segment_topics(
             "Agentes inteligentes y su entorno", mock_llm, segment_index=0, total=1
         )
-        assert isinstance(topics, list)
-        assert len(topics) == 3
-        assert "Agentes inteligentes" in topics
+        for item in items:
+            assert isinstance(item, TopicItem)
+            assert item.topic, "Topic must be non-empty"
+            assert item.description, "Description must be non-empty"
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_parse_failure(self, mock_llm):
@@ -359,6 +490,29 @@ class TestExtractTopicsFromSegment:
         # The prompt should mention segment 3 of 5 (1-indexed)
         call_args = mock_llm.ainvoke.call_args[0][0]
         assert "3" in str(call_args) or "segment" in str(call_args).lower()
+
+    @pytest.mark.asyncio
+    async def test_description_is_spanish(self, mock_llm):
+        """TDR-02: Description is in Spanish."""
+        from src.topic_extraction.extract import _extract_segment_topics
+
+        items = await _extract_segment_topics(
+            "Agentes inteligentes y su entorno", mock_llm, segment_index=0, total=1
+        )
+        for item in items:
+            assert isinstance(item.description, str)
+
+    @pytest.mark.asyncio
+    async def test_description_within_word_limit(self, mock_llm):
+        """TDR-02: Description ≤20 words."""
+        from src.topic_extraction.extract import _extract_segment_topics
+
+        items = await _extract_segment_topics(
+            "Agentes inteligentes y su entorno", mock_llm, segment_index=0, total=1
+        )
+        for item in items:
+            word_count = len(item.description.split())
+            assert word_count <= 20, f"Description has {word_count} words: {item.description!r}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -636,13 +790,17 @@ class TestExtractTopicsPipeline:
 
     @pytest.fixture
     def mock_pipeline_llm(self):
-        """Mock get_llm() for the full pipeline (returns topics per segment)."""
+        """Mock get_llm() for the full pipeline (returns TopicItem-shaped JSON per segment)."""
         from unittest.mock import AsyncMock, patch
 
         fake_response = AsyncMock()
         fake_response.content = (
-            '{"topics": ["Agentes inteligentes", "Razonamiento", '
-            '"Planificación", "Entorno de agentes"]}'
+            '{"topics": ['
+            '{"topic": "Agentes inteligentes", "description": "Sistemas que perciben su entorno y actúan."},'
+            '{"topic": "Razonamiento", "description": "Proceso lógico para derivar conclusiones."},'
+            '{"topic": "Planificación", "description": "Determinación de secuencias de acciones futuras."},'
+            '{"topic": "Entorno de agentes", "description": "Contexto externo donde opera el agente."}'
+            "]}"
         )
 
         fake_llm = AsyncMock()
@@ -705,7 +863,7 @@ class TestExtractTopicsPipeline:
 
     @pytest.mark.asyncio
     async def test_result_shape(self, mock_pipeline_llm):
-        """TXR-09: Result has all required fields."""
+        """TXR-09 + TDR-01: Result has all required fields including topic_descriptions."""
         from src.topic_extraction import extract_topics_pipeline
 
         result = await extract_topics_pipeline("Agentes inteligentes y su entorno.")
@@ -713,14 +871,58 @@ class TestExtractTopicsPipeline:
             "summary",
             "topics",
             "topic_tree",
+            "topic_descriptions",
             "segment_count",
             "failed_segments",
         }
         assert isinstance(result["summary"], str)
         assert isinstance(result["topics"], list)
         assert isinstance(result["topic_tree"], str)
+        assert isinstance(result["topic_descriptions"], dict)
         assert isinstance(result["segment_count"], int)
         assert isinstance(result["failed_segments"], list)
+
+    @pytest.mark.asyncio
+    async def test_topic_descriptions_in_pipeline_result(self, mock_pipeline_llm):
+        """TDR-01: Pipeline result has topic_descriptions dict matching topics."""
+        from src.topic_extraction import extract_topics_pipeline
+
+        result = await extract_topics_pipeline("Agentes inteligentes y su entorno.")
+        descs = result["topic_descriptions"]
+        topics = result["topics"]
+        # Every topic should have a description entry
+        for topic in topics:
+            assert topic in descs, f"Topic '{topic}' missing from topic_descriptions"
+            assert isinstance(descs[topic], str)
+            assert descs[topic], f"Description for '{topic}' is empty"
+
+    @pytest.mark.asyncio
+    async def test_topic_descriptions_are_spanish(self, mock_pipeline_llm):
+        """TDR-02: Descriptions are in Spanish."""
+        from src.topic_extraction import extract_topics_pipeline
+
+        result = await extract_topics_pipeline("Agentes inteligentes y su entorno en la UTN.")
+        for topic, desc in result["topic_descriptions"].items():
+            assert isinstance(desc, str), f"Description for '{topic}' is not a string"
+
+    @pytest.mark.asyncio
+    async def test_empty_text_returns_empty_descriptions(self):
+        """TDR-01 edge: Empty text → empty topic_descriptions."""
+        from src.topic_extraction import extract_topics_pipeline
+
+        result = await extract_topics_pipeline("")
+        assert result["topic_descriptions"] == {}
+        assert result["topics"] == []
+
+    @pytest.mark.asyncio
+    async def test_topic_descriptions_word_limit(self, mock_pipeline_llm):
+        """TDR-02: Each description ≤20 words."""
+        from src.topic_extraction import extract_topics_pipeline
+
+        result = await extract_topics_pipeline("Agentes inteligentes y su entorno.")
+        for topic, desc in result["topic_descriptions"].items():
+            word_count = len(desc.split())
+            assert word_count <= 20, f"Description for '{topic}' has {word_count} words"
 
     @pytest.mark.asyncio
     async def test_single_segment_skips_unify(self, mock_pipeline_llm):
@@ -819,6 +1021,7 @@ class TestFullPipelineRealPDF:
             "summary",
             "topics",
             "topic_tree",
+            "topic_descriptions",
             "segment_count",
             "failed_segments",
         }

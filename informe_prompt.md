@@ -149,18 +149,20 @@ El sistema implementa **memoria conversacional** (short-term) y **memoria persis
 #### 2.6 RAG (Retrieval-Augmented Generation)
 
 **Pipeline de escritura (Write path)**:
-1. Upload de PDF → `markitdown` convierte a Markdown
-2. Extracción de tópicos (Epic 11): segmentación por encabezados → LLM por segmento → unificación con Jaccard + NLP en español → construcción de árbol jerárquico
-3. Clasificación del documento (LLM con preview de 3000 chars + tópicos detectados): categorías "apunte", "examen", "ejercicio", "no_academico"
-4. Chunking: `RecursiveCharacterTextSplitter` con 512 tokens de chunk y 64 de overlap
+1. Upload de PDF → `markitdown` convierte a Markdown con **dehyphenation** (corrige guiones de final de línea típicos de PDFs)
+2. Extracción de tópicos (Epic 11): segmentación por encabezados → LLM por segmento → unificación con Jaccard + NLP en español → construcción de árbol jerárquico de 3 niveles. **Cada tema incluye una descripción de una frase usando vocabulario del texto fuente** para máxima similitud coseno con los chunks
+3. Clasificación del documento (LLM con preview + tópicos detectados): categorías "apunte", "examen", "ejercicio", "no_academico"
+4. **Chunking semántico markdown-aware** (Epic 15): `RecursiveCharacterTextSplitter` con 512 chars y 64 de overlap, usando separadores jerárquicos (`\n\n## ` → `\n\n` → `\n` → `. ` → ` `) que preservan headings, párrafos y listas como unidades semánticas
 5. Embedding: SentenceTransformer `paraphrase-multilingual-MiniLM-L12-v2` (384 dimensiones) ejecutado localmente
-6. Almacenamiento: colecciones de ChromaDB por sesión, con cosine distance
+6. Almacenamiento: colecciones de ChromaDB por sesión, con cosine distance. Los chunks se etiquetan con el tópico primario en metadata
 
 **Pipeline de lectura (Read path)**:
+- **LLM topic matching**: el tema ingresado por el usuario se matchea con los temas de la sesión vía LLM (fuzzy matching semántico, no solo tokens)
+- **Query enrichment jerárquico**: obtenida la descripción del tema matcheado, el árbol temático (`topic_tree`) enriquece la query con descripciones de temas relacionados: padre, hijos y hermanos en la jerarquía. Zero llamadas LLM extra en query-time
 - `retrieve(query, collection_name, top_k=5, topic_filter)` → búsqueda por similitud semántica + filtro opcional de tópico por prefijo
 - Weak-topic boosting: los chunks de tópicos con score < 6.0 reciben peso 2x en el retrieval
 
-**ThematicIndex**: árbol jerárquico de temas con paths separados por "/", que permite merge profundo al ingerir incrementalmente múltiples documentos en una misma sesión.
+**ThematicIndex**: árbol jerárquico de temas con paths separados por "/", que permite merge profundo al ingerir incrementalmente múltiples documentos en una misma sesión. Persiste `topic_descriptions_json` y `topic_tree_json` en SQLite para consulta por todos los agentes.
 
 **Nota**: imágenes (PNG/JPG) son rechazadas. La extracción OCR de matemática fue diferida post-MVP por limitaciones de tiempo.
 
@@ -204,8 +206,10 @@ Los 10 requisitos TXR (Epic 11, extracción de tópicos) están todos cubiertos 
 
 | Tier | Comando | Alcance |
 |------|---------|---------|
-| **Unit** | `pytest tests/ -v` | 105 tests en 22 archivos. LLMs/embeddings mockeados. |
-| **Integration** | `pytest tests/ -v -m integration` | 16 tests con LLM real + embeddings real + PDF real |
+| **Unit** | `pytest tests/ -v` | 583 tests en 22 archivos. LLMs/embeddings mockeados. |
+| **Integration** | `pytest tests/ -v -m integration` | 32 tests con LLM real + embeddings real + PDF real |
+| **E2E Mock** | `npx playwright test` | 10 tests con seeds pre-grabados. Sub-40s. |
+| **E2E Live** | `E2E_LIVE_LLM=true npx playwright test --grep @live` | 6 tests con LLM real. 2-3 min. |
 | **E2E Mock** | `npx playwright test` | Full stack con seeds pre-grabadas (determinístico, <40s) |
 | **E2E Live** | `E2E_LIVE_LLM=true npx playwright test --grep @live` | Real LLM calls con aserciones basadas en tolerancia |
 
@@ -262,7 +266,7 @@ Los 10 requisitos TXR (Epic 11, extracción de tópicos) están todos cubiertos 
 
 Redactar conclusiones que aborden:
 
-- **Logros**: implementación funcional de un sistema multi-agente completo con 6 agentes especializados, RAG funcional sobre material académico, evaluación automática con Chain-of-Thought, integración completa de la resolución y corrección de ejercicios prácticos individuales directamente en el chat, frontend web interactivo, pipeline completo de ingestion → generación → evaluación → seguimiento
+- **Logros**: implementación funcional de un sistema multi-agente completo con 6 agentes especializados, RAG funcional sobre material académico con chunking semántico markdown-aware y query enrichment jerárquico, evaluación automática con Chain-of-Thought, integración completa de la resolución y corrección de ejercicios prácticos individuales directamente en el chat, frontend web interactivo, pipeline completo de ingestion → generación → evaluación → seguimiento
 
 - **Decisiones de diseño acertadas**:
   - Pipeline lineal en lugar de ReAct para ingestion y generación (más rápido, más confiable)

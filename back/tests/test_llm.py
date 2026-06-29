@@ -278,7 +278,8 @@ class TestGetStructuredLLM:
             settings.llm_provider = original
 
     def test_get_structured_llm_with_different_schema(self):
-        """Works with any Pydantic schema on groq (uses with_structured_output)."""
+        """Works with any Pydantic schema — uses schema-in-prompt chain for all providers."""
+        from langchain_core.runnables import Runnable
 
         class _OtherSchema(BaseModel):
             score: float
@@ -291,11 +292,13 @@ class TestGetStructuredLLM:
 
         try:
             with patch("langchain_groq.ChatGroq") as mock_groq:
-                mock_structured = mock_groq.return_value.with_structured_output.return_value
+                mock_groq.return_value.invoke = MagicMock()
+                mock_groq.return_value.invoke.return_value.content = '{"score": 8.5, "text": "ok"}'
 
                 result = get_structured_llm(_OtherSchema)
-                mock_groq.return_value.with_structured_output.assert_called_once_with(_OtherSchema)
-                assert result is mock_structured
+                assert isinstance(result, Runnable)
+                # NEVER uses with_structured_output
+                mock_groq.return_value.with_structured_output.assert_not_called()
         finally:
             settings.llm_provider = original
 

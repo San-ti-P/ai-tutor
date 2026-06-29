@@ -20,12 +20,13 @@ class TestRetrieveRelevantChunks:
     def test_retrieve_chunks_empty_topic(self, exam_generator_state):
         """When a topic yields zero chunks, topic_not_found + suggestions populated."""
         from src.agents.exam_generator import retrieve_relevant_chunks
+        from src.utils.async_ import run_async_in_sync
 
         state = {**exam_generator_state, "topics": ["astrofísica_inexistente"]}
 
         with patch("src.tools.retrieve_chunks") as mock_tool:
             mock_tool.invoke.return_value = []
-            result = retrieve_relevant_chunks(state)
+            result = run_async_in_sync(retrieve_relevant_chunks(state))
 
         assert mock_tool.invoke.called
         assert "topic_not_found" in result
@@ -35,6 +36,7 @@ class TestRetrieveRelevantChunks:
     def test_retrieve_chunks_accumulates(self, exam_generator_state, sample_chunks):
         """Multiple topics accumulate and deduplicate chunks."""
         from src.agents.exam_generator import retrieve_relevant_chunks
+        from src.utils.async_ import run_async_in_sync
 
         def _fake_retrieve(input_dict):
             query = input_dict.get("query", "")
@@ -48,7 +50,7 @@ class TestRetrieveRelevantChunks:
 
         with patch("src.tools.retrieve_chunks") as mock_tool:
             mock_tool.invoke.side_effect = _fake_retrieve
-            result = retrieve_relevant_chunks(state)
+            result = run_async_in_sync(retrieve_relevant_chunks(state))
 
         # Should have accumulated chunks (operator.add reducer on Annotated)
         assert "retrieved_chunks" in result
@@ -60,6 +62,7 @@ class TestRetrieveRelevantChunks:
     def test_retrieve_chunks_theme_matching(self, exam_generator_state, sample_chunks):
         """When a user specifies a theme, it matches session document topics."""
         from src.agents.exam_generator import retrieve_relevant_chunks
+        from src.utils.async_ import run_async_in_sync
         from unittest.mock import AsyncMock
 
         # We request "derivadas", which is not exact, but matches cálculo/derivadas
@@ -80,9 +83,9 @@ class TestRetrieveRelevantChunks:
             return []
 
         with patch("src.memory.schema.list_session_files", new=AsyncMock(return_value=mock_files)), \
-             patch("src.tools.retrieve_chunks") as mock_tool:
+              patch("src.tools.retrieve_chunks") as mock_tool:
             mock_tool.invoke.side_effect = _fake_retrieve
-            result = retrieve_relevant_chunks(state)
+            result = run_async_in_sync(retrieve_relevant_chunks(state))
 
         assert "topics" in result
         # "derivadas" should be resolved to ["cálculo/derivadas"]
@@ -94,6 +97,7 @@ class TestRetrieveRelevantChunks:
     def test_retrieve_chunks_theme_matching_fallback(self, exam_generator_state, sample_chunks):
         """When a theme does not match any session topic, falls back to original theme."""
         from src.agents.exam_generator import retrieve_relevant_chunks
+        from src.utils.async_ import run_async_in_sync
         from unittest.mock import AsyncMock
 
         state = {
@@ -115,7 +119,7 @@ class TestRetrieveRelevantChunks:
         with patch("src.memory.schema.list_session_files", new=AsyncMock(return_value=mock_files)), \
              patch("src.tools.retrieve_chunks") as mock_tool:
             mock_tool.invoke.side_effect = _fake_retrieve
-            result = retrieve_relevant_chunks(state)
+            result = run_async_in_sync(retrieve_relevant_chunks(state))
 
         assert "topics" in result
         assert result["topics"] == ["física/cuántica"]
@@ -632,7 +636,7 @@ class TestWeakTopicPrioritization:
         # Should cover both topics
         assert len(dist) >= 1
 
-    def test_topic_distribution_in_exam_output(
+    async def test_topic_distribution_in_exam_output(
         self, exam_generator_state, sample_chunks, mock_exam_llm
     ):
         """End-to-end: exam output includes topic_distribution computed from questions."""
@@ -656,7 +660,7 @@ class TestWeakTopicPrioritization:
                 },
             ):
                 graph = build_exam_generator().compile()
-                result = graph.invoke(state)
+                result = await graph.ainvoke(state)
 
         exam = result["exam"]
         assert "topic_distribution" in exam
@@ -677,7 +681,7 @@ class TestWeakTopicPrioritization:
 class TestEndToEnd:
     """Task 2.11: Full graph execution end-to-end."""
 
-    def test_e2e_full_graph(self, exam_generator_state, sample_chunks, mock_exam_llm):
+    async def test_e2e_full_graph(self, exam_generator_state, sample_chunks, mock_exam_llm):
         """Compile + invoke with mocked LLM → verify complete exam output structure.
 
         R8 (Performance): 10-question exam under 30 seconds. With mocked LLM,
@@ -707,7 +711,7 @@ class TestEndToEnd:
                 },
             ):
                 graph = build_exam_generator().compile()
-                result = graph.invoke(state)
+                result = await graph.ainvoke(state)
         elapsed = time.perf_counter() - t_start
 
         assert "exam" in result
@@ -736,7 +740,7 @@ class TestEndToEnd:
 class TestPRDIntegration:
     """PRD-mandated integration test cases."""
 
-    def test_prd2_happy_path_5_questions(self, exam_generator_state, sample_chunks, mock_exam_llm):
+    async def test_prd2_happy_path_5_questions(self, exam_generator_state, sample_chunks, mock_exam_llm):
         """PRD case #2: Generate 5 questions on specific topic.
 
         Verify count, structure, and chunk refs."""
@@ -762,7 +766,7 @@ class TestPRDIntegration:
                 },
             ):
                 graph = build_exam_generator().compile()
-                result = graph.invoke(state)
+                result = await graph.ainvoke(state)
 
         exam = result["exam"]
         assert exam["total_questions"] == 5
@@ -772,7 +776,7 @@ class TestPRDIntegration:
             assert len(q["source_chunk_ids"]) > 0
             assert "type" in q
 
-    def test_prd7_missing_topic_handling(self, exam_generator_state):
+    async def test_prd7_missing_topic_handling(self, exam_generator_state):
         """PRD case #7: topic not in material → error + ≤3 suggestions."""
         from src.agents.exam_generator import build_exam_generator
 
@@ -791,7 +795,7 @@ class TestPRDIntegration:
             },
         ):
             graph = build_exam_generator().compile()
-            result = graph.invoke(state)
+            result = await graph.ainvoke(state)
 
         exam = result["exam"]
         assert "topic_not_found" in exam
@@ -920,7 +924,7 @@ class TestRealIntegration:
             "status": "pending",
         }
 
-        result = graph.invoke(state)
+        result = await graph.ainvoke(state)
         exam = result.get("exam", {})
 
         # ── Structural assertions ──────────────────────────────────────

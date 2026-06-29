@@ -45,18 +45,45 @@ def retrieve_chunks(
     top_k: int = 5,
     topic_filter: str | None = None,
     collection_name: str = "default",
+    topic_descriptions: dict[str, str] | None = None,
+    topic_tree: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Retrieve top-K relevant chunks from ChromaDB for a given query.
+
+    When *topic_descriptions* is provided and the feature is enabled
+    (``retrieval_use_topic_descriptions`` config), the description for
+    the topic (if present) is used as the embedding query instead of the
+    bare topic label.  Falls back to *query* when descriptions are absent
+    or the config toggle is OFF.
+
+    When *topic_tree* is provided, the matched topic's parent, children, and
+    sibling topics are discovered from the hierarchical tree and their
+    descriptions are appended for richer semantic coverage.
 
     Args:
         query: The search query or topic.
         top_k: Number of chunks to retrieve (default 5).
         topic_filter: Optional topic prefix to filter results.
         collection_name: ChromaDB collection name (default "default").
+        topic_descriptions: Optional mapping from topic → description.
+        topic_tree: Optional nested dict topic hierarchy for enrichment.
 
     Returns:
         A list of chunk dicts with keys: chunk_id, text, metadata, similarity_score.
     """
+    from src.config import settings
+    from src.rag import retrieve_by_topic as _retrieve_by_topic
+
+    if topic_descriptions and settings.retrieval_use_topic_descriptions:
+        return _retrieve_by_topic(
+            topic=query,
+            topic_descriptions=topic_descriptions,
+            collection_name=collection_name,
+            top_k=top_k,
+            topic_filter=topic_filter,
+            topic_tree=topic_tree,
+        )
+
     return _rag_retrieve(
         query=query,
         collection_name=collection_name,
@@ -103,6 +130,7 @@ async def ingest_document(
         "classification_confidence": 0.0,
         "topics": [],
         "topic_tree": "",
+        "topic_descriptions": {},
         "chunks_created": 0,
         "errors": [],
         "status": "pending",
@@ -132,6 +160,7 @@ async def ingest_document(
         "classification": result.get("classification", ""),
         "topics": result.get("topics", []),
         "topic_tree": result.get("topic_tree", "{}"),
+        "topic_descriptions": result.get("topic_descriptions", {}),
         "chunks_created": result.get("chunks_created", 0),
         "classification_confidence": result.get("classification_confidence"),
         "document_id": result.get("document_id", ""),
@@ -367,7 +396,7 @@ def evaluate_answer(
 
 @tool
 @observe(name="generate_exam", as_type="tool")
-def generate_exam(
+async def generate_exam(
     session_id: str,
     topics: list[str],
     difficulty: str = "medium",
@@ -435,7 +464,7 @@ def generate_exam(
             if handler:
                 config["callbacks"] = [handler]
                 config["metadata"] = {"langfuse_session_id": session_id}
-            result = graph.invoke(initial_state, config=config)
+            result = await graph.ainvoke(initial_state, config=config)
     finally:
         flush_traces()
 

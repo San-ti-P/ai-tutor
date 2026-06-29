@@ -20,6 +20,18 @@ npm install
 npm run dev
 ```
 
+## Production / Demo
+
+For better performance (no hot-reload, optimized builds, still visible console output):
+
+```bash
+# Terminal 1 — Backend
+cd back && uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
+
+# Terminal 2 — Frontend (build once, then serve optimized)
+cd front && pnpm build && pnpm start
+```
+
 ## LLM Providers
 
 The system supports 4 providers. Switch by changing `LLM_PROVIDER` in `back/.env`.
