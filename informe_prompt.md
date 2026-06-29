@@ -73,7 +73,7 @@ El sistema sigue una arquitectura **multi-agente orquestada** con 6 agentes espe
 
 | Agente | Archivo | Loop | Nodos del grafo | Herramientas principales |
 |--------|---------|------|-----------------|--------------------------|
-| **Orchestrator** | `back/src/agents/orchestrator.py` | Plan-and-Execute | 7 nodos: load_profile → load_session_context → classify_intent → [plan_composite \| execute_step] → check_iteration_limit → synthesize_response | Todas las tools del sistema |
+| **Orchestrator** | `back/src/agents/orchestrator.py` | Plan-and-Execute | 6 nodos: load_profile → load_session_context → classify_intent → [plan_composite \| execute_step] → synthesize_response (check_iteration_limit es edge condicional, no nodo) | Todas las tools del sistema |
 | **Ingestor** | `back/src/agents/ingestor.py` | Pipeline lineal | 3 nodos: parse_document → classify_document → chunk_and_embed | ingest_document, extract_topics |
 | **ExamGenerator** | `back/src/agents/exam_generator.py` | Pipeline determinístico | 4 nodos: retrieve → generate → validate → [retry hasta 3x \| format_exam] | generate_exam, retrieve_chunks, validate_claim_grounding |
 | **ExerciseGenerator** | `back/src/agents/exercise_generator.py` | Pipeline determinístico | 4 nodos: retrieve → generate → validate → [retry \| format] | generate_exercise, retrieve_chunks |
@@ -168,7 +168,7 @@ El sistema implementa **memoria conversacional** (short-term) y **memoria persis
 
 | Riesgo | Mecanismo | Ubicación |
 |--------|-----------|-----------|
-| Alucinación en preguntas de examen | Validación post-generación claim-level con cosine similarity. Cada afirmación debe tener un chunk fuente con score > umbral. Reintento hasta 3x; si falla, se omite la pregunta. | `exam_generator.py`, `validate_claim_grounding.py` |
+| Alucinación en preguntas de examen | Validación post-generación claim-level con cosine similarity (umbral **0.55**). Cada afirmación debe tener un chunk fuente con score > 0.55. Reintento hasta 3x; si falla, se omite la pregunta. | `exam_generator.py`, `validate_claim_grounding.py` |
 | Loop infinito | Límite duro de 15 iteraciones por tarea. Al alcanzarlo, se termina y retorna resultado parcial. | `orchestrator.py:check_iteration_limit` |
 | Contenido no académico | El Ingestor clasifica con LLM y rechaza documentos `no_academico` | `ingestor.py:classify_document` |
 | Evaluaciones inconsistentes | LLM-as-judge: segunda pasada de evaluación en el 30% de los casos. Discrepancia > 2.0 puntos dispara revisión. | `evaluator.py:llm_judge` |
@@ -192,9 +192,9 @@ El sistema usa **Langfuse** como plataforma de observabilidad:
 #### 3.1 Casos de prueba definidos
 
 Los 12 casos de prueba requeridos por la PRD (sección 8) cubren:
-- **5 happy path**: ingestión exitosa de PDF, generación de examen MCQ, generación de ejercicio open-answer, evaluación de respuesta correcta e integración de resolución/corrección de ejercicios en el chat, consulta de perfil de progreso
-- **4 edge cases**: documento sin estructura de apunte, pregunta fuera del material ingerido, respuesta vacía, sesión sin documentos ingeridos
-- **3 adversarial**: prompt injection para generar contenido no académico, subida de archivo no-PDF, texto sin sentido como respuesta
+- **5 happy path**: (1) ingestión de PDF bien formateado — clasificación correcta y chunks generados; (2) generación de examen de 5 preguntas sobre un tema específico — todas referencian chunks del material; (3) evaluación de respuesta correcta a pregunta de cálculo — score ≥ 8/10 sin falsos negativos; (4) segunda sesión prioriza temas con bajo score — mayor proporción de weak topics en el examen generado; (5) ingesta incremental de segundo PDF — nuevos chunks agregados sin modificar los anteriores
+- **4 edge cases**: (6) PDF con tablas y ecuaciones complejas — OCR extrae al menos 80% del contenido matemático; (7) tema no presente en el material — el agente informa la ausencia y ofrece alternativas cercanas; (8) respuesta parcialmente correcta con error conceptual menor — score entre 5-7/10 con feedback que identifica el error; (9) foto de examen manuscrito con letra difícil — sistema detecta baja confianza OCR y solicita confirmación
+- **3 adversarial**: (10) archivo de texto aleatorio no académico — el Ingestor rechaza sin contaminar la BD vectorial; (11) solicitud de examen sobre tema de otra materia no ingestada — el agente no inventa contenido; (12) respuesta del estudiante en otro idioma — el Evaluator procesa correctamente o informa que no puede evaluar
 
 Cobertura: 7/12 con modelos reales, 3/12 mock-only, 2/12 diferidos (OCR de imágenes).
 
@@ -230,6 +230,8 @@ Los 10 requisitos TXR (Epic 11, extracción de tópicos) están todos cubiertos 
 | `/api/sessions/{id}` | GET/DELETE/PATCH | Sesión CRUD + rename |
 | `/api/sessions/{id}/files` | GET | Archivos ingeridos en sesión |
 | `/api/sessions/{id}/profile` | GET | Progreso por sesión |
+| `/api/sessions/{id}/evaluations` | GET | Historial de evaluaciones de la sesión |
+| `/api/sessions/{id}/messages` | GET | Historial de mensajes del chat |
 | `/api/ingest` | POST (multipart) | Upload y procesamiento de documentos |
 | `/api/exam/generate` | POST | Generar examen |
 | `/api/exercise/generate` | POST | Generar ejercicio |
@@ -242,12 +244,11 @@ Los 10 requisitos TXR (Epic 11, extracción de tópicos) están todos cubiertos 
 
 | Ruta | Componentes clave |
 |------|-------------------|
-| `/` | ChatInput, ChatMessageList, ChatMessage, ExamWidget, ExerciseWidget (interactivo, con entrada de resolución y evaluación integrada), SessionSidebar |
+| `/` | ChatInput, ChatMessageList, ChatMessage, ExamWidget, ExerciseWidget, SessionSidebar, UploadDropzone, UploadFileList, TopicTree, SessionFileList |
 | `/exam` | ExamRenderer, ExamForm, QuestionNavigator |
 | `/results` | EvaluationView con feedback por pregunta |
 | `/dashboard` | StatsCards, TopicChart, WeakTopics, SessionHistory |
 | `/settings` | Preferencias de examen configurables |
-| Upload | UploadDropzone, UploadFileList, TopicTree, SessionFileList |
 
 #### 3.6 Métricas agregadas
 
@@ -274,15 +275,15 @@ Redactar conclusiones que aborden:
 - **Desviaciones respecto a la PRD**:
   - ReAct reemplazado por pipelines lineales en Ingestor, ExamGenerator y ExerciseGenerator
   - OCR de matemática diferido post-MVP
-  - Dashboard con algunos gráficos de evolución académica precalculados o simplificados
+  - Dashboard con gráficos de evolución precalculados (datos reales del backend, renderización simplificada en frontend)
 
 - **Trabajo futuro**:
   - Implementar OCR para extracción de fórmulas matemáticas
-  - Completar integración frontend-backend (endpoints pendientes)
   - Implementar ReAct en agentes que se beneficiarían de razonamiento iterativo
   - Agregar soporte para más formatos de documento (DOCX, HTML, URLs)
   - Implementar re-ranker en el pipeline RAG para mejorar precisión
   - Agregar más casos de prueba adversariales
+  - Completar la integración de gráficos interactivos en el dashboard
 
 - **Valoración general**: el sistema demuestra la viabilidad de agentes basados en LLMs para educación personalizada. La arquitectura modular permite extender funcionalidades sin reescribir componentes existentes. La combinación de RAG + evaluación automática + seguimiento de progreso ofrece una experiencia de aprendizaje completa.
 
@@ -330,15 +331,15 @@ Incluir las referencias recomendadas del Anexo I más las relevantes al proyecto
 - `epics/epic-13-robustness.md` — Validación, propagación de errores, concurrencia
 
 ### Código fuente
-- `back/src/agents/orchestrator.py` (1019 líneas) — 7 nodos, Plan-and-Execute
-- `back/src/agents/ingestor.py` (306 líneas) — Pipeline lineal 3 nodos
-- `back/src/agents/exam_generator.py` (693 líneas) — Pipeline 4 nodos con validación
-- `back/src/agents/exercise_generator.py` (515 líneas) — Pipeline 4 nodos
-- `back/src/agents/evaluator.py` (845 líneas) — 8 nodos, Chain-of-Thought, LLM-as-judge
-- `back/src/agents/support.py` (325 líneas) — Reactivo, template-based
-- `back/src/api/router.py` (733 líneas) — 14 endpoints FastAPI
-- `back/src/config.py` (193 líneas) — Pydantic-settings, 5 providers LLM, modos E2E
-- `back/src/memory/schema.py` (504 líneas) — Esquema SQLite, 5 tablas, migraciones
+- `back/src/agents/orchestrator.py` (1228 líneas) — 6 nodos, Plan-and-Execute
+- `back/src/agents/ingestor.py` (367 líneas) — Pipeline lineal 3 nodos
+- `back/src/agents/exam_generator.py` (820 líneas) — Pipeline 4 nodos con validación
+- `back/src/agents/exercise_generator.py` (517 líneas) — Pipeline 4 nodos
+- `back/src/agents/evaluator.py` (895 líneas) — 8 nodos, Chain-of-Thought, LLM-as-judge
+- `back/src/agents/support.py` (332 líneas) — Reactivo, template-based
+- `back/src/api/router.py` (942 líneas) — 18 endpoints FastAPI
+- `back/src/config.py` (210 líneas) — Pydantic-settings, 5 providers LLM, modos E2E
+- `back/src/memory/schema.py` (831 líneas) — Esquema SQLite, 5 tablas, migraciones
 - `back/src/rag/` — Módulo RAG: chunking, embeddings, retrieval, ChromaDB
 - `back/src/tools/` — 13 tools definidas como funciones Pydantic
 - `back/src/observability/` — Langfuse: singleton, decoradores, span propagation
@@ -346,12 +347,11 @@ Incluir las referencias recomendadas del Anexo I más las relevantes al proyecto
 - `front/e2e/` — Playwright E2E tests
 
 ### Estados de implementación (según epics)
-- Epics 01-06 y 08: DONE (agentes core + observabilidad)
+- Epics 01-06, 08 y 10: DONE (agentes core + observabilidad + refactoring)
 - Epic 07 (UI): Draft
-- Epic 09 (Profile Bootstrap): Active
-- Epic 10 (Code Refactoring): DONE
-- Epic 11 (Topic Extraction): Active
-- Epic 12 (E2E Testing): Active
+- Epic 09 (Profile Bootstrap): Complete ✅ (2026-06-26)
+- Epic 11 (Topic Extraction): Draft
+- Epic 12 (E2E Testing): Draft
 - Epic 13 (Robustness): Active
 
 ---
