@@ -415,12 +415,17 @@ async def match_user_topics_to_session(
     user_topics: list[str],
     session_topics: list[str],
     topic_descriptions: dict[str, str] | None = None,
+    topic_tree: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Match user-requested topics to session topics via LLM fuzzy matching.
 
     Returns a dict mapping matched session topic names to their descriptions
     (description comes from ``topic_descriptions`` when available, else the
     topic label itself). Unmatched user topics are omitted.
+
+    When *topic_tree* is provided, parent topics (those with children) are
+    tagged in the catalogue so the LLM prefers them over individual leaves
+    for broad user queries.
 
     The LLM call is small (< 200 tokens) — one per request, not per chunk.
     Uses ``get_llm()`` with temperature=0 for deterministic matching.
@@ -430,15 +435,28 @@ async def match_user_topics_to_session(
 
     from src.llm import get_llm
 
+    # Identify parent topics (keys in topic_tree that have non-empty children)
+    parent_topics: set[str] = set()
+    if topic_tree:
+
+        def _collect_parents(node: dict[str, Any]) -> None:
+            for key, children in node.items():
+                if isinstance(children, dict) and children:
+                    parent_topics.add(key)
+                    _collect_parents(children)
+
+        _collect_parents(topic_tree)
+
     descs = topic_descriptions or {}
     # Build a catalogue line per session topic
     topic_lines: list[str] = []
     for t in session_topics:
         desc = descs.get(t, "").strip()
+        tag = " [PADRE]" if t in parent_topics else ""
         if desc:
-            topic_lines.append(f"- {t}: {desc}")
+            topic_lines.append(f"- {t}{tag}: {desc}")
         else:
-            topic_lines.append(f"- {t}")
+            topic_lines.append(f"- {t}{tag}")
 
     catalogue = "\n".join(topic_lines)
     user_list = "\n".join(f"- {t}" for t in user_topics)
@@ -453,9 +471,12 @@ async def match_user_topics_to_session(
         "2. Si un tema del estudiante es una versión más general de un tema "
         "del catálogo (ej: \"agentes\" → \"Agentes inteligentes\"), "
         "devolvé el tema del catálogo.\n"
-        "3. Si un tema del estudiante NO tiene equivalente claro en el "
+        "3. Los temas marcados [PADRE] agrupan varios subtemas. Si el "
+        "estudiante pide un concepto amplio que abarca múltiples subtemas, "
+        "preferí el PADRE sobre un hijo individual.\n"
+        "4. Si un tema del estudiante NO tiene equivalente claro en el "
         "catálogo, devolvé \"<<NO_MATCH>>\".\n"
-        "4. Respondé SOLO con el mapeo, una línea por tema del estudiante, "
+        "5. Respondé SOLO con el mapeo, una línea por tema del estudiante, "
         "en el formato exacto:\n"
         "   tema_estudiante → tema_catalogo\n\n"
         f"Catálogo de temas disponibles:\n{catalogue}\n\n"
