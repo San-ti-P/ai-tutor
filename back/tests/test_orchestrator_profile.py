@@ -76,7 +76,7 @@ class TestLoadProfile:
                 mock_summary.ainvoke = AsyncMock(return_value=profile)
                 result = await load_profile(state)
 
-        mock_summary.ainvoke.assert_awaited_once_with({"student_id": "stu-1"})
+        mock_summary.ainvoke.assert_awaited_once_with({"student_id": "stu-1", "session_id": "sess-1"})
         assert result["student_profile"] == profile
 
     async def test_load_profile_exception_fallback_empty(self, caplog):

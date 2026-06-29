@@ -781,7 +781,7 @@ def sync_scores(state: EvaluatorState) -> dict:
 
     if student_id and topic_score_pairs:
         try:
-            run_async_in_sync(upsert_topic_scores(student_id, topic_score_pairs))
+            run_async_in_sync(upsert_topic_scores(student_id, session_id, topic_score_pairs))
         except Exception as exc:
             logger.exception("sync_scores topic_scores upsert failed")
             errors.append(f"Topic scores error: {exc}")

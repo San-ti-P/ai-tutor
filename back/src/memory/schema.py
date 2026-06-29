@@ -75,6 +75,25 @@ async def _run_migrations(db: aiosqlite.Connection) -> None:
             CREATE INDEX idx_chat_messages_session_created
                 ON chat_messages(session_id, created_at DESC)
         """)
+    # Migration: topic_scores.session_id (per-session isolation)
+    if not await _column_exists(db, "topic_scores", "session_id"):
+        await db.execute("""
+            CREATE TABLE topic_scores_new (
+                topic TEXT NOT NULL,
+                student_id TEXT NOT NULL,
+                session_id TEXT NOT NULL DEFAULT '',
+                score REAL NOT NULL,
+                evaluated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (topic, student_id, session_id),
+                FOREIGN KEY (student_id) REFERENCES students(id)
+            )
+        """)
+        await db.execute("""
+            INSERT INTO topic_scores_new (topic, student_id, session_id, score, evaluated_at)
+            SELECT topic, student_id, '', score, evaluated_at FROM topic_scores
+        """)
+        await db.execute("DROP TABLE topic_scores")
+        await db.execute("ALTER TABLE topic_scores_new RENAME TO topic_scores")
 
 
 async def init_db() -> None:
@@ -127,9 +146,10 @@ async def init_db() -> None:
             CREATE TABLE IF NOT EXISTS topic_scores (
                 topic TEXT NOT NULL,
                 student_id TEXT NOT NULL,
+                session_id TEXT NOT NULL DEFAULT '',
                 score REAL NOT NULL,
                 evaluated_at TEXT NOT NULL DEFAULT (datetime('now')),
-                PRIMARY KEY (topic, student_id),
+                PRIMARY KEY (topic, student_id, session_id),
                 FOREIGN KEY (student_id) REFERENCES students(id)
             );
 
@@ -165,7 +185,7 @@ async def resolve_student_id(session_id: str, student_id: str | None = None) -> 
         return row["student_id"] if row else session_id
 
 
-async def get_student_profile(student_id: str) -> dict | None:
+async def get_student_profile(student_id: str, session_id: str | None = None) -> dict | None:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM students WHERE id = ?", (student_id,))
@@ -175,10 +195,17 @@ async def get_student_profile(student_id: str) -> dict | None:
         student = dict(row)
         preferences = json.loads(student["preferences_json"]) if student["preferences_json"] else {}
 
-        cursor = await db.execute(
-            "SELECT topic, score, evaluated_at FROM topic_scores WHERE student_id = ?",
-            (student_id,),
-        )
+        if session_id is not None:
+            cursor = await db.execute(
+                "SELECT topic, score, evaluated_at FROM topic_scores "
+                "WHERE student_id = ? AND session_id = ?",
+                (student_id, session_id),
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT topic, score, evaluated_at FROM topic_scores WHERE student_id = ?",
+                (student_id,),
+            )
         topic_rows = await cursor.fetchall()
         topic_scores: dict[str, list[float]] = {}
         for t in topic_rows:
@@ -304,52 +331,74 @@ async def get_session_evaluations(session_id: str) -> list[dict]:
     return result_list
 
 
-async def get_topic_scores(student_id: str) -> list[dict]:
+async def get_topic_scores(student_id: str, session_id: str | None = None) -> list[dict]:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT topic, score, evaluated_at FROM topic_scores WHERE student_id = ?",
-            (student_id,),
-        )
+        if session_id is not None:
+            cursor = await db.execute(
+                "SELECT topic, score, evaluated_at FROM topic_scores "
+                "WHERE student_id = ? AND session_id = ?",
+                (student_id, session_id),
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT topic, score, evaluated_at FROM topic_scores WHERE student_id = ?",
+                (student_id,),
+            )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
 
-async def upsert_topic_scores(student_id: str, scores: list[dict]) -> None:
-    """Upsert per-topic scores for a student.
+async def upsert_topic_scores(student_id: str, session_id: str, scores: list[dict]) -> None:
+    """Upsert per-topic scores for a student within a session.
 
-    Uses INSERT OR REPLACE so each (topic, student_id) row keeps only the
-    latest score.  ``scores`` is a list of dicts, each with ``topic``
+    Uses INSERT OR REPLACE so each (topic, student_id, session_id) row keeps
+    only the latest score.  ``scores`` is a list of dicts, each with ``topic``
     (str) and ``score`` (float).
     """
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         await db.executemany(
             """
-            INSERT OR REPLACE INTO topic_scores (topic, student_id, score, evaluated_at)
-            VALUES (?, ?, ?, datetime('now'))
+            INSERT OR REPLACE INTO topic_scores (topic, student_id, session_id, score, evaluated_at)
+            VALUES (?, ?, ?, ?, datetime('now'))
             """,
-            [(s["topic"], student_id, s["score"]) for s in scores],
+            [(s["topic"], student_id, session_id, s["score"]) for s in scores],
         )
         await db.commit()
 
 
-async def compute_weak_topics(student_id: str, threshold: float = 6.0, limit: int = 3) -> list[str]:
+async def compute_weak_topics(
+    student_id: str, session_id: str | None = None, threshold: float = 6.0, limit: int = 3
+) -> list[str]:
     """Return topic names whose latest score is below *threshold*.
 
     Reads from ``topic_scores`` (fast, indexed lookup).  Results are
     sorted by score ascending so the weakest topics appear first.
     Only the first *limit* results are returned.
+
+    When *session_id* is provided, only scores from that session are
+    considered.  When None (default), aggregates across all sessions.
     """
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            """SELECT topic, score
-               FROM topic_scores
-               WHERE student_id = ? AND score < ?
-               ORDER BY score ASC
-               LIMIT ?""",
-            (student_id, threshold, limit),
-        )
+        if session_id is not None:
+            cursor = await db.execute(
+                """SELECT topic, score
+                   FROM topic_scores
+                   WHERE student_id = ? AND session_id = ? AND score < ?
+                   ORDER BY score ASC
+                   LIMIT ?""",
+                (student_id, session_id, threshold, limit),
+            )
+        else:
+            cursor = await db.execute(
+                """SELECT topic, score
+                   FROM topic_scores
+                   WHERE student_id = ? AND score < ?
+                   ORDER BY score ASC
+                   LIMIT ?""",
+                (student_id, threshold, limit),
+            )
         rows = await cursor.fetchall()
         return [dict(r)["topic"] for r in rows]
 

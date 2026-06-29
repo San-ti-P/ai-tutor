@@ -12,6 +12,7 @@ async def update_student_profile(
     student_id: str,
     topic_scores: dict[str, float],
     preferences: dict | None = None,
+    session_id: str = "",
 ) -> dict:
     """Upsert student preferences and per-topic scores into SQLite.
 
@@ -49,7 +50,7 @@ async def update_student_profile(
     scores_list = [{"topic": topic, "score": score} for topic, score in topic_scores.items()]
 
     try:
-        await upsert_topic_scores(student_id, scores_list)
+        await upsert_topic_scores(student_id, session_id, scores_list)
     except Exception as exc:
         errors.append(f"Failed to upsert topic scores: {exc}")
 

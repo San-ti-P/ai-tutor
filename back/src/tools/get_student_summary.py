@@ -8,7 +8,7 @@ from langfuse import observe
 
 @tool
 @observe(name="get_student_summary", as_type="tool")
-async def get_student_summary(student_id: str) -> dict | None:
+async def get_student_summary(student_id: str, session_id: str | None = None) -> dict | None:
     """Return an aggregated read-only summary of a student's profile.
 
     Performs zero writes. Aggregates identity, preferences, per-topic
@@ -16,6 +16,8 @@ async def get_student_summary(student_id: str) -> dict | None:
 
     Args:
         student_id: Unique student identifier.
+        session_id: Optional session scope. When provided, topic_scores
+            and weak_topics are filtered to that session only.
 
     Returns:
         A dict with keys ``id``, ``preferences``, ``topic_scores``,
@@ -29,12 +31,12 @@ async def get_student_summary(student_id: str) -> dict | None:
         get_topic_scores,
     )
 
-    profile = await get_student_profile(student_id)
+    profile = await get_student_profile(student_id, session_id)
     if profile is None:
         return None
 
-    topic_scores_list = await get_topic_scores(student_id)
-    weak_topics = await compute_weak_topics(student_id)
+    topic_scores_list = await get_topic_scores(student_id, session_id)
+    weak_topics = await compute_weak_topics(student_id, session_id)
     session_history = await get_recent_sessions(student_id)
 
     return {

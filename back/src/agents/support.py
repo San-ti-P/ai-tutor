@@ -60,7 +60,7 @@ def fetch_student_profile(state: SupportState) -> dict:
         # Run async DB calls synchronously inside graph node
         async def _fetch():
             profile = await get_student_profile(student_id)
-            scores = await get_topic_scores(student_id)
+            scores = await get_topic_scores(student_id, state.get("session_id"))
             return profile, scores
 
         profile, scores = run_async_in_sync(_fetch())
@@ -160,7 +160,7 @@ def compute_progress_summary(state: SupportState) -> dict:
     try:
 
         async def _compute():
-            return await compute_weak_topics(student_id)
+            return await compute_weak_topics(student_id, state.get("session_id"))
 
         weak = run_async_in_sync(_compute())
 

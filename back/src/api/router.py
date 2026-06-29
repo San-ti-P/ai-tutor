@@ -565,7 +565,7 @@ async def generate_exam(request: ExamRequest) -> ApiResponse[Exam]:
     if student_id:
         from src.tools.get_student_summary import get_student_summary as _summary_tool
 
-        profile = await _summary_tool.ainvoke({"student_id": student_id})
+        profile = await _summary_tool.ainvoke({"student_id": student_id, "session_id": request.session_id})
         if profile is not None:
             student_profile = profile
             logger.info(
@@ -729,7 +729,7 @@ async def get_profile(session_id: str) -> ApiResponse[StudentProfile]:
 
     from src.tools.get_student_summary import get_student_summary as _summary_tool
 
-    result = await _summary_tool.ainvoke({"student_id": session_id})
+    result = await _summary_tool.ainvoke({"student_id": session_id, "session_id": session_id})
     if result is None:
         raise HTTPException(status_code=404, detail=f"Student '{session_id}' not found")
 

@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     # -- Ollama (local or cloud) --
     ollama_model_name: str = "gemma4:e4b-it-q8_0"  # local 4B model, fast for dev
     ollama_base_url: str = "http://localhost:11434"
+    ollama_temperature: float = 0.7
     # Set ollama_api_key for Ollama Cloud (https://ollama.com → Settings → Keys)
 
     # -- Groq --
@@ -106,7 +107,7 @@ class Settings(BaseSettings):
         kwargs: dict[str, Any] = {
             "model": self.ollama_model_name,
             "base_url": self.ollama_base_url,
-            "temperature": 0,
+            "temperature": self.ollama_temperature,
         }
         if self.ollama_api_key:
             kwargs["client_kwargs"] = {

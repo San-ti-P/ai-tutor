@@ -195,7 +195,7 @@ async def load_profile(state: OrchestratorState, config: RunnableConfig = None) 
 
     try:
         student_id = await resolve_student_id(session_id, student_id_override)
-        profile = await get_student_summary.ainvoke({"student_id": student_id})
+        profile = await get_student_summary.ainvoke({"student_id": student_id, "session_id": session_id})
         if profile is None:
             return {"student_profile": {}, "student_id": student_id}
         return {"student_profile": profile, "student_id": student_id}
@@ -613,6 +613,7 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
     elif tool_name == "update_student_profile":
         resolved_sid = state.get("student_id") or state["session_id"]
         args["student_id"] = resolved_sid
+        args["session_id"] = state["session_id"]
         # Prefer forwarded topic_scores from evaluate step
         args["topic_scores"] = state.get("topic_scores_forward", {})
         args["preferences"] = None

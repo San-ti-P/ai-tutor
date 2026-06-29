@@ -106,6 +106,7 @@ class TestUpsertTopicScores:
             # First insert
             await upsert_topic_scores(
                 "test-student-001",
+                "test-session",
                 [{"topic": "cálculo", "score": 7.5}],
             )
 
@@ -123,6 +124,7 @@ class TestUpsertTopicScores:
             # Update (overwrite)
             await upsert_topic_scores(
                 "test-student-001",
+                "test-session",
                 [{"topic": "cálculo", "score": 9.0}],
             )
 
@@ -148,6 +150,7 @@ class TestUpsertTopicScores:
 
             await upsert_topic_scores(
                 "test-student-001",
+                "test-session",
                 [
                     {"topic": "cálculo", "score": 4.0},
                     {"topic": "álgebra", "score": 8.0},
@@ -185,6 +188,7 @@ class TestComputeWeakTopics:
 
             await upsert_topic_scores(
                 "test-student-001",
+                "test-session",
                 [
                     {"topic": "cálculo", "score": 4.0},
                     {"topic": "álgebra", "score": 8.0},
@@ -205,6 +209,7 @@ class TestComputeWeakTopics:
 
             await upsert_topic_scores(
                 "test-student-001",
+                "test-session",
                 [
                     {"topic": "cálculo", "score": 8.0},
                     {"topic": "álgebra", "score": 7.5},
@@ -236,6 +241,7 @@ class TestComputeWeakTopics:
 
             await upsert_topic_scores(
                 "test-student-001",
+                "test-session",
                 [
                     {"topic": "t1", "score": 1.0},
                     {"topic": "t2", "score": 2.0},
@@ -357,6 +363,7 @@ class TestGetStudentSummaryTool:
             # Seed topic scores
             await upsert_topic_scores(
                 "test-student-001",
+                "test-session",
                 [
                     {"topic": "cálculo", "score": 4.0},
                     {"topic": "álgebra", "score": 8.0},
@@ -748,10 +755,11 @@ class TestDashboardEndpoint:
 
             await upsert_topic_scores(
                 "test-student-001",
+                "test-session",
                 [
                     {"topic": "cálculo", "score": 4.0},
-                    {"topic": "álgebra", "score": 3.5},
-                    {"topic": "física", "score": 7.0},
+                    {"topic": "álgebra", "score": 5.0},
+                    {"topic": "física", "score": 8.0},
                 ],
             )
 
@@ -801,7 +809,7 @@ class TestDashboardEndpoint:
 
             # Seed realistic data volume
             topics = [{"topic": f"topic_{i}", "score": float(i % 10)} for i in range(20)]
-            await upsert_topic_scores("test-student-001", topics)
+            await upsert_topic_scores("test-student-001", "test-session", topics)
 
             from src.main import app
 
