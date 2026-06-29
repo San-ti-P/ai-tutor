@@ -97,6 +97,16 @@ async def _init_test_db(tmp_path, monkeypatch):
     # Also patch chroma_persist_directory to a temp dir so ChromaDB
     # doesn't try to use the real persist directory during tests.
     monkeypatch.setattr(settings, "chroma_persist_directory", str(tmp_path / "chroma_test"))
+
+    # Reset the module-level ChromaDB client singleton so it is rebuilt
+    # against this test's patched persist directory. Without this, the first
+    # test to touch ChromaDB caches a client pinned to its own tmp_path, and
+    # later tests write/read through mismatched directories (collection
+    # "does not exist" failures that depend on test ordering).
+    import src.rag as _rag
+
+    monkeypatch.setattr(_rag, "_chroma_client", None)
+
     await init_db()
 
 
