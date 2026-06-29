@@ -229,6 +229,13 @@ interface SessionCreate {
   studentId: string;
 }
 
+interface ChatHistoryResponse {
+  messages: ChatMessage[];
+  hasMore: boolean;
+  oldestId: string | null;
+  total: number;
+}
+
 export { INTENT, MESSAGE_ROLE, QUESTION_TYPE, DIFFICULTY };
 
 export type {
@@ -237,6 +244,7 @@ export type {
   QuestionType,
   Difficulty,
   ChatMessage,
+  ChatHistoryResponse,
   ExamQuestion,
   Exam,
   Exercise,

@@ -23,6 +23,15 @@ async def _column_exists(db: aiosqlite.Connection, table: str, column: str) -> b
     return any(row[1] == column for row in rows)
 
 
+async def _table_exists(db: aiosqlite.Connection, table: str) -> bool:
+    """Return True if *table* exists in the database."""
+    cursor = await db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    )
+    row = await cursor.fetchone()
+    return row is not None
+
+
 async def _run_migrations(db: aiosqlite.Connection) -> None:
     """Apply additive schema migrations idempotently."""
     if not await _column_exists(db, "sessions", "name"):
@@ -49,6 +58,23 @@ async def _run_migrations(db: aiosqlite.Connection) -> None:
             FOREIGN KEY (session_id) REFERENCES sessions(id)
         )
     """)
+    # Migration: chat_messages table (idempotent)
+    if not await _table_exists(db, "chat_messages"):
+        await db.execute("""
+            CREATE TABLE chat_messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+                content TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+        """)
+        await db.execute("""
+            CREATE INDEX idx_chat_messages_session_created
+                ON chat_messages(session_id, created_at DESC)
+        """)
 
 
 async def init_db() -> None:
@@ -661,3 +687,94 @@ async def get_session_profile(session_id: str) -> dict | None:
         "exam_count": exam_count,
         "average_score": average_score,
     }
+
+
+# ── Chat message history ─────────────────────────────────────────────────────
+
+
+async def save_chat_message(message: dict) -> None:
+    """Persist a single chat message (user or assistant) for a session.
+
+    ``message`` must contain: id, session_id, role, content.
+    Optional: metadata_json (JSON string), created_at (ISO string).
+    Silently skips insertion when session_id does not exist.
+    """
+    created_at = message.get("created_at") or datetime.now(UTC).isoformat()
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        await db.execute("PRAGMA foreign_keys=ON")
+        # Verify session exists before inserting to avoid FK violations
+        cursor = await db.execute(
+            "SELECT 1 FROM sessions WHERE id = ?", (message["session_id"],)
+        )
+        if await cursor.fetchone() is None:
+            return
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO chat_messages
+                (id, session_id, role, content, metadata_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                message["id"],
+                message["session_id"],
+                message["role"],
+                message["content"],
+                message.get("metadata_json", "{}"),
+                created_at,
+            ),
+        )
+        await db.commit()
+
+
+async def get_chat_messages(
+    session_id: str,
+    limit: int = 10,
+    before_id: str | None = None,
+) -> list[dict]:
+    """Return *limit* messages for *session_id*, ordered newest-first.
+
+    Cursor-based pagination: when *before_id* is provided, returns messages
+    whose ``created_at`` is strictly older than the message with that id.
+    Returns at most ``min(limit, 50)`` rows.
+    """
+    limit = min(max(1, limit), 50)
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        db.row_factory = aiosqlite.Row
+        if before_id:
+            cursor = await db.execute(
+                """
+                SELECT id, session_id, role, content, metadata_json, created_at
+                FROM chat_messages
+                WHERE session_id = ?
+                  AND created_at < (
+                      SELECT created_at FROM chat_messages WHERE id = ?
+                  )
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (session_id, before_id, limit),
+            )
+        else:
+            cursor = await db.execute(
+                """
+                SELECT id, session_id, role, content, metadata_json, created_at
+                FROM chat_messages
+                WHERE session_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (session_id, limit),
+            )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def get_chat_message_count(session_id: str) -> int:
+    """Return the total number of chat messages for *session_id*."""
+    async with aiosqlite.connect(settings.sqlite_db_path) as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM chat_messages WHERE session_id = ?",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else 0
