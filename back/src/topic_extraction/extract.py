@@ -26,7 +26,7 @@ class TopicItem(BaseModel):
     """A single academic topic with a one-sentence description."""
 
     topic: str = Field(description="Academic topic phrase (3-8 words)")
-    description: str = Field(description="One-sentence description, max 15 words, academic Spanish")
+    description: str = Field(description="One-sentence description, max 20 words, academic Spanish. Must start with the topic name followed by a colon and then explain the concept.")
 
 
 class SegmentTopics(BaseModel):
@@ -49,8 +49,11 @@ _SYSTEM_PROMPT = (
     f"{_TOPIC_SCHEMA_JSON}\n\n"
     "Extraé entre 3 y 8 temas académicos concretos del fragmento de texto a continuación. "
     "Los temas deben ser frases específicas, no palabras genéricas sueltas. "
-    "Para cada tema, agregá una breve descripción (máximo 15 palabras) que "
-    "explique el concepto. IMPORTANTE: usá la terminología y vocabulario "
+    "Para cada tema, agregá una descripción de máximo 20 palabras que EMPIECE "
+    "con el nombre del tema seguido de dos puntos, y luego explique el concepto. "
+    "Ejemplo: 'Agentes inteligentes: entidades autónomas que perciben su entorno "
+    "y actúan para alcanzar objetivos mediante sensores y efectores.' "
+    "IMPORTANTE: usá la terminología y vocabulario "
     "exacto del texto fuente en las descripciones, no parafrasees con "
     "sinónimos. Devolvé solo JSON válido."
 )

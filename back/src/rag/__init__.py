@@ -367,18 +367,24 @@ async def match_user_topics_to_session(
     session_topics: list[str],
     topic_descriptions: dict[str, str] | None = None,
     topic_tree: dict[str, Any] | None = None,
+    weak_topics: list[str] | None = None,
 ) -> dict[str, str]:
     """Match user-requested topics to session topics via LLM fuzzy matching.
 
-    Returns a dict mapping matched session topic names to their descriptions
-    (description comes from ``topic_descriptions`` when available, else the
-    topic label itself). Unmatched user topics are omitted.
+    Returns a dict mapping matched session topic names to a RAG query
+    sentence synthesized by the LLM.  The sentence combines the user's
+    query intent with the matched topic's academic content, producing a
+    richer embedding query than the bare topic label or raw description.
+
+    When *weak_topics* is provided, the LLM is told to prioritize matches
+    with topics the student has struggled with, so the student practices
+    their weak areas even when asking about related broader concepts.
 
     When *topic_tree* is provided, parent topics (those with children) are
     tagged in the catalogue so the LLM prefers them over individual leaves
     for broad user queries.
 
-    The LLM call is small (< 200 tokens) — one per request, not per chunk.
+    The LLM call is small (< 300 tokens) — one per request, not per chunk.
     Uses ``get_llm()`` with temperature=0 for deterministic matching.
     """
     if not user_topics or not session_topics:
@@ -412,25 +418,38 @@ async def match_user_topics_to_session(
     catalogue = "\n".join(topic_lines)
     user_list = "\n".join(f"- {t}" for t in user_topics)
 
+    # Weak topics hint
+    weak_hint = ""
+    if weak_topics:
+        wt_list = "\n".join(f"- {t}" for t in weak_topics)
+        weak_hint = (
+            f"\nTemas débiles del estudiante (priorizá matchear con estos):\n{wt_list}\n\n"
+        )
+
     prompt = (
-        "Sos un asistente que empareja temas académicos. Tu tarea es "
-        "asociar cada tema solicitado por un estudiante con el tema más "
-        "relevante del catálogo de la sesión.\n\n"
+        "Sos un asistente que empareja temas académicos y construye "
+        "oraciones de búsqueda semántica. Tu tarea es:\n"
+        "1. Asociar cada tema solicitado por un estudiante con el tema más "
+        "relevante del catálogo de la sesión.\n"
+        "2. Para cada match, generar UNA oración en español académico "
+        "(máximo 30 palabras) que sirva como query de búsqueda vectorial. "
+        "La oración debe combinar la intención del estudiante con la "
+        "descripción del tema del catálogo.\n\n"
         "Reglas:\n"
         "1. Si un tema del estudiante coincide exactamente o es claramente "
-        "equivalente a un tema del catálogo, devolvé ese tema del catálogo.\n"
-        "2. Si un tema del estudiante es una versión más general de un tema "
-        "del catálogo (ej: \"agentes\" → \"Agentes inteligentes\"), "
-        "devolvé el tema del catálogo.\n"
-        "3. Los temas marcados [PADRE] agrupan varios subtemas. Si el "
-        "estudiante pide un concepto amplio que abarca múltiples subtemas, "
-        "preferí el PADRE sobre un hijo individual.\n"
-        "4. Si un tema del estudiante NO tiene equivalente claro en el "
-        "catálogo, devolvé \"<<NO_MATCH>>\".\n"
-        "5. Respondé SOLO con el mapeo, una línea por tema del estudiante, "
+        "equivalente a un tema del catálogo, usá ese tema.\n"
+        "2. Si un tema del estudiante es una versión más general, preferí "
+        "el PADRE sobre un hijo individual.\n"
+        "3. Los temas marcados [PADRE] agrupan varios subtemas.\n"
+        "4. Si un tema del estudiante NO tiene equivalente claro, "
+        "devolvé \"<<NO_MATCH>>\".\n"
+        "5. La oración de búsqueda debe ser una frase completa, no una "
+        "lista de palabras sueltas. Usá vocabulario académico preciso.\n"
+        "6. Respondé SOLO con el mapeo, una línea por tema del estudiante, "
         "en el formato exacto:\n"
-        "   tema_estudiante → tema_catalogo\n\n"
-        f"Catálogo de temas disponibles:\n{catalogue}\n\n"
+        "   tema_estudiante → tema_catalogo → oración_de_búsqueda\n\n"
+        f"Catálogo de temas disponibles:\n{catalogue}\n"
+        f"{weak_hint}"
         f"Temas solicitados por el estudiante:\n{user_list}\n\n"
         "Mapeo:"
     )
@@ -443,20 +462,26 @@ async def match_user_topics_to_session(
         logger.exception("LLM topic matching failed")
         return {}
 
-    # Parse LLM response: "tema_estudiante → tema_catalogo"
+    # Parse LLM response: "tema_estudiante → tema_catalogo → oración_de_búsqueda"
     result: dict[str, str] = {}
     for line in text.strip().splitlines():
         line = line.strip()
         if not line or "→" not in line:
             continue
-        parts = line.split("→", 1)
-        if len(parts) != 2:
+        parts = [p.strip() for p in line.split("→")]
+        if len(parts) < 2:
             continue
-        matched = parts[1].strip()
+        matched = parts[1]
         if matched == "<<NO_MATCH>>":
             continue
         # Only keep matches that actually exist in session_topics
-        if matched in session_topics:
+        if matched not in session_topics:
+            continue
+        # Use LLM-produced query sentence if available, else fall back to
+        # the topic's own description from the catalogue.
+        if len(parts) >= 3 and parts[2].strip():
+            result[matched] = parts[2].strip()
+        else:
             result[matched] = descs.get(matched, matched)
 
     return result

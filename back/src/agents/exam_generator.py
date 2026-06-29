@@ -171,12 +171,18 @@ async def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
         collection_name = state.get("collection_name") or f"session_{session_id}"
         student_profile = state.get("student_profile")
 
+        # Determine weak topics early — needed for LLM matching prioritization
+        weak_topics: list[str] = []
+        if student_profile and isinstance(student_profile, dict):
+            weak_topics = student_profile.get("weak_topics", [])
+
         # Match user-requested theme/topics to topics extracted from session files
         topic_descriptions: dict[str, str] | None = None
         topic_tree: dict[str, Any] | None = None
         user_topics = list(topics)  # preserve original — used for exam label
         has_any_match = False
         deduped_resolved: list[str] = []
+        rag_queries: dict[str, str] = {}  # LLM-produced RAG query per topic
         if session_id and topics:
             from src.memory.schema import list_session_files
             from src.utils.async_ import run_async_in_sync
@@ -233,10 +239,12 @@ async def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
                             from src.rag import match_user_topics_to_session
 
                             llm_matches = await match_user_topics_to_session(
-                                topics, session_topics, topic_descriptions, topic_tree
+                                topics, session_topics, topic_descriptions,
+                                topic_tree, weak_topics=weak_topics,
                             )
                             if llm_matches:
                                 resolved_topics = list(llm_matches.keys())
+                                rag_queries = llm_matches  # {topic: RAG query sentence}
                                 has_any_match = True
                                 logger.info(
                                     "LLM matched themes %s → session topics %s",
@@ -268,11 +276,6 @@ async def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
                         )
             except Exception as e:
                 logger.warning("Failed to resolve theme to session topics: %s", e)
-
-        # Determine topics with optional weak-topic boosting
-        weak_topics: list[str] = []
-        if student_profile and isinstance(student_profile, dict):
-            weak_topics = student_profile.get("weak_topics", [])
 
         # Build the retrieval list: use resolved session-topics when the
         # user query matched something in the ingested files; otherwise
@@ -313,9 +316,13 @@ async def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
         seen_chunk_ids: set[str] = set()
 
         for topic in unique_topics:
+            # Prefer LLM-produced RAG query sentence over bare topic label.
+            # The sentence combines user intent with academic content, producing
+            # a much richer embedding query than the topic name alone.
+            query = rag_queries.get(topic, topic)
             chunks = _retrieve_chunks.invoke(
                 {
-                    "query": topic,
+                    "query": query,
                     "top_k": settings.retrieval_top_k,
                     "collection_name": collection_name,
                     "topic_descriptions": topic_descriptions,
