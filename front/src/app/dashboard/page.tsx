@@ -7,7 +7,6 @@ import { api } from "@/lib/api";
 import { StatsCards } from "@/components/dashboard/StatsCards";
 import { TopicChart } from "@/components/dashboard/TopicChart";
 import { WeakTopics } from "@/components/dashboard/WeakTopics";
-import { SessionHistory } from "@/components/dashboard/SessionHistory";
 import { Spinner } from "@/components/ui/spinner";
 import type { StudentProfile } from "@/lib/types";
 
@@ -19,19 +18,42 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!studentId) return;
+    if (!activeSession) {
+      setProfile(null);
+      setIsLoading(false);
+      setError(
+        "Todavía no tenés una sesión activa. Creá o seleccioná una sesión para ver tu progreso.",
+      );
+      return;
+    }
     setIsLoading(true);
     api
-      .getDashboard(studentId)
+      .getSessionProfile(activeSession.id)
       .then((res) => {
-        setProfile(res.data);
+        // Adapt SessionProfile to match the StudentProfile interface expected by the UI.
+        setProfile({
+          id: res.data.sessionId,
+          topicScores: res.data.topicScores,
+          weakTopics: res.data.weakTopics,
+          preferences: {
+            questionTypes: ["mcq"],
+            difficulty: "medium",
+            questionCount: 5,
+            includeTopics: [],
+            excludeTopics: [],
+          },
+          sessionCount: res.data.examCount,
+          sessionHistory: [],
+        });
+        setError(null);
       })
       .catch(() => {
         setError(
-          "Todavía no tenés datos de progreso. Completá un examen para empezar.",
+          "Todavía no tenés datos de progreso para esta sesión. Completá un examen para empezar.",
         );
       })
       .finally(() => setIsLoading(false));
-  }, [studentId]);
+  }, [studentId, activeSession?.id]);
 
   if (isLoading) {
     return (
@@ -115,7 +137,7 @@ export default function DashboardPage() {
       <StatsCards
         stats={[
           {
-            label: "Sesiones completadas",
+            label: "Exámenes completados",
             value: String(profile?.sessionCount ?? 0),
             icon: BookOpen,
           },
@@ -141,8 +163,6 @@ export default function DashboardPage() {
         <TopicChart data={chartData} />
         <WeakTopics topics={weakTopics} />
       </div>
-
-      <SessionHistory sessions={profile?.sessionHistory ?? []} />
     </div>
   );
 }
