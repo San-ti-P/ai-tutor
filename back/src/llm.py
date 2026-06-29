@@ -6,7 +6,10 @@ changes happen in exactly one place.
 
 Functions:
 - get_llm(): returns a configured BaseChatModel (Ollama, Groq, etc.)
-- get_structured_llm(schema): returns a model with structured output
+- get_structured_llm(schema): returns a model with JSON-in-prompt
+  structured output. NEVER uses ``with_structured_output`` — Ollama
+  and Groq models lack reliable native support. Schema is injected
+  into the prompt; response is JSON-parsed and validated.
 """
 
 from __future__ import annotations
@@ -219,9 +222,9 @@ def get_structured_llm(
 ) -> Runnable[Any, Any]:
     """Return an LLM configured with structured output for a Pydantic schema.
 
-    For Ollama and OpenCode Go: uses schema appended to the user prompt
-    (``format="json"`` for Ollama, standard completion for OpenAI-compatible).
-    For other providers: uses native ``with_structured_output(schema)``.
+    Uses schema-in-prompt approach (appends JSON schema to user prompt,
+    parses response) for ALL providers. Native ``with_structured_output``
+    is NOT used because Ollama and Groq models lack reliable support.
 
     Args:
         schema: A Pydantic BaseModel subclass defining the output structure.
@@ -232,6 +235,4 @@ def get_structured_llm(
         A Runnable that takes a prompt string and returns a validated
         instance of *schema*.
     """
-    if settings.llm_provider in ("ollama", "opencode-go"):
-        return _schema_in_prompt_chain(schema, callbacks, temperature)
-    return get_llm(callbacks=callbacks, temperature=temperature).with_structured_output(schema)
+    return _schema_in_prompt_chain(schema, callbacks, temperature)

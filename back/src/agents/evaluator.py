@@ -354,7 +354,7 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig | None = None)
     - The student's answer
     - Top relevant RAG chunks as reference material
 
-    Uses ``with_structured_output(SingleEvaluation)`` with temperature=0
+    Uses JSON-in-prompt structured output (SingleEvaluation) with temperature=0
     for deterministic grading. Catches ``is_evaluable=False`` returned
     by the LLM itself as an additional guard.
 
