@@ -131,31 +131,39 @@ UTN Santa Fe — CIDISI
 
 # Retrieval-Augmented Generation
 
+**Write path**:
 ```
   PDF/TXT
     │
     ▼
 ┌──────────┐    ┌──────────────────┐    ┌─────────────────┐
 │ markitdown│───▶│ Chunking Semántico│───▶│ Embeddings      │
-│  (parse)  │    │ 512 tokens, 64 ov│    │MiniLM-L12-v2    │
-└──────────┘    └──────────────────┘    └──────┬──────────┘
-                                               │
-                                               ▼
-                                        ┌─────────────┐
-                                        │  ChromaDB    │
-                                        │ (vector store)│
-                                        └──────┬──────┘
-                                               │
-                    ┌──────────────────────────┘
-                    ▼
-            ┌──────────────┐
-            │ Retrieve top-K│──▶ LLM ──▶ Examen / Ejercicio
-            │  (K=5-8)      │
-            └──────────────┘
+│+dehyphen. │    │markdown-aware,   │    │MiniLM-L12-v2    │
+│           │    │512 chars, 64 ov  │    │(384-dim, local) │
+└──────────┘    │separadores jerárq│    └──────┬──────────┘
+                │(\n\n##→\n\n→\n→.)│           │
+                └──────────────────┘           ▼
+                                         ┌─────────────┐
+                                         │  ChromaDB    │
+                                         │(cosine dist.)│
+                                         └──────┬──────┘
+                                                │
+                     ┌──────────────────────────┘
+                     ▼
+             ┌──────────────┐
+             │ Retrieve      │──▶ LLM ──▶ Examen / Ejercicio
+             │Query enriquec.│
+             └──────────────┘
 ```
 
-**Índice temático**: Árbol jerárquico extraído por LLM. Filtra chunks por tema.
-**Actualización incremental**: Nuevos chunks sin reprocesar existentes.
+**Read path — Query enrichment jerárquico**:
+1. LLM matchea tema del usuario → temas de la sesión (fuzzy matching)
+2. Obtiene descripción del tema matcheado (vocabulario del texto fuente)
+3. Árbol temático enriquece query: padre + hijos + hermanos
+4. Zero llamadas LLM extra en query-time
+
+**Chunking semántico markdown-aware** (Epic 15): dehyphenation pre-procesa guiones de PDF. Separadores jerárquicos preservan headings y párrafos.
+**Índice temático**: 3 niveles, 30 temas con descripciones. Fusión incremental con `ThematicIndex.merge()`.
 
 ---
 
@@ -258,8 +266,9 @@ classify_intent → composite (confidence 0.92)
 Session
  ├── LLM Call (classify_intent)
  ├── LLM Call (plan_composite)
- ├── Tool Call (generate_exam)
- │   ├── RAG Retrieval (retrieve_chunks × 5)
+  ├── Tool Call (generate_exam)
+  │   ├── LLM Topic Matching (match_user_topics_to_session)
+  │   ├── RAG Retrieval (retrieve_chunks × 5 · topic_descriptions + topic_tree)
  │   ├── LLM Call (ChatOllama · structured output)
  │   └── Tool Call (validate_claim_grounding × 10)
  ├── Tool Call (generate_exercise)
@@ -277,7 +286,7 @@ Session
 
 ### Flujo completo a través de la UI
 
-1. **Ingesta** — Arrastrar PDF → clasifica, indexa, 123 chunks
+1. **Ingesta** — Arrastrar PDF → clasifica, indexa, 30 temas con descripciones, ~25 chunks
 2. **Examen** — "Generame un examen de 5 preguntas sobre agentes inteligentes"
 3. **Ejercicio** — "Generame un ejercicio práctico sobre racionalidad"
 4. **Evaluación** — Responder examen → scores + feedback + errores conceptuales
@@ -291,7 +300,7 @@ Session
 
 # Evaluación del Sistema
 
-### 121 tests · 12 casos PRD §8
+### 615 tests · 12 casos PRD §8
 
 | Categoría | Casos | Tipo de validación |
 |---|---|---|
@@ -299,7 +308,7 @@ Session
 | **Edge Cases** (2) | Tema ausente, respuesta parcial | Determinística |
 | **Adversarial** (3) | Archivo no académico, tema externo, idioma distinto | Determinística |
 
-**105 unit tests** (mock, <5s) + **16 integration tests** (LLM real)
+**583 unit tests** (mock, <5s) + **32 integration tests** (LLM real)
 **6 E2E live tests** (Playwright, UI completa)
 
 ---
@@ -345,6 +354,7 @@ Session
 **Qué funcionó bien**:
 - LangGraph StateGraphs — control total sobre flujos de agentes
 - ChromaDB local — sin dependencias externas para RAG
+- Query enrichment jerárquico — descripciones de temas + árbol temático mejoraron drásticamente la calidad del retrieval
 - Structured output con Pydantic — cuando el modelo lo soporta
 - Langfuse — visibilidad completa de cada tool call y LLM call
 
@@ -368,8 +378,8 @@ Session
 | **Agentes** | 6 (Orchestrator, Ingestor, ExamGen, ExerciseGen, Evaluator, Support) |
 | **Tools** | 8 funcionales con tool calling nativo |
 | **Grafos LangGraph** | 6 StateGraphs con conditional edges y loops |
-| **RAG** | ChromaDB + `paraphrase-multilingual-MiniLM-L12-v2` + índice temático jerárquico |
-| **Tests** | 121 (105 unit + 16 integration) + 6 E2E live |
+| **RAG** | ChromaDB + MiniLM 384-dim + chunking semántico markdown-aware + índice temático 3 niveles con descripciones + query enrichment jerárquico |
+| **Tests** | 615 (583 unit + 32 integration) + 6 E2E live |
 | **Casos PRD cubiertos** | 10/12 (2 diferidos por imágenes) |
 | **Observabilidad** | Langfuse con spans anidados (LLM, Tool, RAG, Evaluation) |
 | **UI** | Next.js 15 — chat, upload, dashboard, exam renderer |
