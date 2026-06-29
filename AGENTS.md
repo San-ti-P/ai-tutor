@@ -2,7 +2,7 @@
 
 Multi-agent LLM system for adaptive university exam preparation. 6 specialized agents coordinate via LangGraph to ingest academic material, generate personalized exams/exercises, evaluate answers, and track student progress across sessions.
 
-**Stack**: Python 3.10+ · LangGraph · LangChain · FastAPI · ChromaDB · SQLite · Langfuse · Next.js · React · Tailwind
+**Stack**: Python 3.12+ · LangGraph · LangChain · FastAPI · ChromaDB · SQLite · Langfuse · Next.js 15 · React 19 · Tailwind 4
 **Course**: IA 2026 — UTN Santa Fe (CIDISI)
 **Deliveries**: 08/06 (concept) → 22/06 (MVP) → 29/06 (complete + defense)
 
@@ -11,14 +11,13 @@ Multi-agent LLM system for adaptive university exam preparation. 6 specialized a
 ## Quick Start
 
 ```bash
-# Backend
-cd backend
-python -m venv .venv && source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -r requirements.txt
-uvicorn main:app --reload
+# Backend (uses uv for package management)
+cd back
+uv sync
+uv run uvicorn src.main:app --reload
 
 # Frontend
-cd frontend
+cd front
 npm install
 npm run dev
 ```
@@ -29,15 +28,20 @@ npm run dev
 
 ```
 ai-tutor/
-├── backend/               # FastAPI + LangGraph + ChromaDB
-│   ├── agents/            # One file per agent (orchestrator, ingestor, exam_generator, ...)
-│   ├── tools/             # Tool definitions (ingest_document, retrieve_chunks, evaluate_answer, ...)
-│   ├── rag/               # ChromaDB setup, chunking, embedding, retrieval
-│   ├── memory/            # SQLite schema, student profile CRUD
-│   └── main.py            # FastAPI app entry point
-├── frontend/              # Next.js app
+├── back/                  # FastAPI + LangGraph + ChromaDB
+│   ├── src/
+│   │   ├── agents/        # One file per agent (orchestrator, ingestor, exam_generator, ...)
+│   │   ├── tools/         # Tool definitions (ingest_document, retrieve_chunks, evaluate_answer, ...)
+│   │   ├── rag/           # ChromaDB setup, chunking, embedding, retrieval
+│   │   ├── memory/        # SQLite schema, student profile CRUD
+│   │   ├── api/           # FastAPI routes + Pydantic schemas
+│   │   ├── observability/ # Langfuse setup + span helpers
+│   │   ├── config.py      # Settings from .env (pydantic-settings)
+│   │   └── main.py        # FastAPI app entry point
+│   ├── tests/             # pytest suite (12 test cases from PRD section 8)
+│   └── pyproject.toml     # uv project config + dependencies
+├── front/                 # Next.js 15 App Router
 │   └── src/               # Chat UI, exam renderer, file upload, dashboard
-├── tests/                 # pytest suite (12 test cases from PRD section 8)
 ├── epics/                 # 8 epic docs — implementation breakdown per agent
 ├── init_PRD.md            # Product requirements — single source of truth
 └── .agents/skills/        # Project skills (see .atl/skill-registry.md)
@@ -85,7 +89,7 @@ ai-tutor/
 ### General
 
 - Conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `chore:`
-- Backend entities in `backend/agents/` and `backend/tools/` — no cross-agent imports outside defined APIs
+- Backend entities in `back/src/agents/` and `back/src/tools/` — no cross-agent imports outside defined APIs
 - RAG pipeline: Load → Split → Embed → Store → Retrieve → Generate
 - Same embedding model for indexing AND querying; don't mix
 
@@ -94,12 +98,45 @@ ai-tutor/
 ## Testing
 
 ```bash
-pytest tests/ -v                    # Full suite
-pytest tests/ -v -k "test_ingest"   # Per module
-pytest tests/ -v --cov=backend      # With coverage
+# ── Backend ──────────────────────────────────────────
+cd back
+uv run pytest tests/ -v                    # Unit tests (fast, no external deps)
+uv run pytest tests/ -v -k "test_ingest"   # Per module
+uv run pytest tests/ -v --cov=src          # With coverage
+uv run pytest tests/ -v -m integration     # Integration tests (needs real LLM)
+
+# ── Frontend ─────────────────────────────────────────
+cd front
+npx playwright test                       # E2E mock mode (fast, deterministic, CI)
+E2E_LIVE_LLM=true npx playwright test --grep @live   # E2E live mode (real LLM, pre-defense)
+npx playwright test --grep-invert @live   # E2E mock only (skip live)
+npx playwright test --list                # List all 16 E2E tests
+
+# ── Record E2E seeds ─────────────────────────────────
+# Start backend in record mode, then run:
+cd back
+E2E_RECORD_MODE=true E2E_LIVE_LLM=true uv run python scripts/record_e2e_seeds.py
+# Seeds saved to front/e2e/fixtures/recorded-seed.json
 ```
 
-12 test cases required (PRD section 8): 5 happy path, 4 edge cases, 3 adversarial. Tests use in-memory SQLite and ChromaDB where possible — no external services needed.
+### Test Tiers
+
+| Tier | Command | Runs on | Requires |
+|------|---------|---------|----------|
+| Unit | `pytest tests/ -v` | Every commit | Nothing external — LLMs/embeddings mocked |
+| Integration | `pytest tests/ -v -m integration` | Manually or CI with secrets | Real LLM (Ollama/Groq) + real embeddings + real PDF |
+| **E2E Mock** | `npx playwright test` | Every commit | Backend + Frontend running — LLM calls mocked via seeds |
+| **E2E Live** | `E2E_LIVE_LLM=true npx playwright test --grep @live` | Pre-defense, nightly | Real LLM (Ollama/Groq) + backend + frontend |
+
+**Integration tests** use real external resources: real LLM calls, real SentenceTransformer embeddings, real ChromaDB, or real PDF files. Skipped by default (`addopts = "-m 'not integration'"` in `pyproject.toml`).
+
+**E2E tests** (Playwright) exercise the full stack: browser → frontend → API → agents. Mock mode replays pre-recorded LLM seeds (sub-40s, deterministic). Live mode calls real LLMs with tolerance-based assertions (catches response-quality bugs).
+
+### Test Documentation
+
+Full test inventory, PRD case coverage mapping, fixture catalog, and rules for adding tests are documented in [`tests_documentation.md`](../tests_documentation.md). **When adding or modifying an integration test or a PRD-mapped test, update that document.**
+
+12 test cases required (PRD section 8): 5 happy path, 4 edge cases, 3 adversarial. Tests use in-memory SQLite and ChromaDB where possible — no external services needed for unit tests.
 
 ---
 
@@ -147,3 +184,4 @@ Key skills by layer:
 | `epics/epic-07-ui.md` | Frontend architecture |
 | `epics/epic-08-observability.md` | Langfuse integration + test suite |
 | `.atl/skill-registry.md` | Full skill catalog with compact rules |
+| `tests_documentation.md` | Test inventory, PRD coverage map, integration test rules |

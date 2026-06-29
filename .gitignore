@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+back/lib/
 lib64/
 parts/
 sdist/
@@ -156,6 +156,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+front/.env.local
 
 # Spyder project settings
 .spyderproject
@@ -217,8 +218,24 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Next.js
+front/.next/
+front/out/
+front/node_modules/
+
+# Data directories
+back/data/
+*.db
+*.db-journal
+
+# uv
+back/.venv/
+
 # Agents
 graphify-out/
 codegraph/
 .atl/
 openspec/
+.opencode/
+front/test-results/
+test-results/

@@ -1,0 +1,193 @@
+{
+  "info": {
+    "name": "AI Tutor - Orchestrator Flow Tests",
+    "description": "Test all 7 orchestrator intents plus supporting endpoints. Each request triggers a different LangGraph flow with full Langfuse tracing.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "ai-tutor"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "default"
+    },
+    {
+      "key": "session_id",
+      "value": "postman-test-{{$guid}}",
+      "type": "default"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET Health",
+          "event": [],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Chat - All Intents",
+      "description": "Each request exercises a different orchestrator intent. Check Langfuse for traces.",
+      "item": [
+        {
+          "name": "1. general_chat — Simple greeting",
+          "event": [],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/api/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat"]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Hola, ¿cómo estás?\",\n  \"session_id\": \"{{session_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2. generate_exam — Exam request",
+          "event": [],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/api/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat"]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Generame un examen sobre agentes inteligentes con 5 preguntas dificultad media\",\n  \"session_id\": \"{{session_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "3. generate_exercise — Exercise request",
+          "event": [],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/api/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat"]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Dame un ejercicio práctico sobre definición de agentes inteligentes\",\n  \"session_id\": \"{{session_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "4. ingest — Upload request",
+          "event": [],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/api/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat"]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Quiero subir un apunte sobre agentes inteligentes\",\n  \"session_id\": \"{{session_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "5. evaluate — Evaluation request",
+          "event": [],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/api/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat"]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Necesito que evalúes mis respuestas del último examen\",\n  \"session_id\": \"{{session_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "6. query_profile — Profile query",
+          "event": [],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/api/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat"]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"¿Cómo va mi progreso? Mostrame mi perfil\",\n  \"session_id\": \"{{session_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "7. composite — Multi-step request",
+          "event": [],
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/api/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat"]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Primero mostrame mi perfil, después generame un examen sobre agentes inteligentes y finalmente dame un ejercicio práctico\",\n  \"session_id\": \"{{session_id}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Supporting Endpoints",
+      "item": [
+        {
+          "name": "GET Profile by session",
+          "event": [],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/profile/{{session_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "profile", "{{session_id}}"]
+            }
+          }
+        },
+        {
+          "name": "GET Dashboard by student",
+          "event": [],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/students/placeholder-student/dashboard",
+              "host": ["{{base_url}}"],
+              "path": ["api", "students", "placeholder-student", "dashboard"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

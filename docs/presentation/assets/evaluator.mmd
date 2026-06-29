@@ -1,0 +1,31 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	prepare_evaluation(prepare_evaluation)
+	check_evaluability(check_evaluability)
+	evaluate_answer(evaluate_answer)
+	validate_feedback(validate_feedback)
+	llm_judge(llm_judge)
+	build_feedback(build_feedback)
+	next_question(next_question)
+	sync_scores(sync_scores)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> prepare_evaluation;
+	build_feedback --> next_question;
+	check_evaluability -.-> build_feedback;
+	check_evaluability -.-> evaluate_answer;
+	evaluate_answer --> validate_feedback;
+	llm_judge --> build_feedback;
+	next_question -.-> check_evaluability;
+	next_question -.-> sync_scores;
+	prepare_evaluation --> check_evaluability;
+	validate_feedback -.-> build_feedback;
+	validate_feedback -.-> llm_judge;
+	sync_scores --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

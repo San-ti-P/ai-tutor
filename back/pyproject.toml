@@ -1,0 +1,95 @@
+[project]
+name = "ai-tutor"
+version = "0.1.0"
+description = "Personal Academic Tutor with LLM Agents"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "langchain>=1.0,<2.0",
+    "langchain-core>=1.0,<2.0",
+    "langgraph>=1.0,<2.0",
+    "langsmith>=0.3.0",
+    "langchain-groq>=0.3.0",
+    "langchain-chroma>=0.2.0",
+    "langchain-text-splitters>=0.3.0",
+    "chromadb>=0.6.0",
+    "markitdown[pdf]>=0.1.0",
+    "aiosqlite>=0.21.0",
+    "langfuse>=3.0.0",
+    "python-dotenv>=1.0.0",
+    "python-multipart>=0.0.18",
+    "sentence-transformers>=3.0.0,<4.0",
+    "langgraph-checkpoint-sqlite>=3.1.0",
+    "langchain-ollama>=1.1.0",
+    "langchain-openai>=0.3.0",
+    "langchain-anthropic>=0.3.0",
+    "nltk>=3.9,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0",
+    "httpx>=0.28.0",
+    "ruff>=0.9.0",
+    "reportlab>=4.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-m 'not integration'"
+markers = [
+    "integration: expensive tests requiring real LLM, embeddings, and/or real PDF files. Run with: pytest -m integration",
+]
+[tool.mypy]
+# Enable the Pydantic plugin
+plugins = ["pydantic.mypy"]
+
+# Strictness settings (similar to strict mode in TS)
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_any_generics = false
+check_untyped_defs = false
+warn_unused_ignores = false
+warn_return_any = false
+disallow_untyped_decorators = false
+
+
+
+
+[tool.pydantic-mypy]
+# Pydantic-specific strictness
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+]

@@ -1,0 +1,27 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	load_profile(load_profile)
+	load_session_context(load_session_context)
+	classify_intent(classify_intent)
+	plan_composite(plan_composite)
+	execute_step(execute_step)
+	synthesize_response(synthesize_response)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> load_profile;
+	classify_intent -.-> execute_step;
+	classify_intent -.-> plan_composite;
+	classify_intent -.-> synthesize_response;
+	execute_step -. &nbsp;terminate&nbsp; .-> synthesize_response;
+	load_profile --> load_session_context;
+	load_session_context --> classify_intent;
+	plan_composite --> execute_step;
+	synthesize_response --> __end__;
+	execute_step -. &nbsp;continue&nbsp; .-> execute_step;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
