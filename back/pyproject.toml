@@ -60,3 +60,36 @@ addopts = "-m 'not integration'"
 markers = [
     "integration: expensive tests requiring real LLM, embeddings, and/or real PDF files. Run with: pytest -m integration",
 ]
+[tool.mypy]
+# Enable the Pydantic plugin
+plugins = ["pydantic.mypy"]
+
+# Strictness settings (similar to strict mode in TS)
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_any_generics = false
+check_untyped_defs = false
+warn_unused_ignores = false
+warn_return_any = false
+disallow_untyped_decorators = false
+
+
+
+
+[tool.pydantic-mypy]
+# Pydantic-specific strictness
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+]

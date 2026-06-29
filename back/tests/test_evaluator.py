@@ -24,7 +24,7 @@ class TestEvaluatorState:
         """State dict has all required fields for the 8-node pipeline."""
         from src.agents.evaluator import EvaluatorState
 
-        state: EvaluatorState = evaluator_state  # type: ignore[assignment]
+        state: EvaluatorState = evaluator_state  # type: ignore
 
         assert state["session_id"] != ""
         assert state["student_id"] != ""
@@ -813,9 +813,10 @@ class TestSyncScoresTransaction:
                     CREATE TABLE IF NOT EXISTS topic_scores (
                         topic TEXT NOT NULL,
                         student_id TEXT NOT NULL,
+                        session_id TEXT NOT NULL DEFAULT '',
                         score REAL NOT NULL,
                         evaluated_at TEXT NOT NULL DEFAULT (datetime('now')),
-                        PRIMARY KEY (topic, student_id)
+                        PRIMARY KEY (topic, student_id, session_id)
                     );
                 """)
                 await db.commit()
@@ -867,9 +868,9 @@ class TestSyncScoresTransaction:
                         question_id TEXT, exam_id TEXT DEFAULT '', topic TEXT, score REAL, feedback_json TEXT
                     );
                     CREATE TABLE IF NOT EXISTS topic_scores (
-                        topic TEXT, student_id TEXT, score REAL,
+                        topic TEXT, student_id TEXT, session_id TEXT NOT NULL DEFAULT '', score REAL,
                         evaluated_at TEXT DEFAULT (datetime('now')),
-                        PRIMARY KEY (topic, student_id)
+                        PRIMARY KEY (topic, student_id, session_id)
                     );
                 """)
                 await db.commit()

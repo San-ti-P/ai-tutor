@@ -79,11 +79,11 @@ def tool_with_llm(session_id: str) -> str:
             "metadata": {"langfuse_session_id": session_id},
         }
         result = model.invoke("Say 'hello' in one word.", config=config)
-        return result.content
+        return str(result.content)
 
 
-result = tool_with_llm("isolated-observe-sess")
-print(f"  Response: {result}")
+result_p2 = tool_with_llm("isolated-observe-sess")
+print(f"  Response: {result_p2}")
 langfuse.flush()
 print("  Flushed.\n")
 
@@ -103,9 +103,10 @@ with langfuse.start_as_current_observation(
             model_parameters={"temperature": 0},
         )
         result = model.invoke("What is 3+3? Answer in one word.")
+        usage = getattr(result, "usage_metadata", None)
         gen.update(
-            output=result.content,
-            usage_details=result.usage_metadata if hasattr(result, "usage_metadata") else None,
+            output=str(result.content),
+            usage_details=dict(usage) if usage is not None else None,
         )
         gen.end()
         print(f"  Response: {result.content}")

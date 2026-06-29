@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
+from typing import Any, cast
+
 # Intercept the LLM call to see raw messages
 from langchain_core.callbacks import BaseCallbackHandler
 
@@ -17,7 +19,7 @@ from src.llm import get_llm
 
 
 class MessageCapture(BaseCallbackHandler):
-    def on_chat_model_start(self, serialized, messages, **kwargs):
+    def on_chat_model_start(self, serialized: dict[str, Any], messages: list[Any], **kwargs: Any) -> None:
         print("=== MESSAGES SENT TO LLM ===")
         for i, msg in enumerate(messages):
             print(f"\n--- Message {i} ({type(msg).__name__}) ---")
@@ -46,13 +48,13 @@ REQUISITOS:
 - Para open-answer: prompts que requieran explicación, incluir base_answer.
 """
 
-result = structured_llm.invoke(prompt, config={"callbacks": [MessageCapture()]})
+result = cast(ExamGeneration, structured_llm.invoke(prompt, config={"callbacks": [MessageCapture()]}))
 
 print("\n=== PARSED RESULT ===")
 print(f"mcq_questions: {len(result.mcq_questions)}")
-for q in result.mcq_questions:
-    print(f"  MCQ: {q.stem[:80]}...")
+for mq in result.mcq_questions:
+    print(f"  MCQ: {mq.stem[:80]}...")
 print(f"open_questions: {len(result.open_questions)}")
-for q in result.open_questions:
-    print(f"  OPEN: {q.prompt[:80]}...")
+for oq in result.open_questions:
+    print(f"  OPEN: {oq.prompt[:80]}...")
 print(f"metadata: {result.metadata}")

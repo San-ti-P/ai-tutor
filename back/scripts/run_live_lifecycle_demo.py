@@ -25,7 +25,7 @@ os.environ["E2E_TEST_MODE"] = "false"
 from fastapi.testclient import TestClient
 from src.main import app
 
-def main():
+def main() -> None:
     with TestClient(app) as client:
         # 1. Create a unique session ID
         session_id = str(uuid.uuid4())

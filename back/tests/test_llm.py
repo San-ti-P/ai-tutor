@@ -26,7 +26,9 @@ class TestGetLLM:
 
         # Save original provider and restore after
         original = settings.llm_provider
+        original_temp = settings.ollama_temperature
         settings.llm_provider = "ollama"
+        settings.ollama_temperature = 0
 
         try:
             with patch("langchain_ollama.ChatOllama") as mock_ollama:
@@ -44,6 +46,7 @@ class TestGetLLM:
                 assert result is mock_ollama.return_value
         finally:
             settings.llm_provider = original
+            settings.ollama_temperature = original_temp
 
     def test_get_llm_groq(self):
         """Returns ChatGroq when settings.llm_provider == 'groq'."""
@@ -159,8 +162,10 @@ class TestGetLLMOllamaCloud:
 
         original_provider = settings.llm_provider
         original_api_key = settings.ollama_api_key
+        original_temp = settings.ollama_temperature
         settings.llm_provider = "ollama"
         settings.ollama_api_key = "test-cloud-key"
+        settings.ollama_temperature = 0
 
         try:
             with patch("langchain_ollama.ChatOllama") as mock_ollama:
@@ -175,6 +180,7 @@ class TestGetLLMOllamaCloud:
         finally:
             settings.llm_provider = original_provider
             settings.ollama_api_key = original_api_key
+            settings.ollama_temperature = original_temp
 
     def test_get_llm_ollama_cloud_base_url(self):
         """Uses custom base_url for Ollama Cloud endpoint."""
@@ -183,9 +189,11 @@ class TestGetLLMOllamaCloud:
         original_provider = settings.llm_provider
         original_base_url = settings.ollama_base_url
         original_api_key = settings.ollama_api_key
+        original_temp = settings.ollama_temperature
         settings.llm_provider = "ollama"
         settings.ollama_base_url = "https://api.ollama.com"
         settings.ollama_api_key = "cloud-key-123"
+        settings.ollama_temperature = 0
 
         try:
             with patch("langchain_ollama.ChatOllama") as mock_ollama:
@@ -201,6 +209,7 @@ class TestGetLLMOllamaCloud:
             settings.llm_provider = original_provider
             settings.ollama_base_url = original_base_url
             settings.ollama_api_key = original_api_key
+            settings.ollama_temperature = original_temp
 
 
 class TestGetLLMOpenCodeGoAnthropic:

@@ -17,7 +17,7 @@ os.environ["E2E_RECORD_MODE"] = "true"
 os.environ["E2E_LIVE_LLM"] = "true"
 
 
-async def main():
+async def main() -> None:
     import httpx
 
     base_url = "http://localhost:8000"
