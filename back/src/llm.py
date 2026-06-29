@@ -106,63 +106,19 @@ def get_llm(
     return _llm_cache[cache_key]
 
 
-def _ollama_json_mode_chain(
-    schema: type[BaseModel],
-    callbacks: list[Any] | None = None,
-) -> Runnable:
-    """Build a chain for Ollama using ``format="json"`` + schema in prompt.
+def _parse_json_for_schema(schema: type[BaseModel]):
+    """Return a callable that parses JSON from LLM text output.
 
-    Ollama's native structured output (``format={json_schema}``) is not
-    reliably enforced by all models (e.g. Gemma may use wrong field names).
-    JSON mode with the schema appended to the user prompt keeps the
-    original task instructions intact and works across models.
+    Strips markdown fences, finds the last complete JSON object, and
+    validates against *schema*. Returns a BaseModel instance.
+    Raises ValueError if no valid JSON is found.
     """
     import json
 
-    from langchain_core.output_parsers import StrOutputParser
-    from langchain_core.prompts import ChatPromptTemplate
-    from langchain_core.runnables import RunnableLambda
-    from langchain_ollama import ChatOllama
-
-    schema_json = json.dumps(schema.model_json_schema(), indent=2)
-
-    llm_kwargs: dict[str, Any] = {
-        "model": settings.ollama_model_name,
-        "base_url": settings.ollama_base_url,
-        "temperature": 0,
-        "format": "json",
-    }
-    if settings.ollama_api_key:
-        llm_kwargs["client_kwargs"] = {
-            "headers": {"Authorization": f"Bearer {settings.ollama_api_key}"}
-        }
-    if callbacks:
-        llm_kwargs["callbacks"] = callbacks
-
-    ollama = ChatOllama(**llm_kwargs)
-
-    prompt_template = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                "Sos un asistente servicial. Seguí cuidadosamente las instrucciones y "
-                "ejemplos del usuario, luego respondé con JSON válido que coincida con "
-                "el esquema de abajo. Las claves del JSON deben estar en inglés (según "
-                "el esquema), pero los valores de texto deben estar en español. No "
-                "generes ningún texto fuera del objeto JSON.",
-            ),
-            ("user", "{input}\n\nDevolvé JSON válido que coincida con este esquema:\n{schema}"),
-        ]
-    )
-
     def _parse(text: str) -> BaseModel:
-        # Strip markdown ```json fences before scanning for JSON.
-        # Ollama often wraps JSON output in ```json ... ``` blocks.
         text = _CLEAN_FENCES.sub("", text).strip()
 
-        # Find the last complete JSON object by scanning from the end with a
-        # brace counter. This handles nested JSON and correctly ignores any
-        # JSON examples that may appear earlier in the user prompt.
+        # Find the last complete JSON object by scanning from the end
         for end in range(len(text) - 1, -1, -1):
             if text[end] != "}":
                 continue
@@ -182,12 +138,67 @@ def _ollama_json_mode_chain(
                     continue
         raise ValueError(f"No valid JSON object found in response: {text[:300]!r}")
 
+    return _parse
+
+
+def _schema_in_prompt_chain(
+    schema: type[BaseModel],
+    callbacks: list[Any] | None = None,
+) -> Runnable:
+    """Build a chain that appends the JSON schema to the user prompt.
+
+    For Ollama: uses ``format="json"`` on a dedicated ChatOllama instance.
+    For OpenAI-compatible (OpenCode Go): uses standard completion via ``get_llm()``.
+
+    The chain: schema JSON injected → LLM → StrOutputParser → JSON parse → model_validate.
+    """
+    import json
+
+    from langchain_core.output_parsers import StrOutputParser
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.runnables import RunnableLambda
+
+    schema_json = json.dumps(schema.model_json_schema(), indent=2)
+
+    if settings.llm_provider == "ollama":
+        from langchain_ollama import ChatOllama
+
+        llm_kwargs: dict[str, Any] = {
+            "model": settings.ollama_model_name,
+            "base_url": settings.ollama_base_url,
+            "temperature": 0,
+            "format": "json",
+        }
+        if settings.ollama_api_key:
+            llm_kwargs["client_kwargs"] = {
+                "headers": {"Authorization": f"Bearer {settings.ollama_api_key}"}
+            }
+        if callbacks:
+            llm_kwargs["callbacks"] = callbacks
+        llm = ChatOllama(**llm_kwargs)
+    else:
+        llm = get_llm(callbacks=callbacks)
+
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "Sos un asistente servicial. Seguí cuidadosamente las instrucciones y "
+                "ejemplos del usuario, luego respondé con JSON válido que coincida con "
+                "el esquema de abajo. Las claves del JSON deben estar en inglés (según "
+                "el esquema), pero los valores de texto deben estar en español. No "
+                "generes ningún texto fuera del objeto JSON.",
+            ),
+            ("user", "{input}\n\nDevolvé JSON válido que coincida con este esquema:\n{schema}"),
+        ]
+    )
+
     chain = (
         RunnableLambda(lambda x: {"input": x, "schema": schema_json})
         | prompt_template
-        | ollama
+        | llm
         | StrOutputParser()
-        | _parse
+        | _parse_json_for_schema(schema)
     )
     return chain
 
@@ -198,7 +209,8 @@ def get_structured_llm(
 ) -> Runnable:
     """Return an LLM configured with structured output for a Pydantic schema.
 
-    For Ollama: uses ``format="json"`` with schema appended to the user prompt.
+    For Ollama and OpenCode Go: uses schema appended to the user prompt
+    (``format="json"`` for Ollama, standard completion for OpenAI-compatible).
     For other providers: uses native ``with_structured_output(schema)``.
 
     Args:
@@ -209,6 +221,6 @@ def get_structured_llm(
         A Runnable that takes a prompt string and returns a validated
         instance of *schema*.
     """
-    if settings.llm_provider == "ollama":
-        return _ollama_json_mode_chain(schema, callbacks)
+    if settings.llm_provider in ("ollama", "opencode-go"):
+        return _schema_in_prompt_chain(schema, callbacks)
     return get_llm(callbacks=callbacks).with_structured_output(schema)

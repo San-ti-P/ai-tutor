@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     max_iterations_per_task: int = 15
     ocr_confidence_threshold: float = 0.85
     classification_confidence_threshold: float = 0.75
-    anti_hallucination_threshold: float = 0.30
+    anti_hallucination_threshold: float = 0.55
     judge_sample_rate: float = 0.30
     judge_disagreement_threshold: float = 2.0
 
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     e2e_record_mode: bool = False
 
     # ── RAG / Embedding ───────────────────────────────────────────────────
-    embedding_model_name: str = "intfloat/multilingual-e5-small"
+    embedding_model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
     chunk_size: int = 512
     chunk_overlap: int = 64
     retrieval_top_k: int = 5

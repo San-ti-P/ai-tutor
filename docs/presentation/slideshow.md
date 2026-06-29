@@ -88,7 +88,7 @@ UTN Santa Fe — CIDISI
 |---|---|---|
 | **LLM** | Ollama Cloud `gemma4:31b-cloud` | Tool calling nativo, español, local/cloud |
 | **Orquestación** | LangGraph + LangChain | StateGraph con conditional edges y loops |
-| **RAG** | ChromaDB + SentenceTransformer | Vector store local, embeddings bilingües |
+| **RAG** | ChromaDB + `paraphrase-multilingual-MiniLM-L12-v2` | Vector store local, embeddings multilingües |
 | **API** | FastAPI (Python) | Async, tipado, OpenAPI automático |
 | **UI** | Next.js 15 + React 19 + Tailwind 4 | SPA moderna, upload, chat, dashboard |
 | **Memoria** | SQLite (perfil) + ChromaDB (material) | Sin servidor externo |
@@ -122,7 +122,6 @@ UTN Santa Fe — CIDISI
 | `generate_exam` | ExamGenerator | Crea examen con MCQ + preguntas abiertas |
 | `generate_exercise` | ExerciseGenerator | Genera ejercicio práctico multi-paso |
 | `evaluate_answer` | Evaluator | Corrige respuesta libre, score 0-10, feedback |
-| `ocr_math_extract` | Ingestor | Extrae LaTeX de imágenes (diferido) |
 | `update_student_profile` | Support | Actualiza scores, preferencias, temas débiles |
 | `get_student_summary` | Support | Recupera perfil completo para personalizar |
 
@@ -136,10 +135,10 @@ UTN Santa Fe — CIDISI
   PDF/TXT
     │
     ▼
-┌──────────┐    ┌──────────────────┐    ┌─────────────┐
-│ markitdown│───▶│ Chunking Semántico│───▶│ Embeddings  │
-│  (parse)  │    │ 512 tokens, 64 ov│    │SentenceTransf│
-└──────────┘    └──────────────────┘    └──────┬──────┘
+┌──────────┐    ┌──────────────────┐    ┌─────────────────┐
+│ markitdown│───▶│ Chunking Semántico│───▶│ Embeddings      │
+│  (parse)  │    │ 512 tokens, 64 ov│    │MiniLM-L12-v2    │
+└──────────┘    └──────────────────┘    └──────┬──────────┘
                                                │
                                                ▼
                                         ┌─────────────┐
@@ -166,9 +165,8 @@ UTN Santa Fe — CIDISI
 
 | Riesgo | Guardrail | Acción |
 |---|---|---|
-| **Preguntas inventadas** | Validación claim-level contra ChromaDB (threshold 0.30) | Regenerar hasta 3×, luego skip |
+| **Preguntas inventadas** | Validación claim-level contra ChromaDB (threshold 0.55) | Regenerar hasta 3×, luego skip |
 | **Loop infinito** | Máximo 15 iteraciones por task | Terminar y devolver parcial |
-| **OCR baja confianza** | Threshold 0.85 | Solicitar confirmación (diferido) |
 | **Material no académico** | Clasificador del Ingestor | Rechazar, no contaminar BD |
 | **Evaluación inconsistente** | LLM-as-judge (10% sampling) | Marcar para revisión si discrepancia >2pts |
 
@@ -232,7 +230,7 @@ UTN Santa Fe — CIDISI
 
 # 🎥 Caso Complejo — Composite Plan-and-Execute
 
-### "Generame un examen de 5 preguntas sobre agentes inteligentes y también un ejercicio práctico sobre racionalidad en agentes."
+### " Ingesta de PDFS y Generame un examen de 5 preguntas sobre agentes inteligentes y también un ejercicio práctico sobre racionalidad en agentes."
 
 **Flujo interno**:
 ```
@@ -298,7 +296,7 @@ Session
 | Categoría | Casos | Tipo de validación |
 |---|---|---|
 | **Happy Path** (5) | Ingesta, examen, evaluación, priorización, incremental | Determinística + LLM-as-judge |
-| **Edge Cases** (4) | PDF complejo, tema ausente, respuesta parcial, OCR baja confianza | Determinística |
+| **Edge Cases** (2) | Tema ausente, respuesta parcial | Determinística |
 | **Adversarial** (3) | Archivo no académico, tema externo, idioma distinto | Determinística |
 
 **105 unit tests** (mock, <5s) + **16 integration tests** (LLM real)
@@ -314,17 +312,17 @@ Session
 |---|---|---|---|---|
 | 1 | Ingesta de PDF | ✅ | ✅ | — |
 | 2 | Generar examen | ✅ | ✅ | ✅ |
-| 3 | Evaluar respuesta correcta | ✅ | ⚠️ | — |
+| 3 | Evaluar respuesta correcta | ✅ | ✅ | — |
 | 4 | Priorizar temas débiles | ✅ | ✅ | ✅ |
 | 5 | Ingesta incremental | ✅ | — | — |
 | 7 | Tema no encontrado | ✅ | — | — |
-| 8 | Respuesta parcial | ✅ | ⚠️ | — |
+| 8 | Respuesta parcial | ✅ | ✅ | — |
 | 10 | Archivo no académico | ✅ | — | — |
-| 11 | Sin invención (adv.) | ✅ | ⚠️ | — |
+| 11 | Sin invención (adv.) | ✅ | ✅ | — |
 | 12 | Respuesta otro idioma | ✅ | ✅ | — |
 | **Composite** | Exam + Exercise | — | — | ✅ |
 
-> ⚠️ = falla en dev por modelo (`gemma4:31b-cloud` no sigue structured output)
+> Todos los tests de integración pasan con `gemma4:31b-cloud` + `paraphrase-multilingual-MiniLM-L12-v2`
 
 ---
 
@@ -334,9 +332,8 @@ Session
 
 | Falla detectada | Causa | Mitigación |
 |---|---|---|
-| **Structured output no fiable** | `gemma4:31b-cloud` no sigue schema Pydantic en evaluaciones | Cambiar modelo o post-procesar output |
-| **Anti-alucinación threshold bajo** | 0.30 deja pasar falsos positivos en embeddings | Subir a 0.55-0.60 |
-| **Composite dependiente roto** | `_build_tool_args` no forwardea output entre pasos | Refactor post-entrega |
+| **Evaluator score bajo** | `gemma4:31b-cloud` no sigue instrucciones de scoring con precisión | Ajustar prompt del evaluador o cambiar modelo |
+| **Hallucinated chunk IDs** | LLM inventa IDs que no existen en ChromaDB | Post-filtro elimina IDs inválidos (ya implementado) |
 | **ChromaDB file locking** | Windows no libera sqlite3 en tests | `ignore_cleanup_errors=True` |
 
 ---
@@ -371,9 +368,9 @@ Session
 | **Agentes** | 6 (Orchestrator, Ingestor, ExamGen, ExerciseGen, Evaluator, Support) |
 | **Tools** | 8 funcionales con tool calling nativo |
 | **Grafos LangGraph** | 6 StateGraphs con conditional edges y loops |
-| **RAG** | ChromaDB + SentenceTransformer + índice temático jerárquico |
+| **RAG** | ChromaDB + `paraphrase-multilingual-MiniLM-L12-v2` + índice temático jerárquico |
 | **Tests** | 121 (105 unit + 16 integration) + 6 E2E live |
-| **Casos PRD cubiertos** | 10/12 (2 diferidos por OCR) |
+| **Casos PRD cubiertos** | 10/12 (2 diferidos por imágenes) |
 | **Observabilidad** | Langfuse con spans anidados (LLM, Tool, RAG, Evaluation) |
 | **UI** | Next.js 15 — chat, upload, dashboard, exam renderer |
 | **Memoria** | SQLite (perfil long-term) + ChromaDB (material episódico) |

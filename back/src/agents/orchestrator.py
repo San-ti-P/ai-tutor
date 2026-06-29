@@ -105,6 +105,7 @@ class OrchestratorState(TypedDict):
     exam_id: NotRequired[str | None]
     answers: NotRequired[dict[str, str] | None]
     exam_questions: NotRequired[list[dict] | None]
+    topic_scores_forward: NotRequired[dict[str, list[float]] | None]
 
 
 async def load_session_context(state: OrchestratorState, config: RunnableConfig = None) -> dict:
@@ -612,7 +613,8 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
     elif tool_name == "update_student_profile":
         resolved_sid = state.get("student_id") or state["session_id"]
         args["student_id"] = resolved_sid
-        args["topic_scores"] = {}
+        # Prefer forwarded topic_scores from evaluate step
+        args["topic_scores"] = state.get("topic_scores_forward", {})
         args["preferences"] = None
         if profile:
             prefs = profile.get("preferences", {})
@@ -622,6 +624,42 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
 
     return args
 
+
+def _forward_step_result(tool_name: str, result: dict) -> dict:
+    """Extract fields from a tool result to forward into shared state.
+
+    Enables composite chaining: step N's output becomes available to step N+1
+    via the fields that ``_build_tool_args`` reads.
+
+    Returns a dict of state fields to merge, or an empty dict when no forwarding
+    is needed.
+    """
+    if not isinstance(result, dict):
+        return {}
+
+    if tool_name == "generate_exam":
+        questions = result.get("questions", [])
+        exam_id = result.get("exam_id", "")
+        return {
+            "exam_id": exam_id,
+            "exam_questions": questions,
+        }
+
+    if tool_name == "evaluate":
+        # Extract per-question topic scores for update_student_profile
+        evaluations = result if isinstance(result, list) else result.get("evaluations", [])
+        topic_scores: dict[str, list[float]] = {}
+        for ev in evaluations:
+            if isinstance(ev, dict):
+                topic = ev.get("topic", "")
+                score = ev.get("score")
+                if topic and isinstance(score, (int, float)):
+                    topic_scores.setdefault(topic, []).append(float(score))
+        if topic_scores:
+            return {"topic_scores_forward": topic_scores}
+        return {}
+
+    return {}
 
 async def _invoke_tool_with_retry(tool, args: dict, step: int) -> dict:
     """Invoke a tool with exactly one retry on failure.
@@ -638,12 +676,15 @@ async def _invoke_tool_with_retry(tool, args: dict, step: int) -> dict:
             logger.exception("Step %d failed after retry", step)
             raise ValueError(f"Tool '{tool.name}' failed after retry: {second_err}") from second_err
 
-
 async def execute_step(state: OrchestratorState) -> dict:
     """Execute the current step in the plan.
 
     Resolves tool from TOOL_MAP, builds args, invokes with one retry, records result.
     Increments current_step and iteration_count. On failure, records error.
+
+    Forwards relevant output fields from step N's result into shared state so
+    step N+1 can consume them (e.g. exam_id + exam_questions from generate_exam
+    flow into evaluate; topic_scores from evaluate flow into update_student_profile).
     """
     import time
 
@@ -697,10 +738,15 @@ async def execute_step(state: OrchestratorState) -> dict:
             tool_name,
             int(elapsed),
         )
+
+        # ── Forward step result to shared state for downstream steps ──
+        forward = _forward_step_result(tool_name, result)
+
         return {
             "results": results + [{"step": current, "tool": tool_name, "result": result}],
             "current_step": current + 1,
             "iteration_count": iteration + 1,
+            **forward,
         }
     except Exception as exc:
         elapsed = (time.monotonic() - t0) * 1000

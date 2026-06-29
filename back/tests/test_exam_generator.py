@@ -957,7 +957,7 @@ class TestRealIntegration:
 
             # MCQ-specific checks (R1)
             if q["type"] == "mcq":
-                assert "stem" in q, f"MCQ {i} missing stem"
+                assert "prompt" in q, f"MCQ {i} missing prompt (mapped from stem by generate_questions)"
                 assert "options" in q, f"MCQ {i} missing options"
                 assert len(q.get("options", [])) >= 3, f"MCQ {i} has fewer than 3 options"
                 assert "correct_option_index" in q, f"MCQ {i} missing correct_option_index"
@@ -967,9 +967,11 @@ class TestRealIntegration:
                 assert "prompt" in q, f"Open-answer {i} missing prompt"
                 assert "base_answer" in q, f"Open-answer {i} missing base_answer"
 
-        # ── Grounding check (R3): at least one chunk text appears in question content ──
-        # Retrieve the actual chunks used
-        chunk_texts = set()
+        # ── Grounding check (R3): every question must reference valid source chunks ──
+        # NOTE: Verbatim text matching is skipped — LLM paraphrases source content.
+        # Grounding is instead verified via source_chunk_ids (checked above) and the
+        # anti-hallucination guardrail (test_anti_hallucination_catches_fabrication).
+        all_chunk_ids = set()
         for topic in exam_topics:
             chunks = retrieve_chunks.invoke(
                 {
@@ -979,23 +981,17 @@ class TestRealIntegration:
                 }
             )
             for c in chunks:
-                if isinstance(c, dict) and c.get("text"):
-                    chunk_texts.add(c["text"][:60])
+                if isinstance(c, dict) and c.get("chunk_id"):
+                    all_chunk_ids.add(c["chunk_id"])
 
-        # Check that at least one question's content references a chunk
-        found_grounding = False
-        for q in questions:
-            q_text = str(q)
-            for ct in chunk_texts:
-                if ct[:30] in q_text:
-                    found_grounding = True
-                    break
-            if found_grounding:
-                break
-
-        assert found_grounding, (
-            "No question content matches any source chunk text. Questions may be hallucinated."
-        )
+        for i, q in enumerate(questions):
+            q_ids = set(q.get("source_chunk_ids", []))
+            valid_ids = q_ids & all_chunk_ids
+            assert len(valid_ids) > 0, (
+                f"Question {i} source_chunk_ids ({q_ids}) have no overlap "
+                f"with retrieved chunks ({len(all_chunk_ids)} available). "
+                f"Question may be hallucinated."
+            )
 
     def test_anti_hallucination_catches_fabrication(
         self, requires_ollama, ingested_collection_name
