@@ -76,9 +76,11 @@ class TestRetrieveRelevantChunks:
             {"topics_json": '["cálculo/derivadas", "álgebra/matrices"]'},
         ]
 
+        queries_called: list[str] = []
+
         def _fake_retrieve(input_dict):
-            query = input_dict.get("query", "")
-            if "cálculo/derivadas" in query:
+            queries_called.append(input_dict.get("query", ""))
+            if "cálculo/derivadas" in input_dict.get("query", ""):
                 return [sample_chunks[0]]
             return []
 
@@ -88,8 +90,14 @@ class TestRetrieveRelevantChunks:
             result = run_async_in_sync(retrieve_relevant_chunks(state))
 
         assert "topics" in result
-        # "derivadas" should be resolved to ["cálculo/derivadas"]
-        assert result["topics"] == ["cálculo/derivadas"]
+        # User's original topic is preserved (not overwritten with resolved leaves).
+        # The retrieval internally used the resolved topic "cálculo/derivadas" but
+        # the exam label keeps what the user actually asked for.
+        assert result["topics"] == ["derivadas"]
+        # Verify retrieval DID use the resolved topic internally
+        assert any("cálculo/derivadas" in q for q in queries_called), (
+            f"Expected retrieval to use resolved topic, got {queries_called}"
+        )
         assert "retrieved_chunks" in result
         assert len(result["retrieved_chunks"]) == 1
         assert result["retrieved_chunks"][0]["chunk_id"] == sample_chunks[0]["chunk_id"]

@@ -162,49 +162,6 @@ def embed_and_store(
 # ---------------------------------------------------------------------------
 
 
-def _find_related_descriptions(
-    topic: str,
-    descs: dict[str, str],
-    tree: dict[str, Any],
-) -> list[str]:
-    """Walk *tree* to find parent, children, and siblings of *topic*.
-
-    Returns descriptions of related topics (excluding *topic* itself).
-    """
-    related: list[str] = []
-
-    def _walk(node: dict[str, Any], ancestors: list[str]) -> bool:
-        """Return True when *topic* is found as a key in *node*."""
-        for key, children in node.items():
-            if key == topic:
-                # Parent description (direct parent = last ancestor)
-                if ancestors:
-                    parent_name = ancestors[-1]
-                    if parent_name in descs:
-                        related.append(descs[parent_name])
-                # Children descriptions (topic's own children, recursively)
-                if isinstance(children, dict) and children:
-                    _collect_leaf_descs(children, descs, related)
-                # Sibling descriptions at same level (excluding self, shallow)
-                for sibling in node:
-                    if sibling != topic and sibling in descs:
-                        related.append(descs[sibling])
-                return True
-            # Recurse: add current key to ancestors for children's context
-            if isinstance(children, dict) and children:
-                if _walk(children, ancestors + [key]):
-                    return True
-        return False
-
-    def _collect_leaf_descs(node: dict[str, Any], descs: dict[str, str], out: list[str]) -> None:
-        for key, children in node.items():
-            if key in descs:
-                out.append(descs[key])
-            if isinstance(children, dict) and children:
-                _collect_leaf_descs(children, descs, out)
-
-    _walk(tree, [])
-    return related
 
 
 @observe(name="rag_retrieve", as_type="retriever")
@@ -303,9 +260,11 @@ def retrieve_by_topic(
 ) -> list[dict[str, Any]]:
     """Retrieve chunks using topic description as query, falling back to label.
 
-    When *topic_tree* is provided, the matched topic's parent, children, and
-    sibling topics are discovered from the hierarchical tree, and their
-    descriptions are appended to the query for richer semantic coverage.
+    When the topic has a description in *topic_descriptions*, that
+    description is used as the embedding query instead of the bare label.
+    This keeps the semantic search focused on the matched topic without
+    contaminating it with descriptions from parent, children, or sibling
+    topics.
 
     Args:
         topic: The topic label (e.g. "Agentes inteligentes").
@@ -315,21 +274,13 @@ def retrieve_by_topic(
         collection_name: ChromaDB collection name.
         top_k: Number of chunks to retrieve.
         topic_filter: Optional prefix filter on ``metadata["topic"]``.
-        topic_tree: Optional nested dict from ``ThematicIndex.to_dict()``
-            representing the hierarchical topic tree.  Used to discover
-            related topics whose descriptions enrich the query.
+        topic_tree: Unused.  Kept for backward compatibility.
 
     Returns:
         List of chunk dicts from ``retrieve()``.
     """
     descs = topic_descriptions or {}
     query = descs.get(topic, topic)
-
-    # Enrich query with related topic descriptions from the topic tree
-    if topic_tree and topic in descs:
-        related_descs = _find_related_descriptions(topic, descs, topic_tree)
-        if related_descs:
-            query = query + " " + " ".join(related_descs)
 
     # Ensure non-empty query
     if not query or not query.strip():

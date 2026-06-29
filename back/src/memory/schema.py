@@ -372,40 +372,75 @@ async def upsert_topic_scores(student_id: str, session_id: str, scores: list[dic
         await db.commit()
 
 
+def _topic_root(topic: str) -> str:
+    """Return the root prefix of a hierarchical topic.
+
+    ``"cálculo/derivadas"`` → ``"cálculo"``
+    ``"álgebra/matrices"``   → ``"álgebra"``
+    ``"agentes"``            → ``"agentes"`` (no ``/``, returns self)
+    """
+    return topic.split("/", 1)[0].strip()
+
+
 async def compute_weak_topics(
     student_id: str, session_id: str | None = None, threshold: float = 6.0, limit: int = 3
 ) -> list[str]:
-    """Return topic names whose latest score is below *threshold*.
+    """Return weakest root-level topics aggregated from leaf scores.
 
-    Reads from ``topic_scores`` (fast, indexed lookup).  Results are
-    sorted by score ascending so the weakest topics appear first.
-    Only the first *limit* results are returned.
+    Scores are stored per leaf (e.g. ``"cálculo/derivadas": 3.0``,
+    ``"cálculo/integrales": 8.0``) but users query at the root level
+    (e.g. ``"examen de cálculo"``).  This function groups all leaves
+    sharing the same root prefix, averages their scores, and returns
+    the weakest roots sorted by average ascending.
+
+    Leaves without ``/`` in their name act as their own root
+    (e.g. ``"agentes": 4.0`` stays ``"agentes"`` with avg 4.0).
 
     When *session_id* is provided, only scores from that session are
     considered.  When None (default), aggregates across all sessions.
     """
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
+
+        # Fetch ALL scores (not filtered by threshold) so we can
+        # compute accurate parent averages including strong children.
         if session_id is not None:
             cursor = await db.execute(
                 """SELECT topic, score
                    FROM topic_scores
-                   WHERE student_id = ? AND session_id = ? AND score < ?
-                   ORDER BY score ASC
-                   LIMIT ?""",
-                (student_id, session_id, threshold, limit),
+                   WHERE student_id = ? AND session_id = ?""",
+                (student_id, session_id),
             )
         else:
             cursor = await db.execute(
                 """SELECT topic, score
                    FROM topic_scores
-                   WHERE student_id = ? AND score < ?
-                   ORDER BY score ASC
-                   LIMIT ?""",
-                (student_id, threshold, limit),
+                   WHERE student_id = ?""",
+                (student_id,),
             )
         rows = await cursor.fetchall()
-        return [dict(r)["topic"] for r in rows]
+
+        if not rows:
+            return []
+
+        # Group scores by root prefix, averaging within each group
+        root_scores: dict[str, list[float]] = {}
+        for r in rows:
+            root = _topic_root(r["topic"])
+            if root not in root_scores:
+                root_scores[root] = []
+            root_scores[root].append(r["score"])
+
+        # Compute average per root, keep only those below threshold
+        weak_roots: list[tuple[str, float]] = []
+        for root, scores in root_scores.items():
+            avg = sum(scores) / len(scores)
+            if avg < threshold:
+                weak_roots.append((root, avg))
+
+        # Sort by average ascending (weakest first), respect limit
+        weak_roots.sort(key=lambda x: x[1])
+        return [root for root, _ in weak_roots[:limit]]
 
 
 async def get_recent_sessions(student_id: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -733,9 +768,23 @@ async def get_session_profile(session_id: str) -> dict[str, Any] | None:
         if topic not in latest_score:
             latest_score[topic] = score
 
-    weak_topics = [
-        topic for topic, score in sorted(latest_score.items(), key=lambda x: x[1]) if score < 6.0
-    ][:3]
+    # Aggregate leaf scores to root-level weak topics (same logic as
+    # compute_weak_topics above — see that function for rationale).
+    root_avgs: dict[str, list[float]] = {}
+    for topic, score in latest_score.items():
+        root = _topic_root(topic)
+        if root not in root_avgs:
+            root_avgs[root] = []
+        root_avgs[root].append(score)
+
+    weak_rooted: list[tuple[str, float]] = []
+    for root, scores in root_avgs.items():
+        avg = sum(scores) / len(scores)
+        if avg < 6.0:
+            weak_rooted.append((root, avg))
+
+    weak_rooted.sort(key=lambda x: x[1])
+    weak_topics = [root for root, _ in weak_rooted[:3]]
 
     return {
         "session_id": session_id,

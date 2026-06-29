@@ -254,6 +254,76 @@ class TestComputeWeakTopics:
             weak = await compute_weak_topics("test-student-001", limit=3)
             assert weak == ["t1", "t2", "t3"]  # lowest scores first
 
+    @pytest.mark.asyncio
+    async def test_weak_topics_aggregates_to_root(self, populated_db):
+        """GIVEN hierarchical leaf scores → THEN weak topics are root-level aggregates.
+
+        ``cálculo/derivadas: 3.0`` + ``cálculo/integrales: 8.0`` →
+        root ``cálculo`` avg=5.5 < 6.0 → weak.
+
+        ``álgebra/matrices: 7.0`` + ``álgebra/vectores: 9.0`` →
+        root ``álgebra`` avg=8.0 ≥ 6.0 → not weak.
+        """
+        from src.memory.schema import compute_weak_topics, upsert_topic_scores
+
+        with patch("src.memory.schema.settings") as mock_settings:
+            mock_settings.sqlite_db_path = populated_db
+
+            await upsert_topic_scores(
+                "test-student-001",
+                "test-session",
+                [
+                    {"topic": "cálculo/derivadas", "score": 3.0},
+                    {"topic": "cálculo/integrales", "score": 8.0},
+                    {"topic": "álgebra/matrices", "score": 7.0},
+                    {"topic": "álgebra/vectores", "score": 9.0},
+                    {"topic": "física", "score": 4.0},          # flat, no children
+                ],
+            )
+
+            weak = await compute_weak_topics("test-student-001")
+            # cálculo avg=(3+8)/2=5.5 → weak, física=4.0 → weak
+            # álgebra avg=(7+9)/2=8.0 → not weak
+            assert "cálculo" in weak, f"Expected 'cálculo' (avg 5.5) in weak topics, got {weak}"
+            assert "física" in weak, f"Expected 'física' (4.0) in weak topics, got {weak}"
+            assert "álgebra" not in weak, f"'álgebra' (avg 8.0) should NOT be weak, got {weak}"
+            # Verify no leaf topics appear — only roots
+            for leaf in ("cálculo/derivadas", "cálculo/integrales", "álgebra/matrices", "álgebra/vectores"):
+                assert leaf not in weak, f"Leaf topic '{leaf}' should not appear, only roots. Got {weak}"
+
+    @pytest.mark.asyncio
+    async def test_weak_topics_mixed_flat_and_hierarchical(self, populated_db):
+        """GIVEN mix of flat and hierarchical topics → THEN both appear as roots.
+
+        ``cálculo: 5.0`` (flat root) + ``cálculo/derivadas: 3.0`` (leaf of cálculo) →
+        root ``cálculo`` avg=4.0 → weak.
+
+        ``álgebra: 7.0`` (flat root) + ``álgebra/matrices: 9.0`` (leaf of álgebra) →
+        root ``álgebra`` avg=8.0 → not weak.
+        """
+        from src.memory.schema import compute_weak_topics, upsert_topic_scores
+
+        with patch("src.memory.schema.settings") as mock_settings:
+            mock_settings.sqlite_db_path = populated_db
+
+            await upsert_topic_scores(
+                "test-student-001",
+                "test-session",
+                [
+                    {"topic": "cálculo", "score": 5.0},           # flat score 5.0
+                    {"topic": "cálculo/derivadas", "score": 3.0},  # leaf score 3.0
+                    {"topic": "álgebra", "score": 7.0},            # flat score 7.0
+                    {"topic": "álgebra/matrices", "score": 9.0},   # leaf score 9.0
+                ],
+            )
+
+            weak = await compute_weak_topics("test-student-001")
+            # cálculo root avg=(5.0+3.0)/2=4.0 < 6.0 → weak
+            # álgebra root avg=(7.0+9.0)/2=8.0 ≥ 6.0 → not weak
+            assert "cálculo" in weak, f"Expected 'cálculo' (avg 4.0) in weak topics, got {weak}"
+            assert "álgebra" not in weak, f"'álgebra' (avg 8.0) should NOT be weak, got {weak}"
+            assert len(weak) <= 3, f"Should respect default limit 3, got {len(weak)}"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # T-6.3: update_student_profile tool

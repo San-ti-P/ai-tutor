@@ -174,6 +174,9 @@ async def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
         # Match user-requested theme/topics to topics extracted from session files
         topic_descriptions: dict[str, str] | None = None
         topic_tree: dict[str, Any] | None = None
+        user_topics = list(topics)  # preserve original — used for exam label
+        has_any_match = False
+        deduped_resolved: list[str] = []
         if session_id and topics:
             from src.memory.schema import list_session_files
             from src.utils.async_ import run_async_in_sync
@@ -263,7 +266,6 @@ async def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
                         logger.info(
                             "Matched themes %s to session topics %s", topics, deduped_resolved
                         )
-                        topics = deduped_resolved
             except Exception as e:
                 logger.warning("Failed to resolve theme to session topics: %s", e)
 
@@ -272,19 +274,30 @@ async def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
         if student_profile and isinstance(student_profile, dict):
             weak_topics = student_profile.get("weak_topics", [])
 
+        # Build the retrieval list: use resolved session-topics when the
+        # user query matched something in the ingested files; otherwise
+        # fall back to the raw user topics.  The original user_topics are
+        # preserved separately so the exam is labelled with what the user
+        # actually asked for, not the internal leaf expansion.
+        retrieval_candidates: list[str]
+        if has_any_match:
+            retrieval_candidates = list(deduped_resolved)  # expanded leaves
+        else:
+            retrieval_candidates = list(topics)             # raw user query
+
         # Build topic list: prioritize explicit user topics over weak topics.
         # When the user explicitly requests a topic (not "general"), only
         # retrieve chunks for that topic — do NOT blend in unrelated weak
         # topics that would dilute the user's explicit intent.
         # When no explicit topic is given, fall back to weak topics as
         # the primary focus.
-        explicit_topics = [t for t in topics if t != "general" and t.strip()]
+        explicit_topics = [t for t in retrieval_candidates if t != "general" and t.strip()]
         if explicit_topics:
             weighted_topics: list[str] = list(explicit_topics)
         elif weak_topics:
             weighted_topics = list(weak_topics)
         else:
-            weighted_topics = list(topics)
+            weighted_topics = list(retrieval_candidates)
 
         # Deduplicate while preserving order
         seen: set[str] = set()
@@ -360,7 +373,7 @@ async def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
                 logger.debug("ThematicIndex suggestion lookup failed", exc_info=True)
 
         return {
-            "topics": topics,
+            "topics": user_topics,
             "retrieved_chunks": all_chunks,
             "topic_not_found": topic_not_found,
             "topic_suggestions": topic_suggestions,

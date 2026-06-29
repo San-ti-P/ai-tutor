@@ -93,24 +93,32 @@ export default function DashboardPage() {
     );
   }
 
-  const topicCount = profile?.topicScores
-    ? Object.keys(profile.topicScores).length
-    : 0;
+  const chartData = profile?.topicScores
+    ? (() => {
+        // Aggregate leaf scores by root prefix to match weakTopics logic.
+        // "cálculo/derivadas": [3, 2] + "cálculo/integrales": [8] →
+        // "cálculo": avg(3, 2, 8) = 4.33
+        const rootScores: Record<string, number[]> = {};
+        for (const [topic, scores] of Object.entries(profile.topicScores)) {
+          const root = topic.split("/")[0] ?? topic;
+          if (!rootScores[root]) rootScores[root] = [];
+          rootScores[root].push(...scores);
+        }
+        return Object.entries(rootScores)
+          .map(([root, scores]) => ({
+            topic: root,
+            score: scores.reduce((a, b) => a + b, 0) / scores.length,
+          }))
+          .sort((a, b) => a.score - b.score);
+      })()
+    : [];
+
+  const topicCount = chartData.length;
 
   const avgScore =
-    profile?.topicScores && topicCount > 0
-      ? Object.values(profile.topicScores)
-          .flat()
-          .reduce((a, b) => a + b, 0) /
-        Object.values(profile.topicScores).flat().length
+    chartData.length > 0
+      ? chartData.reduce((sum, d) => sum + d.score, 0) / chartData.length
       : null;
-
-  const chartData = profile?.topicScores
-    ? Object.entries(profile.topicScores).map(([topic, scores]) => ({
-        topic: topic.split("/").pop() ?? topic,
-        score: scores.length > 0 ? scores[scores.length - 1] : 0,
-      }))
-    : [];
 
   const weakTopics = profile?.weakTopics ?? [];
 

@@ -16,8 +16,9 @@ interface TopicChartProps {
 }
 
 function barColor(score: number): string {
+  // Matches backend threshold: score < 6.0 → weak
   if (score >= 7) return "hsl(142, 76%, 36%)";
-  if (score >= 5) return "hsl(45, 93%, 47%)";
+  if (score >= 6) return "hsl(45, 93%, 47%)";
   return "hsl(0, 84%, 60%)";
 }
 
