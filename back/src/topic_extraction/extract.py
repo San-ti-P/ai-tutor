@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -70,7 +71,7 @@ def _parse_json_response(text: str) -> SegmentTopics:
 
 async def _extract_segment_topics(
     segment: str,
-    llm,  # BaseChatModel — passed in to avoid re-creating per call
+    llm: Any,  # BaseChatModel — passed in to avoid re-creating per call
     segment_index: int = 0,
     total: int = 1,
 ) -> list[str]:

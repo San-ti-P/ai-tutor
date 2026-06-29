@@ -19,9 +19,9 @@ SEEDS_DIR = Path(__file__).parent.parent.parent / "front" / "e2e" / "fixtures"
 class MockResponse:
     """Simulates an LLM response with optional tool calls."""
 
-    def __init__(self, content: str, tool_calls: list[dict] | None = None):
+    def __init__(self, content: str, tool_calls: list[dict[str, Any]] | None = None):
         self.content = content
-        self.tool_calls = tool_calls or []
+        self.tool_calls: list[dict[str, Any]] = tool_calls or []
         self.response_metadata = {"mock": True}
 
 
@@ -36,25 +36,26 @@ class MockLLM:
                 "Run with E2E_RECORD_MODE=true to generate seeds.",
                 seed_file,
             )
-            self.seeds: dict[str, dict] = {}
+            self.seeds: dict[str, dict[str, Any]] = {}
         else:
             with open(seed_path) as f:
-                seed_list: list[dict] = json.load(f)
+                seed_list: list[dict[str, Any]] = json.load(f)
             self.seeds = {s["prompt_hash"]: s for s in seed_list}
         self._record_mode = _is_record_mode()
-        self._recorded: list[dict] = []
+        self._recorded: list[dict[str, Any]] = []
 
     @staticmethod
-    def _normalize_message(m: Any) -> dict:
+    def _normalize_message(m: Any) -> dict[str, Any]:
         """Convert a LangChain message or dict to a plain dict for hashing."""
         if isinstance(m, dict):
             return m
         if hasattr(m, "model_dump"):
-            return m.model_dump()
+            res = m.model_dump()
+            return res if isinstance(res, dict) else {}
         if hasattr(m, "type") and hasattr(m, "content"):
             kind = str(m.type)
             content = str(m.content) if m.content else ""
-            result = {"role": kind, "content": content}
+            result: dict[str, Any] = {"role": kind, "content": content}
             if hasattr(m, "tool_calls") and m.tool_calls:
                 result["tool_calls"] = [
                     tc.model_dump() if hasattr(tc, "model_dump") else str(tc) for tc in m.tool_calls
@@ -63,11 +64,11 @@ class MockLLM:
         return {"content": str(m)}
 
     @classmethod
-    def _normalize_messages(cls, messages: list) -> list[dict]:
+    def _normalize_messages(cls, messages: list[Any]) -> list[dict[str, Any]]:
         """Convert mixed message types to a list of plain dicts."""
         return [cls._normalize_message(m) for m in messages]
 
-    async def ainvoke(self, messages: list[dict], **kwargs: Any) -> MockResponse:
+    async def ainvoke(self, messages: list[dict[str, Any]] | list[Any], **kwargs: Any) -> MockResponse:
         normalized = self._normalize_messages(messages)
         prompt_text = json.dumps(normalized, sort_keys=True, ensure_ascii=False)
         prompt_hash = hashlib.sha256(prompt_text.encode()).hexdigest()[:12]
@@ -119,7 +120,7 @@ class MockLLM:
         result_container: list[MockResponse] = []
         error_container: list[Exception] = []
 
-        def _run():
+        def _run() -> None:
             try:
                 result_container.append(asyncio.run(self.ainvoke(messages, **kwargs)))
             except Exception as e:
@@ -149,7 +150,7 @@ class RecordingLLM:
     def __init__(self, real_llm: Any, seed_file: str = "recorded-seed.json"):
         self._real = real_llm
         self._seed_path = SEEDS_DIR / seed_file
-        self._recorded: list[dict] = []
+        self._recorded: list[dict[str, Any]] = []
         # Load existing seeds if file exists (append mode)
         if self._seed_path.exists():
             with open(self._seed_path) as f:
@@ -162,16 +163,17 @@ class RecordingLLM:
         self._lock = _import_threading_lock()
 
     @staticmethod
-    def _normalize_message(m: Any) -> dict:
+    def _normalize_message(m: Any) -> dict[str, Any]:
         """Convert a LangChain message or dict to a plain dict for hashing."""
         if isinstance(m, dict):
             return m
         if hasattr(m, "model_dump"):
-            return m.model_dump()
+            res = m.model_dump()
+            return res if isinstance(res, dict) else {}
         if hasattr(m, "type") and hasattr(m, "content"):
             kind = str(m.type)
             content = str(m.content) if m.content else ""
-            result = {"role": kind, "content": content}
+            result: dict[str, Any] = {"role": kind, "content": content}
             if hasattr(m, "tool_calls") and m.tool_calls:
                 result["tool_calls"] = [
                     tc.model_dump() if hasattr(tc, "model_dump") else str(tc) for tc in m.tool_calls
@@ -179,11 +181,11 @@ class RecordingLLM:
             return result
         return {"content": str(m)}
 
-    def _normalize_messages(self, messages: list) -> list[dict]:
+    def _normalize_messages(self, messages: list[Any]) -> list[dict[str, Any]]:
         """Convert mixed message types to a list of plain dicts."""
         return [self._normalize_message(m) for m in messages]
 
-    def _make_label(self, messages: list) -> str:
+    def _make_label(self, messages: list[Any]) -> str:
         """Generate a human-readable label from the first user message."""
         for m in messages:
             role = None
@@ -198,16 +200,16 @@ class RecordingLLM:
                 return content[:80].strip()
         return "unknown"
 
-    def _make_response(self, entry: dict) -> MockResponse:
+    def _make_response(self, entry: dict[str, Any]) -> MockResponse:
         """Create a MockResponse from a recorded entry."""
         return MockResponse(entry["response"], entry.get("tool_calls", []))
 
-    def _hash_prompt(self, messages: list) -> str:
+    def _hash_prompt(self, messages: list[Any]) -> str:
         normalized = self._normalize_messages(messages)
         prompt_text = json.dumps(normalized, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(prompt_text.encode()).hexdigest()[:12]
 
-    async def ainvoke(self, messages: list[dict], **kwargs: Any) -> MockResponse:
+    async def ainvoke(self, messages: list[dict[str, Any]] | list[Any], **kwargs: Any) -> MockResponse:
         prompt_hash = self._hash_prompt(messages)
 
         # Check if already recorded (dedup)
@@ -239,11 +241,11 @@ class RecordingLLM:
 
         return self._record_and_return(messages, prompt_hash, response)
 
-    def _record_and_return(self, messages: list, prompt_hash: str, response: Any) -> MockResponse:
+    def _record_and_return(self, messages: list[Any], prompt_hash: str, response: Any) -> MockResponse:
 
         # Extract content and tool_calls
         content = response.content if hasattr(response, "content") else str(response)
-        tool_calls = []
+        tool_calls: list[Any] = []
         if hasattr(response, "tool_calls") and response.tool_calls:
             for tc in response.tool_calls:
                 if isinstance(tc, dict):
@@ -292,7 +294,7 @@ class RecordingLLM:
         return len(self._recorded)
 
 
-def _import_threading_lock():
+def _import_threading_lock() -> Any:
     import threading
 
     return threading.Lock()

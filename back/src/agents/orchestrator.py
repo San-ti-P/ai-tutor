@@ -7,7 +7,7 @@ import logging
 import operator
 import os
 import sqlite3
-from typing import Annotated, Literal, NotRequired
+from typing import Annotated, Any, Literal, NotRequired
 
 import aiosqlite
 from langchain_core.runnables import RunnableConfig
@@ -92,23 +92,23 @@ class OrchestratorState(TypedDict):
     confidence: float
     plan: list[str]
     current_step: int
-    results: list[dict]
-    errors: list[dict]
+    results: list[dict[str, Any]]
+    errors: list[dict[str, Any]]
     response: str
     status: str  # "pending" | "complete" | "incomplete" | "partial"
     iteration_count: int
-    student_profile: dict | None
+    student_profile: dict[str, Any] | None
     student_id: NotRequired[str | None]
-    session_context: NotRequired[dict | None]
-    messages_history: NotRequired[Annotated[list, operator.add]]
+    session_context: NotRequired[dict[str, Any] | None]
+    messages_history: NotRequired[Annotated[list[dict[str, Any]], operator.add]]
     profile_load_error: NotRequired[str | None]
     exam_id: NotRequired[str | None]
     answers: NotRequired[dict[str, str] | None]
-    exam_questions: NotRequired[list[dict] | None]
+    exam_questions: NotRequired[list[dict[str, Any]] | None]
     topic_scores_forward: NotRequired[dict[str, list[float]] | None]
 
 
-async def load_session_context(state: OrchestratorState, config: RunnableConfig = None) -> dict:
+async def load_session_context(state: OrchestratorState, config: RunnableConfig | None = None) -> dict[str, Any]:
     """Load session context: uploaded files and per-session progress.
 
     Runs after ``load_profile`` and before ``classify_intent``.
@@ -181,7 +181,7 @@ async def load_session_context(state: OrchestratorState, config: RunnableConfig 
     return {"session_context": {"files": files, "progress": progress}}
 
 
-async def load_profile(state: OrchestratorState, config: RunnableConfig = None) -> dict:
+async def load_profile(state: OrchestratorState, config: RunnableConfig | None = None) -> dict[str, Any]:
     """Load the student profile at session bootstrap.
 
     Resolves ``student_id`` from the session row (or override), calls
@@ -213,7 +213,7 @@ async def load_profile(state: OrchestratorState, config: RunnableConfig = None) 
         }
 
 
-def classify_intent(state: OrchestratorState, config: RunnableConfig = None) -> dict:
+def classify_intent(state: OrchestratorState, config: RunnableConfig | None = None) -> dict[str, Any]:
     """Classify user message into one of 8 intents with confidence score.
 
     On low confidence (< settings.classification_confidence_threshold), forces
@@ -371,7 +371,7 @@ def route_to_agent(state: OrchestratorState) -> str:
     return target
 
 
-def plan_composite(state: OrchestratorState, config: RunnableConfig = None) -> dict:
+def plan_composite(state: OrchestratorState, config: RunnableConfig | None = None) -> dict[str, Any]:
     """Plan steps for composite (multi-step) tasks.
 
     Uses LLM planner to generate an ordered list of tool names.
@@ -468,7 +468,7 @@ def _extract_topics(message: str) -> list[str]:
     return ["general"]
 
 
-def _get_session_topics(session_context: dict | None) -> list[str]:
+def _get_session_topics(session_context: dict[str, Any] | None) -> list[str]:
     """Extract all topics from ingested files in session context."""
     if not session_context:
         return []
@@ -509,12 +509,12 @@ def _extract_question_count(message: str) -> int:
     return 5
 
 
-def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
+def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict[str, Any]:
     """Build argument dict for a tool call from the current state.
 
     Each tool gets the fields it needs extracted from shared state.
     """
-    args: dict = {"session_id": state["session_id"]}
+    args: dict[str, Any] = {"session_id": state["session_id"]}
     profile = state.get("student_profile")
 
     if tool_name == "ingest":
@@ -553,9 +553,9 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
         exam_questions = state.get("exam_questions") or []
 
         # Map dict[str, str] answers to list[dict] expected by the evaluate tool
-        question_map: dict[str, dict] = {}
+        question_map: dict[str, dict[str, Any]] = {}
         for eq in exam_questions:
-            eq_id = eq.get("id") if isinstance(eq, dict) else getattr(eq, "id", "")
+            eq_id = str(eq.get("id") if isinstance(eq, dict) else getattr(eq, "id", ""))
             eq_prompt = eq.get("prompt") if isinstance(eq, dict) else getattr(eq, "prompt", "")
             eq_base_answer = (
                 (eq.get("baseAnswer") or eq.get("base_answer"))
@@ -578,7 +578,7 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
                 "source_chunk_ids": eq_source_chunk_ids or [],
             }
 
-        answers_list: list[dict] = []
+        answers_list: list[dict[str, Any]] = []
         for question_id, student_answer in raw_answers.items():
             if question_id in question_map:
                 qdata = question_map[question_id]
@@ -626,7 +626,7 @@ def _build_tool_args(tool_name: str, state: OrchestratorState) -> dict:
     return args
 
 
-def _forward_step_result(tool_name: str, result: dict) -> dict:
+def _forward_step_result(tool_name: str, result: Any) -> dict[str, Any]:
     """Extract fields from a tool result to forward into shared state.
 
     Enables composite chaining: step N's output becomes available to step N+1
@@ -662,7 +662,7 @@ def _forward_step_result(tool_name: str, result: dict) -> dict:
 
     return {}
 
-async def _invoke_tool_with_retry(tool, args: dict, step: int) -> dict:
+async def _invoke_tool_with_retry(tool: Any, args: dict[str, Any], step: int) -> Any:
     """Invoke a tool with exactly one retry on failure.
 
     Returns the tool result on success. Raises ValueError on double-failure.
@@ -677,7 +677,7 @@ async def _invoke_tool_with_retry(tool, args: dict, step: int) -> dict:
             logger.exception("Step %d failed after retry", step)
             raise ValueError(f"Tool '{tool.name}' failed after retry: {second_err}") from second_err
 
-async def execute_step(state: OrchestratorState) -> dict:
+async def execute_step(state: OrchestratorState) -> dict[str, Any]:
     """Execute the current step in the plan.
 
     Resolves tool from TOOL_MAP, builds args, invokes with one retry, records result.
@@ -884,7 +884,7 @@ def _build_enrichment_context(state: OrchestratorState) -> str:
     return "\n\n".join(parts)
 
 
-def synthesize_response(state: OrchestratorState, config: RunnableConfig = None) -> dict:
+def synthesize_response(state: OrchestratorState, config: RunnableConfig | None = None) -> dict[str, Any]:
     """Combine results from agent executions into a final response.
 
     - general_chat: LLM synthesizes direct answer from user_message.
@@ -1022,9 +1022,12 @@ def synthesize_response(state: OrchestratorState, config: RunnableConfig = None)
                     "de forma clara y educativa. Respondé SIEMPRE en español."
                 )
 
-        invoke_kwargs = {"config": config} if config is not None else {}
-        response = llm.invoke(prompt, **invoke_kwargs)
-        text = response.content if hasattr(response, "content") else str(response)
+        response = llm.invoke(prompt, config=config)
+        content = response.content if hasattr(response, "content") else response
+        if isinstance(content, list):
+            text = "".join(str(block) for block in content)
+        else:
+            text = str(content)
 
         final_status = "complete" if status == "pending" else status
         elapsed = (time.monotonic() - t0) * 1000
@@ -1098,7 +1101,7 @@ def check_iteration_limit(state: OrchestratorState) -> Literal["continue", "term
     return "continue"
 
 
-def build_orchestrator() -> StateGraph:
+def build_orchestrator() -> StateGraph[OrchestratorState, Any, Any]:
     """Build and return the Orchestrator LangGraph."""
     builder = StateGraph(OrchestratorState)
 
@@ -1130,8 +1133,8 @@ def build_orchestrator() -> StateGraph:
 
 # ── Singleton compilation ────────────────────────────────────────────────────
 
-_orchestrator_graph: object | None = None
-_orchestrator_db_conn: object | None = None
+_orchestrator_graph: Any = None
+_orchestrator_db_conn: aiosqlite.Connection | None = None
 _orchestrator_lock: asyncio.Lock | None = None
 
 
@@ -1147,7 +1150,7 @@ def _get_lock() -> asyncio.Lock:
     return _orchestrator_lock
 
 
-async def get_orchestrator_graph():
+async def get_orchestrator_graph() -> Any:
     """Return the module-level compiled Orchestrator graph singleton.
 
     Compiled ONCE with AsyncSqliteSaver for session persistence.
@@ -1174,7 +1177,7 @@ async def get_orchestrator_graph():
                 if db_dir:
                     os.makedirs(db_dir, exist_ok=True)
                 conn = await aiosqlite.connect(settings.sqlite_db_path)
-                checkpointer = AsyncSqliteSaver(conn)
+                checkpointer: Any = AsyncSqliteSaver(conn)
                 _orchestrator_db_conn = conn
                 logger.info("Orchestrator using AsyncSqliteSaver at %s", settings.sqlite_db_path)
             except (ImportError, aiosqlite.Error, OSError) as exc:
@@ -1190,7 +1193,7 @@ async def get_orchestrator_graph():
     return _orchestrator_graph
 
 
-async def close_orchestrator_graph():
+async def close_orchestrator_graph() -> None:
     """Close the aiosqlite connection and reset the compiled graph singleton.
 
     Sets a 5-second drain period: in-flight `graph.ainvoke()` calls are

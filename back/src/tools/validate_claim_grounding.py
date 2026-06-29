@@ -18,7 +18,7 @@ Supports two modes:
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 from langchain_core.tools import tool
 from langfuse import observe
@@ -44,8 +44,8 @@ class LLMGroundingCheck(BaseModel):
 
 
 def _llm_grounding_check(
-    claims_to_check: list[dict],
-    all_chunks: list[dict],
+    claims_to_check: list[dict[str, Any]],
+    all_chunks: list[dict[str, Any]],
 ) -> list[ClaimVerdict]:
     """Use LLM to semantically validate claims against source chunks.
 
@@ -101,10 +101,10 @@ Responde SOLO con JSON valido."""
 @observe(name="validate_claim_grounding", as_type="tool")
 def validate_claim_grounding(
     claims: list[str],
-    chunks: list[dict],
+    chunks: list[dict[str, Any]],
     mode: Literal["flag_only", "retry_trigger"] = "flag_only",
     threshold: float | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Validate claims against source chunks via embedding + LLM fallback.
 
     Two-tier validation:
@@ -135,7 +135,7 @@ def validate_claim_grounding(
 
     # -- Fast path: empty inputs --
     if not claims or not chunks:
-        result: dict = {
+        result: dict[str, Any] = {
             "all_matched": True,
             "claim_results": [],
             "missing_claims": [],
@@ -172,8 +172,8 @@ def validate_claim_grounding(
     best_scores = torch.nan_to_num(best_scores, nan=0.0)
 
     # -- Per-claim results (embedding pass) --
-    claim_results: list[dict] = []
-    rejected_claims: list[dict] = []  # for LLM fallback
+    claim_results: list[dict[str, Any]] = []
+    rejected_claims: list[dict[str, Any]] = []  # for LLM fallback
 
     for ci, claim in enumerate(claims):
         score = best_scores[ci].item()
@@ -236,7 +236,7 @@ def validate_claim_grounding(
 
     # -- Recompute all_matched and missing_claims after LLM fallback --
     all_matched = True
-    missing_claims: list[dict] = []
+    missing_claims: list[dict[str, Any]] = []
     for cr in claim_results:
         if not cr["matched"]:
             all_matched = False

@@ -16,7 +16,7 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Callable
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
@@ -113,7 +113,7 @@ def get_llm(
     return _llm_cache[cache_key]
 
 
-def _parse_json_for_schema(schema: type[BaseModel]):
+def _parse_json_for_schema(schema: type[BaseModel]) -> Callable[[str], BaseModel]:
     """Return a callable that parses JSON from LLM text output.
 
     Strips markdown fences, finds the last complete JSON object, and
@@ -152,7 +152,7 @@ def _schema_in_prompt_chain(
     schema: type[BaseModel],
     callbacks: list[Any] | None = None,
     temperature: float = 0.0,
-) -> Runnable:
+) -> Runnable[Any, Any]:
     """Build a chain that appends the JSON schema to the user prompt.
 
     For Ollama: uses ``format="json"`` on a dedicated ChatOllama instance.
@@ -168,6 +168,7 @@ def _schema_in_prompt_chain(
 
     schema_json = json.dumps(schema.model_json_schema(), indent=2)
 
+    llm: BaseChatModel
     if settings.llm_provider == "ollama":
         from langchain_ollama import ChatOllama
 
@@ -201,7 +202,7 @@ def _schema_in_prompt_chain(
         ]
     )
 
-    chain = (
+    chain: Runnable[Any, Any] = (
         RunnableLambda(lambda x: {"input": x, "schema": schema_json})
         | prompt_template
         | llm
@@ -215,7 +216,7 @@ def get_structured_llm(
     schema: type[BaseModel],
     callbacks: list[Any] | None = None,
     temperature: float = 0.0,
-) -> Runnable:
+) -> Runnable[Any, Any]:
     """Return an LLM configured with structured output for a Pydantic schema.
 
     For Ollama and OpenCode Go: uses schema appended to the user prompt

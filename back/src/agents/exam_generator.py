@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import operator
 from datetime import UTC
-from typing import Annotated
+from typing import Annotated, Any
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -52,7 +52,7 @@ class ExamGeneration(BaseModel):
     open_questions: list[OpenAnswerQuestion] = Field(
         ..., description="Open-answer questions list (required, can be empty)"
     )
-    metadata: dict = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="{topics_covered: [...], total_source_chunks: N}",
     )
@@ -68,11 +68,11 @@ class ExamGeneratorState(TypedDict):
     difficulty: str
     question_count: int
     mcq_ratio: float
-    student_profile: dict | None
+    student_profile: dict[str, Any] | None
     collection_name: str
-    retrieved_chunks: Annotated[list[dict], operator.add]
-    generated_questions: list[dict]
-    validation_results: list[dict]
+    retrieved_chunks: Annotated[list[dict[str, Any]], operator.add]
+    generated_questions: list[dict[str, Any]]
+    validation_results: list[dict[str, Any]]
     validation_errors: Annotated[list[str], operator.add]
     invalid_question_indices: list[int]
     omitted_questions: Annotated[list[int], operator.add]
@@ -80,7 +80,7 @@ class ExamGeneratorState(TypedDict):
     topic_not_found: list[str]
     topic_suggestions: list[str]
     topic_distribution: dict[str, int]
-    exam: dict
+    exam: dict[str, Any]
     status: str
 
 
@@ -141,7 +141,7 @@ def match_theme_to_session_topics(theme: str, session_topics: list[str]) -> list
 # ── Node implementations ─────────────────────────────────────────────────────
 
 
-def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict:
+def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict[str, Any]:
     """Retrieve top-K relevant chunks from ChromaDB for the requested topics.
 
     Iterates state["topics"], calling retrieve_chunks per topic. Handles empty
@@ -229,7 +229,7 @@ def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict:
                 unique_topics.append(t)
 
         # Retrieve chunks for each topic
-        all_chunks: list[dict] = []
+        all_chunks: list[dict[str, Any]] = []
         topic_not_found: list[str] = []
         seen_chunk_ids: set[str] = set()
 
@@ -308,7 +308,7 @@ def retrieve_relevant_chunks(state: ExamGeneratorState) -> dict:
         }
 
 
-def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None) -> dict:
+def generate_questions(state: ExamGeneratorState, config: RunnableConfig | None = None) -> dict[str, Any]:
     """Generate exam questions via a single structured LLM call.
 
     Builds a prompt from retrieved chunks, user preferences, student profile,
@@ -326,7 +326,7 @@ def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None)
     t0 = time.monotonic()
 
     try:
-        chunks: list[dict] = state.get("retrieved_chunks", [])
+        chunks: list[dict[str, Any]] = state.get("retrieved_chunks", [])
         # Guard: no chunks → cannot generate
         if not chunks:
             return {
@@ -349,7 +349,7 @@ def generate_questions(state: ExamGeneratorState, config: RunnableConfig = None)
         student_profile = state.get("student_profile")
         retry_count: int = state.get("retry_count", 0)
         invalid_indices: list[int] = state.get("invalid_question_indices", [])
-        existing_questions: list = state.get("generated_questions", [])
+        existing_questions: list[dict[str, Any]] = state.get("generated_questions", [])
         validation_errors: list[str] = state.get("validation_errors", [])
 
         # On retry: only generate replacements for invalid slots
@@ -480,7 +480,7 @@ REQUISITOS:
         result: ExamGeneration = structured_llm.invoke(prompt, **invoke_kwargs)
 
         # Convert Pydantic models to dicts
-        new_questions: list[dict] = []
+        new_questions: list[dict[str, Any]] = []
         for mcq in result.mcq_questions:
             q = mcq.model_dump()
             q["type"] = "mcq"
@@ -545,7 +545,7 @@ REQUISITOS:
         }
 
 
-def validate_questions(state: ExamGeneratorState) -> dict:
+def validate_questions(state: ExamGeneratorState) -> dict[str, Any]:
     """Validate every question by checking claims against source chunks.
 
     Extracts atomic claims from each question (stem + options for MCQ,
@@ -562,8 +562,8 @@ def validate_questions(state: ExamGeneratorState) -> dict:
     logger = logging.getLogger(__name__)
 
     try:
-        chunks: list[dict] = state.get("retrieved_chunks", [])
-        questions: list[dict] = state.get("generated_questions", [])
+        chunks: list[dict[str, Any]] = state.get("retrieved_chunks", [])
+        questions: list[dict[str, Any]] = state.get("generated_questions", [])
 
         if not questions:
             return {
@@ -635,7 +635,7 @@ def validate_questions(state: ExamGeneratorState) -> dict:
 
         # ── Organize tool results per question ──
         claim_results = result.get("claim_results", [])
-        per_question: dict[int, dict] = {}
+        per_question: dict[int, dict[str, Any]] = {}
         for qi in range(len(questions)):
             per_question[qi] = {
                 "claim_checks": [],
@@ -668,7 +668,7 @@ def validate_questions(state: ExamGeneratorState) -> dict:
             )
 
         # ── Build final output ──
-        validation_results: list[dict] = []
+        validation_results: list[dict[str, Any]] = []
         all_errors: list[str] = []
         invalid_indices: list[int] = []
 
@@ -718,7 +718,7 @@ def should_retry(state: ExamGeneratorState) -> str:
     )
 
 
-def format_exam(state: ExamGeneratorState) -> dict:
+def format_exam(state: ExamGeneratorState) -> dict[str, Any]:
     """Package validated questions into final exam dict with metadata.
 
     Removes omitted questions, computes topic coverage, adds warnings,
@@ -728,7 +728,7 @@ def format_exam(state: ExamGeneratorState) -> dict:
     from datetime import datetime
 
     try:
-        questions: list[dict] = state.get("generated_questions", [])
+        questions: list[dict[str, Any]] = state.get("generated_questions", [])
         invalid_indices: list[int] = state.get("invalid_question_indices", [])
         omitted_indices: list[int] = list(state.get("omitted_questions", []))
         validation_errors: list[str] = state.get("validation_errors", [])
@@ -798,7 +798,7 @@ def format_exam(state: ExamGeneratorState) -> dict:
         }
 
 
-def build_exam_generator() -> StateGraph:
+def build_exam_generator() -> StateGraph[ExamGeneratorState, Any, Any]:
     """Build and return the ExamGenerator LangGraph."""
     builder = StateGraph(ExamGeneratorState)
 

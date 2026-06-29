@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
@@ -29,11 +29,11 @@ class SupportState(TypedDict):
     session_id: str
     student_id: str
     query_type: Literal["query", "update"]
-    profile_data: dict | None
-    session_history: list[dict]
-    topic_scores: list[dict]
+    profile_data: dict[str, Any] | None
+    session_history: list[dict[str, Any]]
+    topic_scores: list[dict[str, Any]]
     weak_topics: list[str]
-    preferences: dict | None
+    preferences: dict[str, Any] | None
     response: str
     status: str
 
@@ -43,7 +43,7 @@ class SupportState(TypedDict):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def fetch_student_profile(state: SupportState) -> dict:
+def fetch_student_profile(state: SupportState) -> dict[str, Any]:
     """Retrieve student profile and topic scores from SQLite.
 
     Calls ``get_student_profile`` and ``get_topic_scores`` from the
@@ -58,7 +58,7 @@ def fetch_student_profile(state: SupportState) -> dict:
 
     try:
         # Run async DB calls synchronously inside graph node
-        async def _fetch():
+        async def _fetch() -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
             profile = await get_student_profile(student_id)
             scores = await get_topic_scores(student_id, state.get("session_id"))
             return profile, scores
@@ -70,7 +70,7 @@ def fetch_student_profile(state: SupportState) -> dict:
             # Auto-create on first access (SUP-01)
             from src.memory.schema import upsert_student_profile
 
-            async def _create():
+            async def _create() -> None:
                 await upsert_student_profile(
                     student_id,
                     {
@@ -111,7 +111,7 @@ def fetch_student_profile(state: SupportState) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def fetch_session_history(state: SupportState) -> dict:
+def fetch_session_history(state: SupportState) -> dict[str, Any]:
     """Retrieve recent session history for the student.
 
     Only called in the ``query`` flow. Returns partial state with
@@ -124,7 +124,7 @@ def fetch_session_history(state: SupportState) -> dict:
 
     try:
 
-        async def _fetch():
+        async def _fetch() -> list[dict[str, Any]]:
             return await get_recent_sessions(student_id)
 
         history = run_async_in_sync(_fetch())
@@ -141,7 +141,7 @@ def fetch_session_history(state: SupportState) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def compute_progress_summary(state: SupportState) -> dict:
+def compute_progress_summary(state: SupportState) -> dict[str, Any]:
     """Compute progress summary: identify weak topics from topic_scores.
 
     Uses ``compute_weak_topics`` (threshold=6.0, limit=3) from the
@@ -155,11 +155,11 @@ def compute_progress_summary(state: SupportState) -> dict:
 
     t0 = time.monotonic()
     student_id: str = state.get("student_id", "")
-    topic_scores: list[dict] = state.get("topic_scores", [])
+    topic_scores: list[dict[str, Any]] = state.get("topic_scores", [])
 
     try:
 
-        async def _compute():
+        async def _compute() -> list[str]:
             return await compute_weak_topics(student_id, state.get("session_id"))
 
         weak = run_async_in_sync(_compute())
@@ -195,7 +195,7 @@ def compute_progress_summary(state: SupportState) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def generate_response(state: SupportState) -> dict:
+def generate_response(state: SupportState) -> dict[str, Any]:
     """Generate a natural-language response about student progress.
 
     On ``query`` type: reports weak topics, session count, and recommendations.
@@ -208,11 +208,11 @@ def generate_response(state: SupportState) -> dict:
     of an LLM call. No conversational nuance is required for these queries.
     """
     query_type: str = state.get("query_type", "query")
-    profile: dict | None = state.get("profile_data")
+    profile: dict[str, Any] | None = state.get("profile_data")
     weak_topics: list[str] = state.get("weak_topics", [])
-    topic_scores: list[dict] = state.get("topic_scores", [])
-    session_history: list[dict] = state.get("session_history", [])
-    prefs: dict | None = state.get("preferences")
+    topic_scores: list[dict[str, Any]] = state.get("topic_scores", [])
+    session_history: list[dict[str, Any]] = state.get("session_history", [])
+    prefs: dict[str, Any] | None = state.get("preferences")
 
     session_count = 0
     if profile:
@@ -290,7 +290,7 @@ def _route_after_fetch(state: SupportState) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def build_support_agent() -> StateGraph:
+def build_support_agent() -> StateGraph[SupportState, Any, Any]:
     """Build the 4-node Support Agent StateGraph with conditional routing.
 
     Topology:

@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
+from typing import Any
 
 import chromadb
 from langchain_core.documents import Document
@@ -32,12 +33,12 @@ logger = logging.getLogger(__name__)
 # Module-level lazy singletons
 # ---------------------------------------------------------------------------
 
-_chroma_client: chromadb.PersistentClient | None = None
+_chroma_client: Any | None = None
 _embedding_model: SentenceTransformer | None = None
 _embedding_lock: threading.Lock = threading.Lock()
 
 
-def get_chroma_client() -> chromadb.PersistentClient:
+def get_chroma_client() -> Any:
     """Return the singleton PersistentClient, creating it on first call.
 
     Uses settings.chroma_persist_directory for on-disk storage.
@@ -75,7 +76,7 @@ def get_embedding_model() -> SentenceTransformer:
 # ---------------------------------------------------------------------------
 
 
-def chunk_text(text: str, metadata: dict | None = None) -> list[Document]:
+def chunk_text(text: str, metadata: dict[str, Any] | None = None) -> list[Document]:
     """Split *text* into semantic chunks using a RecursiveCharacterTextSplitter.
 
     Separators try semantic boundaries first (paragraphs, lines, sentences)
@@ -113,7 +114,7 @@ def chunk_text(text: str, metadata: dict | None = None) -> list[Document]:
 @observe(name="rag_embed_store", as_type="embedding")
 def embed_and_store(
     chunks: list[str],
-    metadatas: list[dict] | None,
+    metadatas: list[dict[str, Any]] | None,
     collection_name: str,
 ) -> list[str]:
     """Embed *chunks* with the local model and persist them in ChromaDB.
@@ -171,7 +172,7 @@ def retrieve(
     collection_name: str,
     top_k: int = 5,
     topic_filter: str | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Semantic similarity search over ChromaDB with optional topic filtering.
 
     When *topic_filter* is given, only chunks whose ``metadata["topic"]``
@@ -220,10 +221,10 @@ def retrieve(
         return []
 
     docs_list: list[str] = results.get("documents", [[""]])[0]  # pyright: ignore[reportAssignmentType]
-    metas_list: list[dict] = results.get("metadatas", [[{}]])[0]  # pyright: ignore[reportAssignmentType]
+    metas_list: list[dict[str, Any]] = results.get("metadatas", [[{}]])[0]  # pyright: ignore[reportAssignmentType]
     dists_list: list[float] = results.get("distances", [[0.0]])[0]  # pyright: ignore[reportAssignmentType]
 
-    output: list[dict] = []
+    output: list[dict[str, Any]] = []
     for i in range(len(ids_list)):
         meta = metas_list[i] if i < len(metas_list) else {}
 
@@ -260,7 +261,7 @@ class ThematicIndex:
     """
 
     def __init__(self) -> None:
-        self._tree: dict = {}
+        self._tree: dict[str, Any] = {}
 
     # -- mutation -----------------------------------------------------------
 
@@ -286,7 +287,7 @@ class ThematicIndex:
         Existing branches are preserved; new branches are added recursively.
         """
 
-        def _deep_merge(target: dict, source: dict) -> None:
+        def _deep_merge(target: dict[str, Any], source: dict[str, Any]) -> None:
             for key, value in source.items():
                 if key not in target:
                     target[key] = {}
@@ -297,7 +298,7 @@ class ThematicIndex:
 
     # -- query --------------------------------------------------------------
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Return the full tree as a nested dict."""
         return self._tree
 

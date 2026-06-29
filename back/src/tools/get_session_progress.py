@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
 from langchain_core.tools import tool
 
 from src.memory import schema as _schema
 
 
 @tool
-async def get_session_progress(session_id: str) -> dict:
+async def get_session_progress(session_id: str) -> dict[str, Any]:
     """Return topic scores, weak topics, exam count, and average score for
     the current session.
 

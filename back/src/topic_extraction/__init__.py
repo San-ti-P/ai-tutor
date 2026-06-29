@@ -14,12 +14,14 @@ from src.topic_extraction.extract import _extract_segment_topics
 from src.topic_extraction.segment import segment_text
 from src.topic_extraction.tree import build_topic_tree
 from src.config import settings
-from src.topic_extraction.unify import reconcile_topics, unify_topics
+from src.topic_extraction.unify import reconcile_topics as reconcile_topics, unify_topics as unify_topics
+
+from typing import Any
 
 logger = logging.getLogger("tutor.topic_extraction")
 
 
-async def extract_topics_pipeline(text: str) -> dict:
+async def extract_topics_pipeline(text: str) -> dict[str, Any]:
     """Extract hierarchical topics from a full academic document.
 
     Flow: segment → extract per segment (sequential await) → unify → build tree.

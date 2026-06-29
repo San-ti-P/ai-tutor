@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Any
 
 from langchain_core.tools import tool
 from langfuse import observe, propagate_attributes
@@ -19,13 +20,13 @@ logger = logging.getLogger(__name__)
 @tool
 @observe(name="orchestrate_chat", as_type="tool")
 async def orchestrate_chat(
-    messages: list[dict],
+    messages: list[dict[str, Any]],
     thread_id: str | None = None,
     student_id: str | None = None,
     exam_id: str | None = None,
     answers: dict[str, str] | None = None,
-    exam_questions: list[dict] | None = None,
-) -> dict:
+    exam_questions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Invoke the Orchestrator agent graph for a chat interaction.
 
     This is the single public entry point for chat requests. The API router
@@ -68,7 +69,7 @@ async def orchestrate_chat(
     # tool calls (profile loading, ChromaDB queries) still target the right session.
     run_thread_id = f"{session_id}:{uuid.uuid4()}"
 
-    initial_state: dict = {
+    initial_state: dict[str, Any] = {
         "session_id": session_id,
         "user_message": user_message,
         "intent": "general_chat",
@@ -94,7 +95,7 @@ async def orchestrate_chat(
 
     tracer = get_tracer()
 
-    config = {"configurable": {"thread_id": run_thread_id}}
+    config: dict[str, Any] = {"configurable": {"thread_id": run_thread_id}}
 
     try:
         # Per Langfuse docs: CallbackHandler must be created INSIDE

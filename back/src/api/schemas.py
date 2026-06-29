@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -118,7 +118,7 @@ class StudentProfile(BaseModel):
     weak_topics: list[str] = Field(alias="weakTopics")
     preferences: ExamPreferences
     session_count: int = Field(alias="sessionCount")
-    session_history: list[dict] = Field(default_factory=list, alias="sessionHistory")
+    session_history: list[dict[str, Any]] = Field(default_factory=list, alias="sessionHistory")
 
     model_config = {"populate_by_name": True}
 
@@ -128,7 +128,7 @@ class IngestResult(BaseModel):
     status: str
     classification: str
     topics_detected: list[str] = Field(alias="topicsDetected")
-    topic_tree: dict | None = Field(default=None, alias="topicTree")
+    topic_tree: dict[str, Any] | None = Field(default=None, alias="topicTree")
     chunks_created: int = Field(alias="chunksCreated")
     classification_confidence: float | None = Field(default=None, alias="classificationConfidence")
     document_id: str | None = Field(default=None, alias="documentId")
@@ -234,7 +234,7 @@ class SessionFile(BaseModel):
     file_name: str = Field(alias="fileName")
     classification: str = ""
     topics: list[str] = Field(default_factory=list)
-    topic_tree: dict | None = Field(default=None, alias="topicTree")
+    topic_tree: dict[str, Any] | None = Field(default=None, alias="topicTree")
     chunks_count: int = Field(default=0, alias="chunksCount")
     ingested_at: str = Field(alias="ingestedAt")
 
@@ -267,7 +267,7 @@ class ChatMessageRecord(BaseModel):
     session_id: str = Field(alias="sessionId")
     role: MessageRoleEnum
     content: str
-    metadata: dict = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(alias="createdAt")
 
     model_config = {"populate_by_name": True}

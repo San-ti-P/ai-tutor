@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from typing import Any
+
 from langchain_core.tools import tool
 from langfuse import observe
 
@@ -21,7 +23,7 @@ def query_material(
     query: str,
     session_id: str,
     top_k: int = 5,
-) -> dict:
+) -> dict[str, Any]:
     """Answer a question using the ingested material for this session.
 
     Retrieves relevant chunks from the session's ChromaDB collection and

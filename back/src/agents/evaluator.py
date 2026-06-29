@@ -16,7 +16,9 @@ import json
 import logging
 import operator
 import random
-from typing import Annotated
+from typing import Annotated, Any
+
+from src.config import settings
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -83,7 +85,7 @@ class EvaluatorState(TypedDict):
     trace_id: str
 
     # ── batch answers ──
-    answers: list[dict]
+    answers: list[dict[str, Any]]
     # Each answer dict: question_id, question, base_answer, student_answer,
     # answer_image (optional), source_chunk_ids, topic, difficulty
     current_index: int
@@ -94,12 +96,12 @@ class EvaluatorState(TypedDict):
     ocr_confidence: float
 
     # ── RAG chunks (accumulated across topics) ──
-    retrieved_chunks: Annotated[list[dict], operator.add]
+    retrieved_chunks: Annotated[list[dict[str, Any]], operator.add]
     collection_name: str  # Override for session_{session_id}; used by prepare_evaluation
 
     # ── per-question evaluation state ──
-    evaluation: dict | None
-    evaluation_results: Annotated[list[dict], operator.add]
+    evaluation: dict[str, Any] | None
+    evaluation_results: Annotated[list[dict[str, Any]], operator.add]
 
     # ── non-evaluable guard ──
     non_evaluable: bool
@@ -107,7 +109,7 @@ class EvaluatorState(TypedDict):
 
     # ── LLM-as-judge ──
     judge_sample: bool
-    judge_result: dict | None
+    judge_result: dict[str, Any] | None
     requires_review: bool
 
     # ── finalisation ──
@@ -121,7 +123,7 @@ class EvaluatorState(TypedDict):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def prepare_evaluation(state: EvaluatorState) -> dict:
+def prepare_evaluation(state: EvaluatorState) -> dict[str, Any]:
     """Deduplicate topics from answers, retrieve RAG chunks per topic.
 
     Queries ChromaDB for each unique topic across the answer batch and
@@ -130,7 +132,7 @@ def prepare_evaluation(state: EvaluatorState) -> dict:
     """
     from src.tools import retrieve_chunks as _retrieve_chunks
 
-    answers: list[dict] = state.get("answers", [])
+    answers: list[dict[str, Any]] = state.get("answers", [])
     session_id: str = state.get("session_id", "")
     collection_name = state.get("collection_name") or f"session_{session_id}"
 
@@ -143,7 +145,7 @@ def prepare_evaluation(state: EvaluatorState) -> dict:
             seen_topics.add(topic)
             unique_topics.append(topic)
 
-    all_chunks: list[dict] = []
+    all_chunks: list[dict[str, Any]] = []
     seen_chunk_ids: set[str] = set()
 
     for topic in unique_topics:
@@ -226,7 +228,7 @@ def _guess_language_mismatch(text: str, question: str) -> bool:
     return cjk_count > total * 0.5
 
 
-def check_evaluability(state: EvaluatorState) -> dict:
+def check_evaluability(state: EvaluatorState) -> dict[str, Any]:
     """Guard clause: detect non-evaluable answers before grading.
 
     Rules (fast, deterministic):
@@ -236,7 +238,7 @@ def check_evaluability(state: EvaluatorState) -> dict:
     Returns ``non_evaluable=True`` with a reason string on match, or
     ``non_evaluable=False`` to proceed to the evaluation node.
     """
-    answers: list[dict] = state.get("answers", [])
+    answers: list[dict[str, Any]] = state.get("answers", [])
     idx: int = state.get("current_index", 0)
 
     if idx >= len(answers):
@@ -294,7 +296,7 @@ def check_evaluability(state: EvaluatorState) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dict:
+def evaluate_answer(state: EvaluatorState, config: RunnableConfig | None = None) -> dict[str, Any]:
     """Grade current answer via structured LLM call with RAG context.
 
     Builds a Chain-of-Thought prompt including:
@@ -314,9 +316,9 @@ def evaluate_answer(state: EvaluatorState, config: RunnableConfig = None) -> dic
     from src.llm import get_structured_llm
     from src.rag.policy import EVALUATOR_SYSTEM_PROMPT, RAG_ONLY_SYSTEM_PROMPT, no_material_message
 
-    answers: list[dict] = state.get("answers", [])
+    answers: list[dict[str, Any]] = state.get("answers", [])
     idx: int = state.get("current_index", 0)
-    chunks: list[dict] = state.get("retrieved_chunks", [])
+    chunks: list[dict[str, Any]] = state.get("retrieved_chunks", [])
 
     logger.info(
         "[evaluate_answer] START | session=%s | answers=%d | idx=%d",
@@ -477,7 +479,7 @@ INSTRUCCIONES:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def validate_feedback(state: EvaluatorState) -> dict:
+def validate_feedback(state: EvaluatorState) -> dict[str, Any]:
     """Anti-hallucination: cross-reference evaluation claims against RAG chunks.
 
     Algorithm:
@@ -495,10 +497,10 @@ def validate_feedback(state: EvaluatorState) -> dict:
     from src.tools.validate_claim_grounding import validate_claim_grounding
     from src.utils.text import split_into_claims
 
-    evaluation: dict | None = state.get("evaluation")
-    chunks: list[dict] = state.get("retrieved_chunks", [])
+    evaluation: dict[str, Any] | None = state.get("evaluation")
+    chunks: list[dict[str, Any]] = state.get("retrieved_chunks", [])
 
-    answers: list[dict] = state.get("answers", [])
+    answers: list[dict[str, Any]] = state.get("answers", [])
     idx: int = state.get("current_index", 0)
     if idx < len(answers):
         qtype = answers[idx].get("type", "open")
@@ -539,7 +541,7 @@ def validate_feedback(state: EvaluatorState) -> dict:
             }
         )
 
-        validation_warnings: list[dict] = []
+        validation_warnings: list[dict[str, Any]] = []
         for cr in result.get("claim_results", []):
             if not cr["matched"]:
                 validation_warnings.append(
@@ -573,7 +575,7 @@ def validate_feedback(state: EvaluatorState) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def llm_judge(state: EvaluatorState, config: RunnableConfig = None) -> dict:
+def llm_judge(state: EvaluatorState, config: RunnableConfig | None = None) -> dict[str, Any]:
     """LLM-as-judge: second-pass evaluation on configurable sample rate.
 
     Guard:
@@ -589,16 +591,16 @@ def llm_judge(state: EvaluatorState, config: RunnableConfig = None) -> dict:
     """
     from src.llm import get_structured_llm
 
-    evaluation: dict | None = state.get("evaluation")
+    evaluation: dict[str, Any] | None = state.get("evaluation")
     if not evaluation or not evaluation.get("is_evaluable"):
         return {}
 
     if not state.get("judge_sample", False):
         return {}
 
-    answers: list[dict] = state.get("answers", [])
+    answers: list[dict[str, Any]] = state.get("answers", [])
     idx: int = state.get("current_index", 0)
-    chunks: list[dict] = state.get("retrieved_chunks", [])
+    chunks: list[dict[str, Any]] = state.get("retrieved_chunks", [])
 
     if idx >= len(answers):
         return {}
@@ -639,7 +641,7 @@ INSTRUCCIONES:
         invoke_kwargs = {"config": config} if config is not None else {}
         judge: JudgeVerdict = structured_llm.invoke(prompt, **invoke_kwargs)
 
-        judge_dict: dict = {
+        judge_dict: dict[str, Any] = {
             "score": judge.score,
             "agrees_with_primary": judge.agrees_with_primary,
             "discrepancy": judge.discrepancy,
@@ -666,14 +668,14 @@ INSTRUCCIONES:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def build_feedback(state: EvaluatorState) -> dict:
+def build_feedback(state: EvaluatorState) -> dict[str, Any]:
     """Assemble final evaluation dict and append to ``evaluation_results``.
 
     Merges the evaluation dict with validation warnings and judge verdict
     into a single result object, then appends it to the accumulator.
     """
-    evaluation: dict | None = state.get("evaluation")
-    answers: list[dict] = state.get("answers", [])
+    evaluation: dict[str, Any] | None = state.get("evaluation")
+    answers: list[dict[str, Any]] = state.get("answers", [])
     idx: int = state.get("current_index", 0)
 
     if evaluation is None:
@@ -704,10 +706,10 @@ def build_feedback(state: EvaluatorState) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def next_question(state: EvaluatorState) -> dict:
+def next_question(state: EvaluatorState) -> dict[str, Any]:
     """Increment current_index. Route back or to sync_scores."""
     idx: int = state.get("current_index", 0)
-    answers: list[dict] = state.get("answers", [])
+    answers: list[dict[str, Any]] = state.get("answers", [])
     new_idx = idx + 1
 
     return {
@@ -726,20 +728,20 @@ def next_question(state: EvaluatorState) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def sync_scores(state: EvaluatorState) -> dict:
+def sync_scores(state: EvaluatorState) -> dict[str, Any]:
     """Persist evaluation results to DB."""
     import uuid as _uuid
 
     from src.memory.schema import save_evaluation, upsert_topic_scores
     from src.utils.async_ import run_async_in_sync
 
-    results: list[dict] = state.get("evaluation_results", [])
+    results: list[dict[str, Any]] = state.get("evaluation_results", [])
     session_id: str = state.get("session_id", "")
     student_id: str = state.get("student_id", "")
     exam_id: str = state.get("exam_id", "")
 
     errors: list[str] = []
-    topic_score_pairs: list[dict] = []
+    topic_score_pairs: list[dict[str, Any]] = []
 
     for result in results:
         try:
@@ -817,7 +819,7 @@ def _route_after_validate(state: EvaluatorState) -> str:
 
 def _route_after_next(state: EvaluatorState) -> str:
     """Route after next_question: loop back or proceed to sync."""
-    answers: list[dict] = state.get("answers", [])
+    answers: list[dict[str, Any]] = state.get("answers", [])
     idx: int = state.get("current_index", 0)
     if idx < len(answers):
         return "check_evaluability"
@@ -829,7 +831,7 @@ def _route_after_next(state: EvaluatorState) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def build_evaluator() -> StateGraph:
+def build_evaluator() -> StateGraph[EvaluatorState, Any, Any]:
     """Build the 8-node evaluator StateGraph with conditional routing.
 
     Topology:

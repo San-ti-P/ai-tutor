@@ -10,7 +10,7 @@ in source chunks. Anti-hallucination claim-level embedding validation with
 from __future__ import annotations
 
 import operator
-from typing import Annotated
+from typing import Annotated, Any
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -58,7 +58,7 @@ class ExerciseGeneration(BaseModel):
     exercises: list[PracticalExercise] = Field(
         ..., description="Exercise list (required, can be empty)"
     )
-    metadata: dict = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="{topics_covered, total_source_chunks}",
     )
@@ -74,19 +74,19 @@ class ExerciseGeneratorState(TypedDict):
     difficulty: str
     exercise_type: str
     collection_name: str
-    student_profile: dict | None
-    retrieved_chunks: Annotated[list[dict], operator.add]
-    generated_exercise: dict
+    student_profile: dict[str, Any] | None
+    retrieved_chunks: Annotated[list[dict[str, Any]], operator.add]
+    generated_exercise: dict[str, Any]
     validation_passed: bool
     validation_errors: Annotated[list[str], operator.add]
     retry_count: int
     topic_not_found: list[str]
     topic_suggestions: list[str]
-    exercise: dict
+    exercise: dict[str, Any]
     status: str
 
 
-def retrieve_relevant_chunks(state: ExerciseGeneratorState) -> dict:
+def retrieve_relevant_chunks(state: ExerciseGeneratorState) -> dict[str, Any]:
     """Retrieve top-K relevant chunks from ChromaDB for the requested topic.
 
     Single-topic retrieval (unlike ExamGenerator's multi-topic loop).
@@ -121,7 +121,7 @@ def retrieve_relevant_chunks(state: ExerciseGeneratorState) -> dict:
             }
         )
 
-        all_chunks: list[dict] = []
+        all_chunks: list[dict[str, Any]] = []
         seen_chunk_ids: set[str] = set()
         topic_not_found: list[str] = []
 
@@ -180,7 +180,7 @@ def retrieve_relevant_chunks(state: ExerciseGeneratorState) -> dict:
         }
 
 
-def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = None) -> dict:
+def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig | None = None) -> dict[str, Any]:
     """Generate a practice exercise via a single structured LLM call.
 
     Builds a prompt from retrieved chunks, topic, difficulty, and type.
@@ -198,7 +198,7 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = No
     t0 = time.monotonic()
 
     try:
-        chunks: list[dict] = state.get("retrieved_chunks", [])
+        chunks: list[dict[str, Any]] = state.get("retrieved_chunks", [])
         # Guard: no chunks → cannot generate
         if not chunks:
             return {
@@ -321,7 +321,7 @@ def generate_exercise(state: ExerciseGeneratorState, config: RunnableConfig = No
         }
 
 
-def validate_exercise(state: ExerciseGeneratorState) -> dict:
+def validate_exercise(state: ExerciseGeneratorState) -> dict[str, Any]:
     """Validate exercise claims against source chunks via embedding similarity.
 
     Dual claim extraction from:
@@ -340,8 +340,8 @@ def validate_exercise(state: ExerciseGeneratorState) -> dict:
     logger = logging.getLogger(__name__)
 
     try:
-        chunks: list[dict] = state.get("retrieved_chunks", [])
-        exercise: dict = state.get("generated_exercise", {})
+        chunks: list[dict[str, Any]] = state.get("retrieved_chunks", [])
+        exercise: dict[str, Any] = state.get("generated_exercise", {})
 
         if not exercise:
             return {
@@ -428,7 +428,7 @@ def should_retry(state: ExerciseGeneratorState) -> str:
     )
 
 
-def format_exercise(state: ExerciseGeneratorState) -> dict:
+def format_exercise(state: ExerciseGeneratorState) -> dict[str, Any]:
     """Package validated exercise into final dict with metadata.
 
     Sets status (complete | partial | no_material), adds exercise_id (UUID4),
@@ -438,7 +438,7 @@ def format_exercise(state: ExerciseGeneratorState) -> dict:
     from datetime import UTC, datetime
 
     try:
-        exercise: dict = state.get("generated_exercise", {})
+        exercise: dict[str, Any] = state.get("generated_exercise", {})
         validation_passed: bool = state.get("validation_passed", False)
         validation_errors: list[str] = state.get("validation_errors", [])
         topic_not_found: list[str] = state.get("topic_not_found", [])
@@ -495,7 +495,7 @@ def format_exercise(state: ExerciseGeneratorState) -> dict:
         }
 
 
-def build_exercise_generator() -> StateGraph:
+def build_exercise_generator() -> StateGraph[ExerciseGeneratorState, Any, Any]:
     """Build and return the ExerciseGenerator LangGraph."""
     builder = StateGraph(ExerciseGeneratorState)
 

@@ -11,13 +11,17 @@ import logging
 
 from src.config import settings
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from langfuse import Langfuse
+
 logger = logging.getLogger(__name__)
 
-_langfuse_client: object | None = None
+_langfuse_client: Langfuse | None = None
 _init_attempted: bool = False
 
 
-def _get_langfuse_client() -> object | None:
+def _get_langfuse_client() -> Langfuse | None:
     """Return the lazy-singleton Langfuse client, or None if unavailable.
 
     Reads ``settings.langfuse_public_key``, ``_secret_key``, and

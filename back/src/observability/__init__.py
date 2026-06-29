@@ -12,7 +12,10 @@ directly — use ``get_tracer()``.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from langfuse import Langfuse
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +37,7 @@ class ObservabilityManager:
 
     def __init__(self) -> None:
         self._initialized = False
-        self._client: object | None = None
+        self._client: Langfuse | None = None
 
     # -- properties -----------------------------------------------------------
 
@@ -86,7 +89,7 @@ class ObservabilityManager:
                 trace_name=name,
                 metadata=meta,
             ):
-                trace = self._client.start_observation(  # type: ignore[union-attr]
+                trace = self._client.start_observation(
                     name=name,
                     as_type="span",
                     metadata=meta,
@@ -125,7 +128,7 @@ class ObservabilityManager:
         if self._client is None:
             return
         try:
-            self._client.flush()  # type: ignore[union-attr]
+            self._client.flush()
         except Exception:
             logger.debug("Langfuse flush failed", exc_info=True)
 
@@ -135,8 +138,8 @@ class ObservabilityManager:
         if self._client is None:
             return
         try:
-            self._client.flush()  # type: ignore[union-attr]
-            self._client.shutdown()  # type: ignore[union-attr]
+            self._client.flush()
+            self._client.shutdown()
         except Exception:
             logger.debug("Langfuse shutdown failed", exc_info=True)
 

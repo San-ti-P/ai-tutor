@@ -8,6 +8,7 @@ import logging
 import os
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import aiosqlite
 
@@ -185,7 +186,7 @@ async def resolve_student_id(session_id: str, student_id: str | None = None) -> 
         return row["student_id"] if row else session_id
 
 
-async def get_student_profile(student_id: str, session_id: str | None = None) -> dict | None:
+async def get_student_profile(student_id: str, session_id: str | None = None) -> dict[str, Any] | None:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM students WHERE id = ?", (student_id,))
@@ -227,7 +228,7 @@ async def get_student_profile(student_id: str, session_id: str | None = None) ->
         }
 
 
-async def upsert_student_profile(student_id: str, preferences: dict) -> None:
+async def upsert_student_profile(student_id: str, preferences: dict[str, Any]) -> None:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         await db.execute(
             """
@@ -249,7 +250,7 @@ async def save_session(session_id: str, student_id: str, intent: str, status: st
         await db.commit()
 
 
-async def save_evaluation(evaluation: dict) -> None:
+async def save_evaluation(evaluation: dict[str, Any]) -> None:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         await db.execute(
             """
@@ -271,7 +272,7 @@ async def save_evaluation(evaluation: dict) -> None:
         await db.commit()
 
 
-async def get_session_evaluations(session_id: str) -> list[dict]:
+async def get_session_evaluations(session_id: str) -> list[dict[str, Any]]:
     """Return evaluations for a session grouped by exam_id, newest first.
 
     Each group contains the exam_id, created_at of the first question evaluated,
@@ -291,25 +292,25 @@ async def get_session_evaluations(session_id: str) -> list[dict]:
         )
         rows = await cursor.fetchall()
 
-    groups: dict[str, dict] = {}
+    groups: dict[str, dict[str, Any]] = {}
     for row in rows:
-        row = dict(row)
-        exam_id = row["exam_id"] or "unknown"
+        row_dict = dict(row)
+        exam_id = row_dict["exam_id"] or "unknown"
         if exam_id not in groups:
             groups[exam_id] = {
                 "exam_id": exam_id,
-                "created_at": row["created_at"],
+                "created_at": row_dict["created_at"],
                 "results": [],
             }
         feedback = {}
-        if row["feedback_json"]:
+        if row_dict["feedback_json"]:
             try:
-                feedback = json.loads(row["feedback_json"])
+                feedback = json.loads(row_dict["feedback_json"])
             except (json.JSONDecodeError, ValueError):
                 feedback = {}
         groups[exam_id]["results"].append({
-            "questionId": row["question_id"],
-            "score": row["score"] or 0.0,
+            "questionId": row_dict["question_id"],
+            "score": row_dict["score"] or 0.0,
             "justification": feedback.get("justification", ""),
             "conceptualErrors": feedback.get("conceptual_errors", []),
             "suggestions": feedback.get("suggestions", []),
@@ -331,7 +332,7 @@ async def get_session_evaluations(session_id: str) -> list[dict]:
     return result_list
 
 
-async def get_topic_scores(student_id: str, session_id: str | None = None) -> list[dict]:
+async def get_topic_scores(student_id: str, session_id: str | None = None) -> list[dict[str, Any]]:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
         if session_id is not None:
@@ -349,7 +350,7 @@ async def get_topic_scores(student_id: str, session_id: str | None = None) -> li
         return [dict(row) for row in rows]
 
 
-async def upsert_topic_scores(student_id: str, session_id: str, scores: list[dict]) -> None:
+async def upsert_topic_scores(student_id: str, session_id: str, scores: list[dict[str, Any]]) -> None:
     """Upsert per-topic scores for a student within a session.
 
     Uses INSERT OR REPLACE so each (topic, student_id, session_id) row keeps
@@ -403,7 +404,7 @@ async def compute_weak_topics(
         return [dict(r)["topic"] for r in rows]
 
 
-async def get_recent_sessions(student_id: str, limit: int = 10) -> list[dict]:
+async def get_recent_sessions(student_id: str, limit: int = 10) -> list[dict[str, Any]]:
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
@@ -414,10 +415,10 @@ async def get_recent_sessions(student_id: str, limit: int = 10) -> list[dict]:
         return [dict(row) for row in rows]
 
 
-async def get_enriched_session_history(student_id: str, limit: int = 10) -> list[dict]:
+async def get_enriched_session_history(student_id: str, limit: int = 10) -> list[dict[str, Any]]:
     """Return recent sessions enriched with questions_answered and average_score."""
     sessions = await get_recent_sessions(student_id, limit)
-    enriched: list[dict] = []
+    enriched: list[dict[str, Any]] = []
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
         for ses in sessions:
@@ -459,7 +460,7 @@ async def ensure_student_exists(student_id: str) -> None:
 
 async def create_session(
     student_id: str, name: str, description: str = "", session_id: str | None = None
-) -> dict:
+) -> dict[str, Any]:
     """Create a named session and return its metadata."""
     session_id = session_id or str(uuid.uuid4())
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
@@ -484,7 +485,7 @@ async def create_session(
     }
 
 
-async def list_sessions(student_id: str) -> list[dict]:
+async def list_sessions(student_id: str) -> list[dict[str, Any]]:
     """Return all sessions for a student ordered by most recent first."""
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
@@ -530,7 +531,7 @@ async def list_sessions(student_id: str) -> list[dict]:
         return sessions
 
 
-async def get_session(session_id: str) -> dict | None:
+async def get_session(session_id: str) -> dict[str, Any] | None:
     """Return session details including file_count and progress summary."""
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
@@ -592,7 +593,7 @@ async def delete_session(session_id: str) -> None:
         logger.warning("Could not drop ChromaDB collection for session %s", session_id)
 
 
-async def rename_session(session_id: str, name: str, description: str | None = None) -> dict | None:
+async def rename_session(session_id: str, name: str, description: str | None = None) -> dict[str, Any] | None:
     """Rename a session and optionally update its description. Returns updated row or None."""
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         if description is not None:
@@ -632,7 +633,7 @@ async def insert_generated_exam(exam_id: str, session_id: str, topic: str, diffi
         await db.commit()
 
 
-async def insert_ingested_document(doc: dict) -> None:
+async def insert_ingested_document(doc: dict[str, Any]) -> None:
     """Persist file metadata after a successful ingest."""
     ingested_at = doc.get("ingested_at") or datetime.now(UTC).isoformat()
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
@@ -657,7 +658,7 @@ async def insert_ingested_document(doc: dict) -> None:
         await db.commit()
 
 
-async def list_session_files(session_id: str) -> list[dict]:
+async def list_session_files(session_id: str) -> list[dict[str, Any]]:
     """Return files for a session ordered by most recent first."""
     async with aiosqlite.connect(settings.sqlite_db_path) as db:
         db.row_factory = aiosqlite.Row
@@ -671,7 +672,7 @@ async def list_session_files(session_id: str) -> list[dict]:
         return [dict(row) for row in rows]
 
 
-async def get_session_profile(session_id: str) -> dict | None:
+async def get_session_profile(session_id: str) -> dict[str, Any] | None:
     """Return per-session progress aggregated from evaluations.
 
     Includes topic scores (all scores per topic within the session), weak topics
@@ -693,7 +694,8 @@ async def get_session_profile(session_id: str) -> dict | None:
             """,
             (session_id, session_id),
         )
-        exam_count = (await cursor.fetchone())["cnt"]
+        row = await cursor.fetchone()
+        exam_count = row["cnt"] if row else 0
 
         cursor = await db.execute(
             "SELECT AVG(score) as avg_score FROM evaluations WHERE session_id = ? AND score IS NOT NULL",
@@ -741,7 +743,7 @@ async def get_session_profile(session_id: str) -> dict | None:
 # ── Chat message history ─────────────────────────────────────────────────────
 
 
-async def save_chat_message(message: dict) -> None:
+async def save_chat_message(message: dict[str, Any]) -> None:
     """Persist a single chat message (user or assistant) for a session.
 
     ``message`` must contain: id, session_id, role, content.
@@ -779,7 +781,7 @@ async def get_chat_messages(
     session_id: str,
     limit: int = 10,
     before_id: str | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Return *limit* messages for *session_id*, ordered newest-first.
 
     Cursor-based pagination: when *before_id* is provided, returns messages

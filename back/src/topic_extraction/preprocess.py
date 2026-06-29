@@ -10,13 +10,14 @@ Lazy-loads NLTK data to avoid import-time downloads.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 logger = logging.getLogger("tutor.topic_extraction.preprocess")
 
 # ── Lazy-loaded singletons ────────────────────────────────────────────────────
 
 _stopwords: set[str] | None = None
-_stemmer: object | None = None
+_stemmer: Any | None = None
 
 
 def _ensure_nltk() -> None:

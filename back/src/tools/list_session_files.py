@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
 from langchain_core.tools import tool
 
 from src.memory import schema as _schema
 
 
 @tool
-async def list_session_files(session_id: str) -> dict:
+async def list_session_files(session_id: str) -> dict[str, Any]:
     """Return the list of files uploaded to the current session.
 
     Args:

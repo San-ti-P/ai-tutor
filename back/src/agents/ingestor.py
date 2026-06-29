@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import operator
 import uuid
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -42,7 +42,7 @@ class IngestorState(TypedDict):
 # ── Node implementations ────────────────────────────────────────────────────
 
 
-def parse_document(state: IngestorState) -> dict:
+def parse_document(state: IngestorState) -> dict[str, Any]:
     """Parse uploaded file using markitdown and extract raw text.
 
     Accepted: PDF, TXT.
@@ -102,7 +102,7 @@ def parse_document(state: IngestorState) -> dict:
         return {"errors": [f"Parse error: {e}"], "status": "error"}
 
 
-async def classify_document(state: IngestorState, config: RunnableConfig = None) -> dict:
+async def classify_document(state: IngestorState, config: RunnableConfig | None = None) -> dict[str, Any]:
     """Classify document type and detect topics using LLM.
 
     Runs the full-document topic extraction pipeline BEFORE the classification
@@ -173,7 +173,7 @@ async def classify_document(state: IngestorState, config: RunnableConfig = None)
                         try:
                             tree_data = json.loads(topic_tree)
 
-                            def update_tree_keys(d: dict, mapping: dict) -> dict:
+                            def update_tree_keys(d: dict[str, Any], mapping: dict[str, str]) -> dict[str, Any]:
                                 new_dict = {}
                                 for k, v in d.items():
                                     new_k = mapping.get(k, k)
@@ -261,7 +261,7 @@ Texto (vista previa):
 # ── Node implementation: chunk_and_embed ────────────────────────────────────
 
 
-def chunk_and_embed(state: IngestorState) -> dict:
+def chunk_and_embed(state: IngestorState) -> dict[str, Any]:
     """Split text into semantic chunks and store in ChromaDB with embeddings."""
     import time
 
@@ -341,7 +341,7 @@ def _route_after_parse(state: IngestorState) -> str:
     return "classify_document"
 
 
-def build_ingestor() -> StateGraph:
+def build_ingestor() -> StateGraph[IngestorState, Any, Any]:
     """Build and return the Ingestor LangGraph.
 
     Topology:

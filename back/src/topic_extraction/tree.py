@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from typing import Any
 
 from src.llm import get_llm
 from src.config import settings
@@ -22,7 +23,7 @@ logger = logging.getLogger("tutor.topic_extraction.tree")
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
 
 
-async def build_topic_tree(topics: list[str]) -> dict:
+async def build_topic_tree(topics: list[str]) -> dict[str, Any]:
     """Build a nested dict hierarchy from a flat topic list.
 
     Args:
@@ -37,7 +38,7 @@ async def build_topic_tree(topics: list[str]) -> dict:
 
     if len(topics) <= 5:
         # Deterministic: group by first word, each leaf is empty dict
-        tree: dict = {}
+        tree: dict[str, Any] = {}
         for topic in sorted(topics):
             parts = topic.split()
             first = parts[0]
@@ -77,7 +78,11 @@ async def build_topic_tree(topics: list[str]) -> dict:
         ]
 
         response = await llm.ainvoke(messages)
-        response_text: str = response.content if hasattr(response, "content") else str(response)
+        if hasattr(response, "content"):
+            content = response.content
+            response_text = content if isinstance(content, str) else str(content)
+        else:
+            response_text = str(response)
 
         match = _JSON_RE.search(response_text)
         if match:

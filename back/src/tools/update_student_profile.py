@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from langchain_core.tools import tool
 from langfuse import observe
 
@@ -11,9 +12,9 @@ from langfuse import observe
 async def update_student_profile(
     student_id: str,
     topic_scores: dict[str, float],
-    preferences: dict | None = None,
+    preferences: dict[str, Any] | None = None,
     session_id: str = "",
-) -> dict:
+) -> dict[str, Any]:
     """Upsert student preferences and per-topic scores into SQLite.
 
     Args:

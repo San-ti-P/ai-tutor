@@ -7,18 +7,19 @@ They delegate to the RAG module or agent graphs for execution.
 from __future__ import annotations
 
 import logging
+from typing import Any, cast
 
 from langchain_core.tools import tool
 from langfuse import observe, propagate_attributes
 
 from src.rag import retrieve as _rag_retrieve
-from src.tools.get_session_progress import get_session_progress  # noqa: F401
-from src.tools.get_student_summary import get_student_summary  # noqa: F401
-from src.tools.list_session_files import list_session_files  # noqa: F401
-from src.tools.orchestrate_chat import orchestrate_chat  # noqa: F401
-from src.tools.query_material import query_material  # noqa: F401
-from src.tools.update_student_profile import update_student_profile  # noqa: F401
-from src.tools.validate_claim_grounding import validate_claim_grounding  # noqa: F401
+from src.tools.get_session_progress import get_session_progress as get_session_progress
+from src.tools.get_student_summary import get_student_summary as get_student_summary
+from src.tools.list_session_files import list_session_files as list_session_files
+from src.tools.orchestrate_chat import orchestrate_chat as orchestrate_chat
+from src.tools.query_material import query_material as query_material
+from src.tools.update_student_profile import update_student_profile as update_student_profile
+from src.tools.validate_claim_grounding import validate_claim_grounding as validate_claim_grounding
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 _graph_cache: dict[str, object] = {}
 
 
-def _get_or_compile(name: str, builder_path: str):
+def _get_or_compile(name: str, builder_path: str) -> Any:
     """Return a compiled StateGraph, building on first call only."""
     if name not in _graph_cache:
         import importlib
@@ -44,7 +45,7 @@ def retrieve_chunks(
     top_k: int = 5,
     topic_filter: str | None = None,
     collection_name: str = "default",
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Retrieve top-K relevant chunks from ChromaDB for a given query.
 
     Args:
@@ -69,7 +70,7 @@ def retrieve_chunks(
 async def ingest_document(
     file_path: str,
     session_id: str,
-) -> dict:
+) -> dict[str, Any]:
     """Ingest a document: parse, classify, chunk, and embed into ChromaDB.
 
     This tool orchestrates the full ingestion pipeline. Called by the Ingestor
@@ -112,7 +113,7 @@ async def ingest_document(
     from src.observability import flush_traces, get_tracer
 
     tracer = get_tracer()
-    config: dict = {"recursion_limit": 100}
+    config: dict[str, Any] = {"recursion_limit": 100}
 
     try:
         # Per Langfuse docs: CallbackHandler created INSIDE propagate_attributes
@@ -143,7 +144,7 @@ async def ingest_document(
 async def extract_topics(
     text: str | None = None,
     file_path: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Extract hierarchical topics from academic content.
 
     Analyzes the provided text (or reads text from a file) and returns
@@ -218,8 +219,8 @@ def generate_exercise(
     topic: str,
     difficulty: str = "medium",
     exercise_type: str = "problem_solving",
-    student_profile: dict | None = None,
-) -> dict:
+    student_profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Generate a practical exercise with step-by-step model solution.
 
     Invokes the full ExerciseGenerator StateGraph: retrieves chunks from
@@ -270,7 +271,7 @@ def generate_exercise(
     from src.observability import flush_traces, get_tracer
 
     tracer = get_tracer()
-    config: dict = {"recursion_limit": 100}
+    config: dict[str, Any] = {"recursion_limit": 100}
 
     try:
         # Per Langfuse docs: CallbackHandler created INSIDE propagate_attributes
@@ -284,7 +285,7 @@ def generate_exercise(
     finally:
         flush_traces()
 
-    return result.get("exercise", {})
+    return cast(dict[str, Any], result.get("exercise", {}))
 
 
 @tool
@@ -292,9 +293,9 @@ def generate_exercise(
 def evaluate_answer(
     session_id: str,
     exam_id: str,
-    answers: list[dict],
+    answers: list[dict[str, Any]],
     student_id: str = "",
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Evaluate a batch of student answers and return structured results.
 
     Invokes the full Evaluator StateGraph: retrieves chunks, checks
@@ -324,6 +325,7 @@ def evaluate_answer(
         "session_id": session_id,
         "student_id": student_id,
         "exam_id": exam_id,
+        "collection_name": f"session_{session_id}",
         "trace_id": str(uuid.uuid4()),
         "answers": answers,
         "current_index": 0,
@@ -346,7 +348,7 @@ def evaluate_answer(
     from src.observability import flush_traces, get_tracer
 
     tracer = get_tracer()
-    config: dict = {"recursion_limit": 100}
+    config: dict[str, Any] = {"recursion_limit": 100}
 
     try:
         # Per Langfuse docs: CallbackHandler created INSIDE propagate_attributes
@@ -360,7 +362,7 @@ def evaluate_answer(
     finally:
         flush_traces()
 
-    return result.get("evaluation_results", [])
+    return cast(list[dict[str, Any]], result.get("evaluation_results", []))
 
 
 @tool
@@ -371,8 +373,8 @@ def generate_exam(
     difficulty: str = "medium",
     question_count: int = 5,
     mcq_ratio: float = 0.5,
-    student_profile: dict | None = None,
-) -> dict:
+    student_profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Generate a personalized exam with MCQs and open-answer questions.
 
     Invokes the full ExamGenerator StateGraph: retrieves chunks from ChromaDB,
@@ -423,7 +425,7 @@ def generate_exam(
     from src.observability import flush_traces, get_tracer
 
     tracer = get_tracer()
-    config: dict = {"recursion_limit": 100}
+    config: dict[str, Any] = {"recursion_limit": 100}
 
     try:
         # Per Langfuse docs: CallbackHandler created INSIDE propagate_attributes
@@ -437,4 +439,4 @@ def generate_exam(
     finally:
         flush_traces()
 
-    return result.get("exam", {})
+    return cast(dict[str, Any], result.get("exam", {}))

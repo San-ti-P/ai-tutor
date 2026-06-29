@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any, cast
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
@@ -76,7 +77,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _build_exam_from_raw(raw: dict, topic: str = "", difficulty: str = "medium") -> Exam:
+def _build_exam_from_raw(raw: dict[str, Any], topic: str = "", difficulty: str = "medium") -> Exam:
     """Normalize raw exam dict from generate_exam tool into the Exam schema."""
     questions = []
     for q in raw.get("questions", []):
@@ -95,8 +96,8 @@ def _build_exam_from_raw(raw: dict, topic: str = "", difficulty: str = "medium")
                 type=qtype,
                 prompt=q.get("prompt", ""),
                 options=q.get("options"),
-                baseAnswer=base_answer,
-                sourceChunkIds=q.get("sourceChunkIds", q.get("source_chunk_ids")),
+                base_answer=base_answer,
+                source_chunk_ids=q.get("sourceChunkIds", q.get("source_chunk_ids")),
                 topic=q.get("topic", ""),
                 difficulty=q.get("difficulty", "medium"),
             )
@@ -106,11 +107,15 @@ def _build_exam_from_raw(raw: dict, topic: str = "", difficulty: str = "medium")
     resolved_difficulty = difficulty or (
         questions[0].difficulty if questions else "medium"
     )
+    if resolved_difficulty not in ("easy", "medium", "hard"):
+        resolved_difficulty = "medium"
+    from src.api.schemas import DifficultyEnum
+    difficulty_enum = cast(DifficultyEnum, resolved_difficulty)
     return Exam(
         id=raw.get("exam_id", str(uuid.uuid4())),
         questions=questions,
         topic=resolved_topic,
-        difficulty=resolved_difficulty,
+        difficulty=difficulty_enum,
         status=raw.get("status", "complete"),
         warnings=raw.get("warnings", []),
         topic_not_found=raw.get("topic_not_found", []),
@@ -119,7 +124,7 @@ def _build_exam_from_raw(raw: dict, topic: str = "", difficulty: str = "medium")
     )
 
 
-def _build_exercise_from_raw(raw: dict) -> Exercise:
+def _build_exercise_from_raw(raw: dict[str, Any]) -> Exercise:
     """Normalize raw exercise dict from generate_exercise tool into the Exercise schema."""
     ms = raw.get("model_solution", {}) or {}
     steps = []
@@ -155,7 +160,7 @@ def _build_exercise_from_raw(raw: dict) -> Exercise:
 
 
 @router.get("/health")
-async def health() -> dict:
+async def health() -> dict[str, Any]:
     logger.info("Health check requested")
     return {"status": "ok", "version": "0.1.0", "trace_id": str(uuid.uuid4())}
 
@@ -298,8 +303,8 @@ async def get_session_endpoint(session_id: str) -> ApiResponse[Session]:
     return ApiResponse(data=Session(**detail), error=None, trace_id=str(uuid.uuid4()))
 
 
-@router.delete("/sessions/{session_id}", response_model=ApiResponse[dict])
-async def delete_session_endpoint(session_id: str) -> ApiResponse[dict]:
+@router.delete("/sessions/{session_id}", response_model=ApiResponse[dict[str, Any]])
+async def delete_session_endpoint(session_id: str) -> ApiResponse[dict[str, Any]]:
     """Delete a session and cascade its associated files."""
     logger.info("Deleting session %s", session_id)
     detail = await _get_session(session_id)
@@ -349,12 +354,12 @@ async def get_session_files(session_id: str) -> ApiResponse[list[SessionFile]]:
         files.append(
             SessionFile(
                 id=row["id"],
-                fileName=row["file_name"],
+                file_name=row["file_name"],
                 classification=row.get("classification", ""),
                 topics=topics,
-                topicTree=topic_tree,
-                chunksCount=row.get("chunks_count", 0),
-                ingestedAt=row["ingested_at"],
+                topic_tree=topic_tree,
+                chunks_count=row.get("chunks_count", 0),
+                ingested_at=row["ingested_at"],
             )
         )
     return ApiResponse(data=files, error=None, trace_id=str(uuid.uuid4()))
@@ -389,9 +394,9 @@ async def get_session_evaluations_endpoint(
     groups = await _get_session_evaluations(session_id)
     summaries = [
         ExamEvaluationSummary(
-            examId=g["exam_id"],
-            createdAt=g["created_at"],
-            averageScore=g.get("averageScore"),
+            exam_id=g["exam_id"],
+            created_at=g["created_at"],
+            average_score=g.get("averageScore"),
             results=[EvaluationResult(**r) for r in g["results"]],
         )
         for g in groups
@@ -434,11 +439,11 @@ async def get_session_messages_endpoint(
     messages = [
         ChatMessageRecord(
             id=row["id"],
-            sessionId=row["session_id"],
+            session_id=row["session_id"],
             role=row["role"],
             content=row["content"],
             metadata=json.loads(row.get("metadata_json") or "{}"),
-            createdAt=row["created_at"],
+            created_at=row["created_at"],
         )
         for row in rows
     ]
@@ -446,8 +451,8 @@ async def get_session_messages_endpoint(
     return ApiResponse(
         data=ChatHistoryResponse(
             messages=messages,
-            hasMore=has_more,
-            oldestId=oldest_id,
+            has_more=has_more,
+            oldest_id=oldest_id,
             total=total,
         ),
         error=None,
@@ -485,11 +490,11 @@ async def ingest(
             )
             results.append(
                 IngestResult(
-                    sessionId=effective_session_id,
+                    session_id=effective_session_id,
                     status="error",
                     classification="",
-                    topicsDetected=[],
-                    chunksCreated=0,
+                    topics_detected=[],
+                    chunks_created=0,
                 )
             )
             await file.close()
@@ -544,25 +549,25 @@ async def ingest(
 
             results.append(
                 IngestResult(
-                    sessionId=effective_session_id,
+                    session_id=effective_session_id,
                     status=result.get("status", "unknown"),
                     classification=result.get("classification", ""),
-                    topicsDetected=result.get("topics", []),
-                    topicTree=topic_tree,
-                    chunksCreated=result.get("chunks_created", 0),
-                    classificationConfidence=result.get("classification_confidence"),
-                    documentId=document_id,
+                    topics_detected=result.get("topics", []),
+                    topic_tree=topic_tree,
+                    chunks_created=result.get("chunks_created", 0),
+                    classification_confidence=result.get("classification_confidence"),
+                    document_id=document_id,
                 )
             )
         except Exception:
             logger.exception("Ingest failed for %s", file.filename)
             results.append(
                 IngestResult(
-                    sessionId=effective_session_id,
+                    session_id=effective_session_id,
                     status="error",
                     classification="",
-                    topicsDetected=[],
-                    chunksCreated=0,
+                    topics_detected=[],
+                    chunks_created=0,
                 )
             )
         finally:
@@ -650,12 +655,12 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
     from src.tools import evaluate_answer as _evaluate_tool
 
     # Build lookup map from exam_questions (if provided) for cross-referencing
-    question_map: dict[str, dict] = {}
+    question_map: dict[str, dict[str, Any]] = {}
     if request.exam_questions:
         for eq in request.exam_questions:
             # eq.type is QuestionTypeEnum. Value can be extracted via eq.type.value if it is an Enum,
             # or just as string. Let's make sure we handle both by getting it as a string or .value
-            q_type = eq.type.value if hasattr(eq.type, "value") else str(eq.type)
+            q_type = str(eq.type)
             question_map[eq.id] = {
                 "question": eq.prompt,
                 "base_answer": eq.base_answer or "",
@@ -667,8 +672,8 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
             }
 
     # Convert dict[str, str] answers to list[dict] format expected by evaluator
-    answers_list: list[dict] = []
-    answers_by_id: dict[str, dict] = {}
+    answers_list: list[dict[str, Any]] = []
+    answers_by_id: dict[str, dict[str, Any]] = {}
     for question_id, student_answer in request.answers.items():
         if question_id in question_map:
             qdata = question_map[question_id]
@@ -725,20 +730,20 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
 
         evaluation_results = [
             EvaluationResult(
-                questionId=r.get("question_id", ""),
+                question_id=r.get("question_id", ""),
                 score=r.get("score", 0.0),
                 justification=r.get("justification", ""),
-                conceptualErrors=r.get("conceptual_errors", []),
+                conceptual_errors=r.get("conceptual_errors", []),
                 suggestions=r.get("suggestions", []),
-                isEvaluable=r.get("is_evaluable", True),
-                nonEvaluableReason=r.get("non_evaluable_reason", ""),
-                requiresReview=r.get("requires_review", False),
-                judgeScore=r.get("judge_verdict", {}).get("score")
+                is_evaluable=r.get("is_evaluable", True),
+                non_evaluable_reason=r.get("non_evaluable_reason", ""),
+                requires_review=r.get("requires_review", False),
+                judge_score=r.get("judge_verdict", {}).get("score")
                 if isinstance(r.get("judge_verdict"), dict)
                 else None,
-                questionText=answers_by_id.get(r.get("question_id", ""), {}).get("question", ""),
-                userAnswer=answers_by_id.get(r.get("question_id", ""), {}).get("student_answer", ""),
-                sourceChunks=r.get("source_chunks", []),
+                question_text=answers_by_id.get(r.get("question_id", ""), {}).get("question", ""),
+                user_answer=answers_by_id.get(r.get("question_id", ""), {}).get("student_answer", ""),
+                source_chunks=r.get("source_chunks", []),
             )
             for r in results
         ]
@@ -750,10 +755,10 @@ async def evaluate(request: EvaluationRequest) -> ApiResponse[list[EvaluationRes
         return ApiResponse(
             data=[
                 EvaluationResult(
-                    questionId=q_id,
+                    question_id=q_id,
                     score=0.0,
                     justification=f"Evaluation error: {exc}",
-                    conceptualErrors=[],
+                    conceptual_errors=[],
                     suggestions=[],
                 )
                 for q_id in request.answers
@@ -782,20 +787,20 @@ async def get_profile(session_id: str) -> ApiResponse[StudentProfile]:
 
     prefs = result.get("preferences", {})
     exam_prefs = ExamPreferences(
-        questionTypes=prefs.get("question_types", ["mcq"]),
+        question_types=prefs.get("question_types", ["mcq"]),
         difficulty=prefs.get("difficulty", "medium"),
-        questionCount=prefs.get("question_count", 5),
-        includeTopics=prefs.get("include_topics", []),
-        excludeTopics=prefs.get("exclude_topics", []),
+        question_count=prefs.get("question_count", 5),
+        include_topics=prefs.get("include_topics", []),
+        exclude_topics=prefs.get("exclude_topics", []),
     )
 
     return ApiResponse(
         data=StudentProfile(
             id=result["id"],
-            topicScores=topic_scores_dict,
-            weakTopics=result.get("weak_topics", []),
+            topic_scores=topic_scores_dict,
+            weak_topics=result.get("weak_topics", []),
             preferences=exam_prefs,
-            sessionCount=result.get("session_count", 0),
+            session_count=result.get("session_count", 0),
         ),
         error=None,
         trace_id=str(uuid.uuid4()),
@@ -837,21 +842,21 @@ async def get_dashboard(student_id: str) -> ApiResponse[StudentProfile]:
     # Convert DB preferences dict to ExamPreferences
     prefs = profile.get("preferences", {})
     exam_prefs = ExamPreferences(
-        questionTypes=prefs.get("question_types", ["mcq"]),
+        question_types=prefs.get("question_types", ["mcq"]),
         difficulty=prefs.get("difficulty", "medium"),
-        questionCount=prefs.get("question_count", 5),
-        includeTopics=prefs.get("include_topics", []),
-        excludeTopics=prefs.get("exclude_topics", []),
+        question_count=prefs.get("question_count", 5),
+        include_topics=prefs.get("include_topics", []),
+        exclude_topics=prefs.get("exclude_topics", []),
     )
 
     return ApiResponse(
         data=StudentProfile(
             id=student_id,
-            topicScores=topic_scores_dict,
-            weakTopics=weak_topics,
+            topic_scores=topic_scores_dict,
+            weak_topics=weak_topics,
             preferences=exam_prefs,
-            sessionCount=profile.get("session_count", 0),
-            sessionHistory=enriched_sessions,
+            session_count=profile.get("session_count", 0),
+            session_history=enriched_sessions,
         ),
         error=None,
         trace_id=str(uuid.uuid4()),
@@ -909,7 +914,7 @@ async def update_preferences(
 
     from src.tools.update_student_profile import update_student_profile as _upsert_tool
 
-    prefs_dict: dict = {
+    prefs_dict: dict[str, Any] = {
         "question_types": preferences.question_types,
         "difficulty": preferences.difficulty,
         "question_count": preferences.question_count,
